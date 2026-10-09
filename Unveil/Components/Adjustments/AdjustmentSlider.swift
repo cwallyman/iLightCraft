@@ -11,6 +11,9 @@ import SwiftUI
 /// It knows nothing about the engine. The value comes in as a binding and the gesture edges go out
 /// through `onEditingChanged`, so the panel decides what a drag means (begin, drag, end).
 ///
+/// A double tap on the row (or the VoiceOver action "Ripristina") calls `onReset`, which the panel
+/// turns into a drag to the default value.
+///
 /// For VoiceOver the row is one element: the name and the value are read once, and a swipe up or
 /// down moves the value by one step through `onAccessibilityAdjust`. A VoiceOver adjustment never
 /// calls `onEditingChanged`, so it gets its own callback: the panel turns it into a complete edit.
@@ -20,6 +23,7 @@ struct AdjustmentSlider: View {
     let value                : Binding<Double>
     let onEditingChanged     : (Bool) -> Void
     let onAccessibilityAdjust: (Double) -> Void
+    let onReset              : () -> Void
 
     @Environment(\.isEnabled)
     private var isEnabled
@@ -50,6 +54,8 @@ struct AdjustmentSlider: View {
         .accessibilityLabel(title)
         .accessibilityValue(formattedValue)
         .accessibilityAdjustableAction { direction in adjust(direction) }
+        .accessibilityAction(named: "Ripristina") { if isEnabled { onReset() } }
+        .simultaneousGesture(TapGesture(count: 2).onEnded { if isEnabled { onReset() } })
     }
 
     /// adjust moves the value one step in the VoiceOver direction, clamped to the range. A disabled
@@ -77,16 +83,16 @@ struct AdjustmentSlider: View {
     /// title is the control's name as the panel shows it.
     private var title: String {
         switch kind {
-            case .exposure:    "Exposure"
-            case .contrast:    "Contrast"
-            case .highlights:  "Highlights"
-            case .shadows:     "Shadows"
-            case .whites:      "Whites"
-            case .blacks:      "Blacks"
-            case .temperature: "Temperature"
-            case .tint:        "Tint"
-            case .vibrance:    "Vibrance"
-            case .saturation:  "Saturation"
+            case .exposure:    "Esposizione"
+            case .contrast:    "Contrasto"
+            case .highlights:  "Luci"
+            case .shadows:     "Ombre"
+            case .whites:      "Bianchi"
+            case .blacks:      "Neri"
+            case .temperature: "Temperatura"
+            case .tint:        "Tinta"
+            case .vibrance:    "Vividezza"
+            case .saturation:  "Saturazione"
         }
     }
 

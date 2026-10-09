@@ -8,9 +8,9 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// EditorViewController is the editor screen: the Metal canvas fills the view, the SwiftUI
-/// adjustment panel sits on the trailing side, and the navigation bar carries "Open" and the
-/// diagnostics menu.
+/// EditorViewController is the editor screen: the Metal canvas fills the view and a transparent
+/// SwiftUI overlay (EditorOverlay) floats the empty state, the glass top bar and the adjustment
+/// panel over it. The navigation bar is hidden.
 ///
 /// The document picker delegate conformance lives in this primary declaration on purpose: the class
 /// is generic, and an extension of a generic class cannot add an Objective-C conformance.
@@ -20,8 +20,6 @@ import UniformTypeIdentifiers
 /// `dismissError()`.
 final class EditorViewController<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoImporting>: UIViewController,
     UIDocumentPickerDelegate {
-
-    private static var panelWidth: CGFloat { 320 }
 
     private let viewModel: EditorViewModel<Engine, Importer>
     private let engine   : Engine
@@ -49,11 +47,11 @@ final class EditorViewController<Engine: EngineDriving & EngineDiagnosing, Impor
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        view.backgroundColor = .black
+        view.backgroundColor = UIColor(white: 0.11, alpha: 1)
+        navigationController?.setNavigationBarHidden(true, animated: false)
 
         installCanvas()
-        installPanel()
-        installBarItems()
+        installOverlay()
     }
 
     override func updateProperties() {
@@ -101,30 +99,9 @@ final class EditorViewController<Engine: EngineDriving & EngineDiagnosing, Impor
         ])
     }
 
-    private func installPanel() {
-        let panel = UIHostingController(rootView: AdjustmentPanel(viewModel: viewModel))
-        panel.view.backgroundColor = .secondarySystemBackground
-        panel.view.translatesAutoresizingMaskIntoConstraints = false
-
-        addChild(panel)
-        view.addSubview(panel.view)
-
-        NSLayoutConstraint.activate([
-            panel.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            panel.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            panel.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            panel.view.widthAnchor.constraint(equalToConstant: Self.panelWidth),
-        ])
-
-        panel.didMove(toParent: self)
-    }
-
-    private func installBarItems() {
-        let open = UIBarButtonItem(
-            title         : "Open",
-            primaryAction : UIAction { [weak self] _ in self?.presentDocumentPicker() }
-        )
-
+    /// installOverlay hosts the floating UI (placeholder, top bar, panel) over the canvas. The hosting
+    /// view is transparent, so touches on empty areas fall through to the canvas.
+    private func installOverlay() {
         let diagnosticsMenu = DiagnosticsMenu.make(
             engine            : engine,
             isPhotoOpen       : { [viewModel] in viewModel.isPhotoOpen },
@@ -133,13 +110,27 @@ final class EditorViewController<Engine: EngineDriving & EngineDiagnosing, Impor
             startSoakTest     : { [weak self] in self?.startSoakTest() }
         )
 
-        let diagnostics = UIBarButtonItem(
-            title : "Diagnostics",
-            image : UIImage(systemName: "ladybug"),
-            menu  : diagnosticsMenu
+        let overlay = UIHostingController(
+            rootView: EditorOverlay(
+                viewModel       : viewModel,
+                diagnosticsMenu : diagnosticsMenu,
+                onOpen          : { [weak self] in self?.presentDocumentPicker() }
+            )
         )
+        overlay.view.backgroundColor = .clear
+        overlay.view.translatesAutoresizingMaskIntoConstraints = false
 
-        navigationItem.leftBarButtonItems = [open, diagnostics]
+        addChild(overlay)
+        view.addSubview(overlay.view)
+
+        NSLayoutConstraint.activate([
+            overlay.view.topAnchor.constraint(equalTo: view.topAnchor),
+            overlay.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            overlay.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            overlay.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
+
+        overlay.didMove(toParent: self)
     }
 
     /// startSoakTest runs the 10-minute StressSweep on the open photo. It does nothing with no photo
