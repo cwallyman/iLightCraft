@@ -68,9 +68,11 @@ struct SignpostsTests {
             "-UnveilSweep", "30",
             "-UnveilEngineDir", "fresh",
             "-UnveilExitAfterSweep",
+            "-UnveilPanel", "colore",
         ])
 
         #expect(options.openFileName == "DSCF0267.RAF")
+        #expect(options.openPanel == .color)
         #expect(options.delaySeconds == 8)
         #expect(options.sweepSeconds == 30)
         #expect(options.isFreshEngineDirectory)
@@ -86,6 +88,7 @@ struct SignpostsTests {
         #expect(options.sweepSeconds == nil)
         #expect(options.isFreshEngineDirectory == false)
         #expect(options.exitsAfterSweep == false)
+        #expect(options.openPanel == nil)
     }
 
     @Test

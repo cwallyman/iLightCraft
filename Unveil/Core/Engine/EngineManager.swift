@@ -198,7 +198,7 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
         }
     }
 
-    /// currentValues reads the active photo's controls with `develop.controls` and keeps the ten
+    /// currentValues reads the active photo's controls with `develop.controls` and keeps the ones
     /// the editor shows. The command lists every control with its id, which is also our raw value,
     /// so no mapping table is needed.
     func currentValues() async throws(EngineError) -> [DevelopAdjustmentKind: Double] {

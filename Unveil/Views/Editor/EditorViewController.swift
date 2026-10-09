@@ -9,23 +9,26 @@ import UIKit
 import UniformTypeIdentifiers
 
 /// EditorViewController is the editor screen: the Metal canvas fills the view and a transparent
-/// SwiftUI overlay (EditorOverlay) floats the empty state, the glass top bar and the adjustment
-/// panel over it. The navigation bar is hidden.
+/// SwiftUI overlay (EditorOverlay) floats the empty state, the glass bars and the adjustment
+/// panels over it. The navigation bar is hidden. Both sides share EditorChrome: the overlay opens
+/// panels from its toolbar, and a single tap on the canvas closes the open one.
 ///
 /// The document picker delegate conformance lives in this primary declaration on purpose: the class
 /// is generic, and an extension of a generic class cannot add an Objective-C conformance.
 ///
 /// Errors are shown from `updateProperties()`. UIKit tracks the `@Observable` reads made there, so a
 /// new `errorMessage` calls it again and the alert appears; its OK button clears the message through
-/// `dismissError()`.
+/// `dismissError()`. A new `openPhoto` comes through the same way and returns the canvas to fit.
 final class EditorViewController<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoImporting>: UIViewController,
     UIDocumentPickerDelegate {
 
     private let viewModel: EditorViewModel<Engine, Importer>
     private let engine   : Engine
     private let canvas   : CanvasView
+    private let chrome   = EditorChrome()
 
-    private var soakTest: StressSweep<Engine, Importer>?
+    private var soakTest  : StressSweep<Engine, Importer>?
+    private var shownPhoto: PhotoID?
 
     init(
         viewModel: EditorViewModel<Engine, Importer>,
@@ -52,10 +55,17 @@ final class EditorViewController<Engine: EngineDriving & EngineDiagnosing, Impor
 
         installCanvas()
         installOverlay()
+
+        canvas.onSingleTap = { [chrome] in chrome.close() }
     }
 
     override func updateProperties() {
         super.updateProperties()
+
+        if viewModel.openPhoto != shownPhoto {
+            shownPhoto = viewModel.openPhoto
+            canvas.resetZoom()
+        }
 
         guard let message = viewModel.errorMessage, presentedViewController == nil else { return }
 
@@ -74,6 +84,14 @@ final class EditorViewController<Engine: EngineDriving & EngineDiagnosing, Impor
         present(alert, animated: true)
     }
 
+    /// showPanel(_:) opens an adjustment panel as its toolbar segment would. Launch arguments use
+    /// it (`-UnveilPanel`), so a panel can be shown and captured with no tap.
+    func showPanel(_ group: AdjustmentGroup) {
+        if chrome.openGroup != group {
+            chrome.toggle(group)
+        }
+    }
+
     // MARK: - UIDocumentPickerDelegate
 
     func documentPicker(
@@ -88,19 +106,24 @@ final class EditorViewController<Engine: EngineDriving & EngineDiagnosing, Impor
     // MARK: - Layout
 
     private func installCanvas() {
-        canvas.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(canvas)
+        pin(canvas, to: view)
+    }
+
+    /// pin(_:to:) makes `subview` fill `container` edge to edge.
+    private func pin(_ subview: UIView, to container: UIView) {
+        subview.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
-            canvas.topAnchor.constraint(equalTo: view.topAnchor),
-            canvas.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            canvas.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            canvas.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            subview.topAnchor.constraint(equalTo: container.topAnchor),
+            subview.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            subview.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            subview.trailingAnchor.constraint(equalTo: container.trailingAnchor),
         ])
     }
 
-    /// installOverlay hosts the floating UI (placeholder, top bar, panel) over the canvas. The hosting
-    /// view is transparent, so touches on empty areas fall through to the canvas.
+    /// installOverlay hosts the floating UI (placeholder, glass bars, panel) over the canvas, inside
+    /// an OverlayPassthroughView so touches outside the controls fall through to the canvas.
     private func installOverlay() {
         let diagnosticsMenu = DiagnosticsMenu.make(
             engine            : engine,
@@ -113,22 +136,20 @@ final class EditorViewController<Engine: EngineDriving & EngineDiagnosing, Impor
         let overlay = UIHostingController(
             rootView: EditorOverlay(
                 viewModel       : viewModel,
+                chrome          : chrome,
                 diagnosticsMenu : diagnosticsMenu,
                 onOpen          : { [weak self] in self?.presentDocumentPicker() }
             )
         )
+        let passthrough = OverlayPassthroughView { [chrome] in Array(chrome.touchableFrames.values) }
         overlay.view.backgroundColor = .clear
-        overlay.view.translatesAutoresizingMaskIntoConstraints = false
 
         addChild(overlay)
-        view.addSubview(overlay.view)
+        passthrough.addSubview(overlay.view)
+        view.addSubview(passthrough)
 
-        NSLayoutConstraint.activate([
-            overlay.view.topAnchor.constraint(equalTo: view.topAnchor),
-            overlay.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            overlay.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            overlay.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-        ])
+        pin(passthrough, to: view)
+        pin(overlay.view, to: passthrough)
 
         overlay.didMove(toParent: self)
     }

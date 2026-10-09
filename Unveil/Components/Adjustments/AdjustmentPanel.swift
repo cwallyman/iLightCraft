@@ -5,8 +5,8 @@
 
 import SwiftUI
 
-/// AdjustmentPanel lists the ten develop sliders, grouped as Luce and Colore, and turns each slider gesture into the view
-/// model's begin, drag and end calls.
+/// AdjustmentPanel lists the sliders of one AdjustmentGroup and turns each slider gesture into the
+/// view model's begin, drag and end calls.
 ///
 /// The sliders stay disabled until a photo is open: there is nothing for the engine to apply them to.
 /// Drags start with `Task.immediate`, so each call runs its synchronous part (clamp, record, queue)
@@ -15,49 +15,23 @@ import SwiftUI
 struct AdjustmentPanel<Engine: EngineDriving, Importer: PhotoImporting>: View {
 
     let viewModel: EditorViewModel<Engine, Importer>
-
-    private static var lightKinds: [DevelopAdjustmentKind] {
-        [.exposure, .contrast, .highlights, .shadows, .whites, .blacks]
-    }
-
-    private static var colorKinds: [DevelopAdjustmentKind] {
-        [.temperature, .tint, .vibrance, .saturation]
-    }
+    let group    : AdjustmentGroup
 
     var body: some View {
-        ScrollView {
+        VStack(alignment: .leading, spacing: 12) {
 
-            VStack(alignment: .leading, spacing: 20) {
-
-                group("Luce", kinds: Self.lightKinds)
-
-                group("Colore", kinds: Self.colorKinds)
-            }
-            .padding(20)
-        }
-        .disabled(!viewModel.isPhotoOpen)
-    }
-
-    private func group(
-        _ title: String,
-        kinds  : [DevelopAdjustmentKind]
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-
-            Text(title)
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
-
-            ForEach(kinds, id: \.self) { kind in
+            ForEach(group.kinds, id: \.self) { kind in
                 AdjustmentSlider(
-                    kind                  : kind,
-                    value                 : binding(for: kind),
-                    onEditingChanged      : { editingChanged(kind, isEditing: $0) },
-                    onAccessibilityAdjust : { accessibilityAdjust(kind, to: $0) },
-                    onReset               : { accessibilityAdjust(kind, to: kind.defaultValue) }
+                    kind             : kind,
+                    value            : binding(for: kind),
+                    onEditingChanged : { editingChanged(kind, isEditing: $0) },
+                    onCommit         : { commit(kind, to: $0) }
                 )
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .disabled(!viewModel.isPhotoOpen)
     }
 
     /// binding reads the model's value for `kind` and sends every new slider value as a drag.
@@ -68,9 +42,9 @@ struct AdjustmentPanel<Engine: EngineDriving, Importer: PhotoImporting>: View {
         )
     }
 
-    /// accessibilityAdjust runs one VoiceOver step, or a double-tap reset, as a whole edit: set the value, then a full
-    /// preview. Each step is final, so it must not stop on a draft frame.
-    private func accessibilityAdjust(
+    /// commit runs one discrete change (a stepper press, a VoiceOver step, a reset) as a whole edit:
+    /// set the value, then a full preview. Each one is final, so it must not stop on a draft frame.
+    private func commit(
         _ kind     : DevelopAdjustmentKind,
         to newValue: Double
     ) {

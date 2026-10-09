@@ -79,7 +79,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         runMeasurement(
             options   : MeasurementLaunchOptions(arguments: ProcessInfo.processInfo.arguments),
             viewModel : viewModel,
-            engine    : engine
+            engine    : engine,
+            showPanel : { [weak editor] group in editor?.showPanel(group) }
         )
 
         return UINavigationController(rootViewController: editor)
@@ -128,7 +129,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     private func runMeasurement(
         options  : MeasurementLaunchOptions,
         viewModel: EditorViewModel<EngineManager, PhotoImporter>,
-        engine   : EngineManager
+        engine   : EngineManager,
+        showPanel: @escaping @MainActor (AdjustmentGroup) -> Void
     ) {
         guard let fileName = options.openFileName else { return }
 
@@ -150,6 +152,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             }
 
             print("measure: first full frame")
+
+            if let panel = options.openPanel {
+                showPanel(panel)
+            }
+
             guard let seconds = options.sweepSeconds else { return }
 
             let sweep = StressSweep(viewModel: viewModel, duration: seconds) { isComplete, _ in

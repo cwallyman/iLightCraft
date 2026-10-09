@@ -10,7 +10,13 @@ import Synchronization
 import UIKit
 
 /// CanvasView draws the newest ready frame of a FrameSink through its CAMetalLayer, with pinch to
-/// zoom, pan, and a double tap that returns to aspect fit.
+/// zoom (from a quarter of fit to 16x), pan with momentum and rubber-banded edges, and a double tap
+/// that toggles between fit and 100 % at the tap point. A single tap is handed to `onSingleTap`.
+///
+/// The gestures write the transform directly while the fingers are down; when they lift, a
+/// CanvasSpring carries it to where it should rest (see CanvasTransform.settled), with the flick's
+/// velocity as momentum. The spring runs on the same display link as the redraw, so the link stays
+/// awake only while something moves. ZoomIndicatorView shows the zoom while it changes.
 ///
 /// There is no polling. A CADisplayLink runs only while something is dirty: a new frame, a
 /// transform change or a new drawable size marks the view, the next tick draws once, and the link
@@ -49,6 +55,17 @@ final class CanvasView: UIView {
     private var isDirty       : Bool = false
     private var laidOutSize   : CGSize = .zero
     private var cachedTextures: InlineArray<2, CachedTexture?> = [nil, nil]
+
+    private let pinchRecognizer = UIPinchGestureRecognizer()
+    private let panRecognizer   = UIPanGestureRecognizer()
+    private let zoomIndicator   = ZoomIndicatorView()
+
+    private var spring           : CanvasSpring?
+    private var springStartTime  : CFTimeInterval = 0
+    private var lastFullFrameSize: CGSize = .zero
+
+    /// onSingleTap runs when the canvas is tapped once (the editor closes its panel with it).
+    var onSingleTap: (() -> Void)?
 
     /// canvasTransform is the gesture state (UIView already owns `transform`). Any real change to
     /// it asks for one redraw.
@@ -144,6 +161,7 @@ final class CanvasView: UIView {
         configureLayer(device: device)
         configureRenderPass()
         configureGestures()
+        configureZoomIndicator()
         configureAccessibility()
         listenForFrames()
     }
@@ -151,6 +169,13 @@ final class CanvasView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("CanvasView is built in code, not from a storyboard")
+    }
+
+    /// resetZoom returns to fit at once, for a newly opened photo: the old zoom and pan belonged to
+    /// the previous one.
+    func resetZoom() {
+        spring = nil
+        canvasTransform.reset()
     }
 
     /// setNeedsRedraw marks the canvas dirty: the next display link tick draws once, then the link
@@ -213,8 +238,10 @@ final class CanvasView: UIView {
     /// view again and gets its own draw instead of being lost.
     @objc
     private func displayLinkDidFire(_ link: CADisplayLink) {
+        advanceSpring(to: link.targetTimestamp)
+
         guard isDirty else {
-            link.isPaused = true
+            link.isPaused = spring == nil
             return
         }
 
@@ -232,7 +259,7 @@ final class CanvasView: UIView {
             crossThread.isCommandBufferInFlight.store(false, ordering: .releasing)
         }
 
-        link.isPaused = !isDirty
+        link.isPaused = !isDirty && spring == nil
     }
 
     /// encodeFrame clears the drawable and draws the sink's newest frame into it, returning false
@@ -262,6 +289,10 @@ final class CanvasView: UIView {
         guard let encoder else { return false }
 
         var sampledFrame: ReadyFrame? = nil
+
+        if let frame, !frame.isDraft {
+            lastFullFrameSize = CGSize(width: frame.width, height: frame.height)
+        }
 
         if let frame, let pipeline, let texture = texture(for: frame) {
             let quad = canvasTransform.quad(
@@ -358,28 +389,196 @@ final class CanvasView: UIView {
     /// handlePinch zooms around the fingers; resetting `scale` makes each call a relative step.
     @objc
     private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
-        guard recognizer.state == .began || recognizer.state == .changed else { return }
+        switch recognizer.state {
+            case .began, .changed:
+                spring = nil
+                canvasTransform.pinch(
+                    by       : Double(recognizer.scale),
+                    around   : recognizer.location(in: self),
+                    viewSize : bounds.size
+                )
+                recognizer.scale = 1
+                updateZoomIndicator()
 
-        canvasTransform.pinch(
-            by       : Double(recognizer.scale),
-            around   : recognizer.location(in: self),
-            viewSize : bounds.size
-        )
-        recognizer.scale = 1
+            case .ended, .cancelled, .failed:
+                settle(velocity: .zero)
+
+            default:
+                break
+        }
     }
 
-    /// handlePan moves the image; resetting the translation makes each call a relative step.
+    /// handlePan moves the image, rubber-banded past the edges; resetting the translation makes
+    /// each call a relative step. On release the flick's velocity becomes momentum.
     @objc
     private func handlePan(_ recognizer: UIPanGestureRecognizer) {
-        guard recognizer.state == .began || recognizer.state == .changed else { return }
+        switch recognizer.state {
+            case .began, .changed:
+                spring = nil
+                canvasTransform.pan(
+                    by        : recognizer.translation(in: self),
+                    viewSize  : bounds.size,
+                    imageSize : imageSize
+                )
+                recognizer.setTranslation(.zero, in: self)
 
-        canvasTransform.pan(by: recognizer.translation(in: self))
-        recognizer.setTranslation(.zero, in: self)
+            case .ended:
+                let velocity = recognizer.velocity(in: self)
+                settle(velocity: SIMD2<Double>(Double(velocity.x), Double(velocity.y)))
+
+            case .cancelled, .failed:
+                settle(velocity: .zero)
+
+            default:
+                break
+        }
+    }
+
+    /// handleDoubleTap toggles fit and 100 % around the tap (see CanvasTransform.toggledZoom).
+    /// With Reduce Motion the zoom jumps instead of animating.
+    @objc
+    private func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
+        let target = canvasTransform.toggledZoom(
+            at          : recognizer.location(in: self),
+            viewSize    : bounds.size,
+            imageSize   : imageSize,
+            screenScale : Double(contentScaleFactor)
+        )
+
+        if UIAccessibility.isReduceMotionEnabled {
+            spring          = nil
+            canvasTransform = target
+            updateZoomIndicator()
+        } else {
+            animate(to: target, velocity: .zero, frequency: CanvasSpring.snapFrequency)
+        }
     }
 
     @objc
-    private func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
-        canvasTransform.reset()
+    private func handleSingleTap(_ recognizer: UITapGestureRecognizer) {
+        onSingleTap?()
+    }
+
+    /// A finger landing on the canvas catches a gliding image, as in a scroll view.
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesBegan(touches, with: event)
+
+        spring = nil
+    }
+
+    /// A touch that ends without becoming a gesture still lets a caught image settle.
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesEnded(touches, with: event)
+
+        if spring == nil {
+            settle(velocity: .zero)
+        }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesCancelled(touches, with: event)
+
+        if spring == nil {
+            settle(velocity: .zero)
+        }
+    }
+
+    // MARK: - Motion
+
+    /// imageSize is the size of the photo on screen, in preview pixels: the last full frame's,
+    /// because drafts may be smaller, or the newest frame's before any full frame arrived.
+    private var imageSize: CGSize {
+        if lastFullFrameSize != .zero {
+            return lastFullFrameSize
+        }
+
+        guard let frame = frames.latest() else { return .zero }
+
+        return CGSize(width: frame.width, height: frame.height)
+    }
+
+    private var isGestureActive: Bool {
+        [pinchRecognizer.state, panRecognizer.state].contains { $0 == .began || $0 == .changed }
+    }
+
+    /// settle springs the transform to where it should rest once no finger moves it. A flick
+    /// (above 60 pt/s) glides with momentum toward its projected point, clamped to the edges;
+    /// anything else, or a change of zoom (a release below fit), snaps back quickly.
+    private func settle(velocity: SIMD2<Double>) {
+        guard !isGestureActive else { return }
+
+        let isFlick = (velocity * velocity).sum() > 60 * 60
+        var target  = canvasTransform
+
+        if isFlick {
+            target.offset += velocity * CanvasSpring.momentumProjection
+        }
+
+        target = target.settled(viewSize: bounds.size, imageSize: imageSize)
+
+        guard target != canvasTransform else { return }
+
+        let isMomentum = isFlick && target.zoom == canvasTransform.zoom
+
+        animate(
+            to        : target,
+            velocity  : isMomentum ? velocity : .zero,
+            frequency : isMomentum ? CanvasSpring.momentumFrequency : CanvasSpring.snapFrequency
+        )
+    }
+
+    private func animate(
+        to target: CanvasTransform,
+        velocity : SIMD2<Double>,
+        frequency: Double
+    ) {
+        spring = CanvasSpring(
+            from           : canvasTransform,
+            to             : target,
+            offsetVelocity : velocity,
+            frequency      : frequency
+        )
+        springStartTime = CACurrentMediaTime()
+        displayLink?.isPaused = false
+    }
+
+    /// advanceSpring moves the transform to where the running spring is at `time`, and ends the
+    /// spring once it has settled. A spring that changes the zoom keeps the indicator up.
+    private func advanceSpring(to time: CFTimeInterval) {
+        guard let spring else { return }
+
+        let elapsed = time - springStartTime
+        canvasTransform = spring.transform(at: elapsed)
+
+        if spring.isSettled(at: elapsed) {
+            self.spring = nil
+        }
+
+        if spring.start.zoom != spring.target.zoom {
+            updateZoomIndicator()
+        }
+    }
+
+
+    /// updateZoomIndicator shows the zoom as the user reads it ("Adatta" at fit, else the
+    /// percentage of 100 %) and gives VoiceOver the same text as the canvas's value.
+    private func updateZoomIndicator() {
+        let text: String
+
+        if canvasTransform.isFit {
+            text = String(localized: "Adatta")
+        } else if let ratio = canvasTransform.screenPixelsPerImagePixel(
+            viewSize    : bounds.size,
+            imageSize   : imageSize,
+            screenScale : Double(contentScaleFactor)
+        ) {
+            text = "\(Int((ratio * 100).rounded())) %"
+        } else {
+            return
+        }
+
+        zoomIndicator.show(text)
+        accessibilityValue = text
     }
 
     // MARK: - Setup
@@ -403,17 +602,32 @@ final class CanvasView: UIView {
     }
 
     private func configureGestures() {
-        let pinch     = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
-        let pan       = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+        let singleTap = UITapGestureRecognizer(target: self, action: #selector(handleSingleTap(_:)))
+
+        pinchRecognizer.addTarget(self, action: #selector(handlePinch(_:)))
+        panRecognizer.addTarget(self, action: #selector(handlePan(_:)))
 
         doubleTap.numberOfTapsRequired = 2
-        pinch.delegate                 = self
-        pan.delegate                   = self
+        pinchRecognizer.delegate       = self
+        panRecognizer.delegate         = self
+        singleTap.require(toFail: doubleTap)
 
-        addGestureRecognizer(pinch)
-        addGestureRecognizer(pan)
+        addGestureRecognizer(pinchRecognizer)
+        addGestureRecognizer(panRecognizer)
         addGestureRecognizer(doubleTap)
+        addGestureRecognizer(singleTap)
+    }
+
+    /// configureZoomIndicator floats the zoom capsule at the bottom center, clear of the toolbars.
+    private func configureZoomIndicator() {
+        zoomIndicator.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(zoomIndicator)
+
+        NSLayoutConstraint.activate([
+            zoomIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
+            zoomIndicator.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -24),
+        ])
     }
 
     private func configureAccessibility() {

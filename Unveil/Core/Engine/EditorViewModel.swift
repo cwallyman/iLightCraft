@@ -7,7 +7,7 @@ import Foundation
 import Observation
 import os
 
-/// EditorViewModel is the state of the editor: which photo is open, the ten slider values and the
+/// EditorViewModel is the state of the editor: which photo is open, the slider values and the
 /// last error to show. The view reads it, and it drives the engine through `EngineDriving`.
 ///
 /// Every engine call goes through one chain, `pending`: each step awaits the one before it. That is
