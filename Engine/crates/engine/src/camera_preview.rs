@@ -1,3 +1,4 @@
+// Modified by the Unveil authors, 2026: fit_tone draws no plateau for a pooled block; see Engine/CHANGES.md.
 //! Estimate the starting look of a raw without a camera colour matrix (Sony ARW, Nikon NEF, Panasonic
 //! RW2, Fujifilm RAF, Canon CR3) from its own JPEG. Colour and luminance are fitted separately; the JPEG supplies correspondences only,
 //! never output pixels or a replacement for RAW editing.
@@ -686,6 +687,12 @@ fn median(values: &mut [f64]) -> Option<f64> {
     values.get(values.len() / 2).copied()
 }
 
+/// fit_tone fits the camera's tone curve to (scene, JPEG) luminance pairs: 32 knots at the medians of equal-count
+/// bins, made monotone by pooling adjacent violators. The curve must rise wherever the data does: a run of knots
+/// sharing one value is a plateau, and on an X-T4 file one maps scene luminance 0.014 to 0.020 (dark foliage) to a
+/// single display value, flat patches with hard edges. So each pooled block becomes one point at its mean input,
+/// every knot takes its value on the line through those points, and two chord-smoothing passes even out the noisy
+/// slopes of the medians. Both steps keep the curve non-decreasing, and strictly increasing between distinct values.
 fn fit_tone(mut pairs: Vec<(f64, f64)>) -> Option<CameraTone> {
     if pairs.len() < 128 || !pairs.iter().all(|(x, y)| x.is_finite() && *x > 0.0 && y.is_finite()) {
         return None;
@@ -715,12 +722,30 @@ fn fit_tone(mut pairs: Vec<(f64, f64)>) -> Option<CameraTone> {
             blocks.push(((a * an as f32 + b * bn as f32) / (an + bn) as f32, an + bn));
         }
     }
+    // A pooled block becomes one point at its knots' mean input; giving each of its knots the pooled value instead
+    // drew a flat segment, a plateau that posterized every pixel in its range.
+    let mut points = vec![[0.0f32; 2]];
     let mut i = 0;
     for (y, n) in blocks {
-        for knot in knots.get_mut(i..i + n)? {
-            knot[1] = y;
-        }
+        let block = knots.get(i..i + n)?;
+        points.push([block.iter().map(|k| k[0]).sum::<f32>() / n as f32, y]);
         i += n;
+    }
+    for knot in &mut knots {
+        // the line through the points, from the origin as `CameraTone::apply` starts, extended past the last one
+        let j = points.iter().position(|p| p[0] >= knot[0]).unwrap_or(points.len() - 1).max(1);
+        let ([x0, y0], [x1, y1]) = (points[j - 1], points[j]);
+        knot[1] = (y0 + (knot[0] - x0) * (y1 - y0) / (x1 - x0)).min(0.999);
+    }
+    // Two passes move each knot halfway to the chord of its neighbours: [1, 2, 1] / 4 at even spacing, straight
+    // lines and the order of the values are kept, and the slope jumps of noisy medians even out.
+    for _ in 0..2 {
+        let before = knots;
+        for i in 0..31 {
+            let [xa, ya] = if i == 0 { [0.0, 0.0] } else { before[i - 1] };
+            let ([x, y], [xb, yb]) = (before[i], before[i + 1]);
+            knots[i][1] = 0.5 * (y + ya + (x - xa) * (yb - ya) / (xb - xa));
+        }
     }
     CameraTone::new(knots)
 }
@@ -728,6 +753,28 @@ fn fit_tone(mut pairs: Vec<(f64, f64)>) -> Option<CameraTone> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pooled_tie_leaves_no_flat_run_in_the_tone_curve() {
+        // y = 1.5 x, except a dip in the twelfth bin (pairs 88..96) that pooling must tie with the eleventh
+        let pairs: Vec<(f64, f64)> = (0..256)
+            .map(|i| {
+                let x = 0.01 + i as f64 * 0.002;
+                (x, if (88..96).contains(&i) { 1.5 * x - 0.05 } else { 1.5 * x })
+            })
+            .collect();
+        let curve = fit_tone(pairs).unwrap();
+        let mut previous = 0.0;
+        for i in 1..=500 {
+            let y = curve.apply(i as f32 * 0.001);
+            assert!(y > previous, "flat or falling at scene {:.3}: {y} after {previous}", i as f32 * 0.001);
+            previous = y;
+        }
+        // away from the dip the fitted line is kept
+        for x in [0.05f32, 0.3, 0.45] {
+            assert!((curve.apply(x) - 1.5 * x).abs() < 0.01 * x, "scene {x}: {}", curve.apply(x));
+        }
+    }
 
     #[test]
     fn linear_arw_gets_a_sensor_proxy_without_demosaicing() {

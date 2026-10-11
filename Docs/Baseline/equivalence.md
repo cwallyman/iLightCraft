@@ -35,3 +35,6 @@ Result: every pair has mean and p99 ΔE 0.0000; the maximum single-pixel ΔE is 
 | iPhone12Pro_IMG_1361 | tones | 1536x2048 | 0.0000 | 0.0000 | 1.0708 | PASS |
 
 25 of 25 pairs pass (mean <= 0.5, p99 <= 2).
+
+The goldens were regenerated after the camera tone fix (2026-10-11): Mac and iPad still match 25 of 25 with mean
+ΔE 0.0000. See `camera-tone.md` for the look change against these v0 renders.
