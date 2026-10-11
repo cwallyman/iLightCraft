@@ -560,19 +560,19 @@ final class CanvasView: UIView {
     }
 
 
-    /// updateZoomIndicator shows the zoom as the user reads it ("Adatta" at fit, else the
-    /// percentage of 100 %) and gives VoiceOver the same text as the canvas's value.
+    /// updateZoomIndicator shows "Fit" or the zoom percentage and gives VoiceOver the same
+    /// text as the canvas's value.
     private func updateZoomIndicator() {
         let text: String
 
         if canvasTransform.isFit {
-            text = String(localized: "Adatta")
+            text = String(localized: "Fit")
         } else if let ratio = canvasTransform.screenPixelsPerImagePixel(
             viewSize    : bounds.size,
             imageSize   : imageSize,
             screenScale : Double(contentScaleFactor)
         ) {
-            text = "\(Int((ratio * 100).rounded())) %"
+            text = "\(Int((ratio * 100).rounded()))%"
         } else {
             return
         }

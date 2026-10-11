@@ -5,7 +5,7 @@
 
 import UIKit
 
-/// ZoomIndicatorView is the small glass capsule that tells the zoom ("Adatta", "100 %", "250 %")
+/// ZoomIndicatorView is the small glass capsule that shows the zoom ("Fit", "100%", "250%")
 /// while the canvas zooms, then fades out on its own.
 ///
 /// It never takes touches and VoiceOver skips it: the canvas speaks the zoom as its own value.

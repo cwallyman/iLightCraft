@@ -2,7 +2,7 @@
 
 Code style conventions for **Unveil**. Goal: **protocol-oriented, explicit, type-safe** code that reads well, with a clear seam between the *style* rules (which never bend) and the *performance* rules (which let us reach for the unsafe, low-level tools where the pixel path demands it).
 
-Unveil is an **iPad RAW editor**: **UIKit** for the app shell, the editor and its canvas, **SwiftUI** for panels and leaf components only, and a **Rust engine** in `Engine/` (the vendored LightCraft workspace plus the `Engine/ffi` bridge) that does the decoding and the pixel work. The deployment floor is **iPadOS 26**. The engine bridge is designed as if it were a library: clean contracts, no leaking internals.
+Unveil is an **iPad RAW editor**: **SwiftUI** for the editor shell, navigation, panels and presentations, **UIKit/Metal** for the canvas, input and system adapters, and a **Rust engine** in `Engine/` (the vendored LightCraft workspace plus the `Engine/ffi` bridge) that does the decoding and the pixel work. The deployment floor is **iPadOS 26**. The engine bridge is designed as if it were a library: clean contracts, no leaking internals.
 
 ## Principles
 
@@ -185,10 +185,12 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     // init, open(pickedURL:) and the drag methods are elided here.
 }
 
-// The UIKit editor owns its model as a plain `let`: no wrapper, no re-wrapping.
-final class EditorViewController<Engine: EngineDriving, Importer: PhotoImporting>: UIViewController {
+// A SwiftUI leaf reads its injected model directly. Use @Bindable only when it needs bindings.
+struct AdjustmentPanel<Engine: EngineDriving, Importer: PhotoImporting>: View {
 
-    private let viewModel: EditorViewModel<Engine, Importer>
+    let viewModel: EditorViewModel<Engine, Importer>
+
+    // The view body is elided here.
 }
 ```
 
@@ -243,7 +245,7 @@ Each target is laid out by layer, not by feature. Inside a layer, an area gets i
 Unveil/
 ├─ Unveil.xcodeproj
 ├─ Unveil/
-│  ├─ App/           AppDelegate, SceneDelegate, service composition
+│  ├─ App/           UnveilApp, AppDelegate adapter, EditorWorkspace, launch commands
 │  ├─ Core/          Engine/ Memory/ Lifecycle/ Import/ Diagnostics/
 │  │  ├─ Protocols/  one protocol per file
 │  │  ├─ Errors/     one Error type per file
@@ -327,7 +329,7 @@ VStack(spacing: 8) {
 
 ## Unveil additions
 
-- **UIKit, not AppKit.** SwiftUI only for panels and leaf components. On iPadOS 26, `InlineArray` and `Span` need no version checks.
+- **SwiftUI for editor UI; UIKit/Metal for native boundaries.** Keep canvas identity stable across view updates. Do not route frame buffers or display-link ticks through observation. On iPadOS 26, `InlineArray` and `Span` need no version checks.
 - **`//` comments are at most 2 lines.** If more is needed, it goes in a `///` on the symbol. `///` stays narrative, in English, antirez style.
 - **Static protocol orientation.** Use constrained generics and `some`, not `any` existentials. `any` only where a heterogeneous type is truly needed, with a comment that justifies it. In Rust: generics and `impl Trait`, no `dyn` on the hot path.
 - **Stack first, then heap.** Values, `InlineArray` and `Span` / `MutableSpan` / `RawSpan` reach buffers without copies or ARC. The heap is used only for a measured gain or when unavoidable. Pixel buffers live in memory allocated once and reused, never allocated per frame.

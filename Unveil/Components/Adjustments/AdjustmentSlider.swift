@@ -13,7 +13,7 @@ import SwiftUI
 /// reset) goes out through `onCommit` as a whole edit, so the panel decides what each one means.
 ///
 /// The stepper repeats while held (`buttonRepeatBehavior`), each repeat being one more step. A
-/// double tap on the name or on the slider (or the VoiceOver action "Ripristina") resets the
+/// double tap on the name or on the slider (or the VoiceOver action "Reset") resets the
 /// value to the kind's default.
 ///
 /// Haptics: a selection tick when a drag crosses or lands on the default and at every stepper
@@ -85,7 +85,7 @@ struct AdjustmentSlider: View {
         .accessibilityLabel(Self.title(of: kind))
         .accessibilityValue(formattedValue)
         .accessibilityAdjustableAction { direction in adjust(direction) }
-        .accessibilityAction(named: "Ripristina", reset)
+        .accessibilityAction(named: "Reset", reset)
     }
 
     // MARK: - Stepper
@@ -186,27 +186,27 @@ struct AdjustmentSlider: View {
         }
     }
 
-    /// title(of:) is the control's Italian name as the panel shows it.
+    /// title(of:) is the control's name in the panel and in VoiceOver.
     private static func title(of kind: DevelopAdjustmentKind) -> String {
         switch kind {
-            case .exposure:       "Esposizione"
-            case .contrast:       "Contrasto"
-            case .highlights:     "Luci"
-            case .shadows:        "Ombre"
-            case .whites:         "Bianchi"
-            case .blacks:         "Neri"
-            case .temperature:    "Temperatura"
-            case .tint:           "Tinta"
-            case .vibrance:       "Vividezza"
-            case .saturation:     "Saturazione"
+            case .exposure:       "Exposure"
+            case .contrast:       "Contrast"
+            case .highlights:     "Highlights"
+            case .shadows:        "Shadows"
+            case .whites:         "Whites"
+            case .blacks:         "Blacks"
+            case .temperature:    "Temperature"
+            case .tint:           "Tint"
+            case .vibrance:       "Vibrance"
+            case .saturation:     "Saturation"
             case .texture:        "Texture"
-            case .clarity:        "Chiarezza"
-            case .dehaze:         "Foschia"
-            case .sharpening:     "Nitidezza"
-            case .noiseReduction: "Riduzione rumore"
-            case .colorNoise:     "Rumore colore"
-            case .vignette:       "Vignettatura"
-            case .grain:          "Grana"
+            case .clarity:        "Clarity"
+            case .dehaze:         "Dehaze"
+            case .sharpening:     "Sharpening"
+            case .noiseReduction: "Noise Reduction"
+            case .colorNoise:     "Color Noise Reduction"
+            case .vignette:       "Vignette"
+            case .grain:          "Grain"
         }
     }
 }

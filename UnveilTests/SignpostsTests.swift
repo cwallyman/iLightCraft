@@ -68,7 +68,7 @@ struct SignpostsTests {
             "-UnveilSweep", "30",
             "-UnveilEngineDir", "fresh",
             "-UnveilExitAfterSweep",
-            "-UnveilPanel", "colore",
+            "-UnveilPanel", "color",
         ])
 
         #expect(options.openFileName == "DSCF0267.RAF")

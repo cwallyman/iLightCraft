@@ -3,10 +3,8 @@
 //  Unveil
 //
 
-/// AdjustmentGroup is one panel of the editor's toolbar: a named set of develop controls.
-///
-/// The order of the cases is the order of the segments, left to right, and the toolbar uses it to
-/// pick the direction a panel slides in when the user switches from one group to another.
+/// AdjustmentGroup names the sets of develop controls shown in the inspector.
+/// Case order determines the order of the group picker.
 nonisolated enum AdjustmentGroup: Int, CaseIterable, Identifiable, Sendable {
 
     case light
@@ -17,14 +15,14 @@ nonisolated enum AdjustmentGroup: Int, CaseIterable, Identifiable, Sendable {
 
     var id: Int { rawValue }
 
-    /// title is the segment label, in Italian like the rest of the editor.
+    /// title is the name shown in the group picker and the section heading.
     var title: String {
         switch self {
-            case .light:    "Luce"
-            case .color:    "Colore"
-            case .presence: "Presenza"
-            case .detail:   "Dettaglio"
-            case .effects:  "Effetti"
+            case .light:    "Light"
+            case .color:    "Color"
+            case .presence: "Presence"
+            case .detail:   "Detail"
+            case .effects:  "Effects"
         }
     }
 

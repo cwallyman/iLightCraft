@@ -235,10 +235,10 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     private static func message(for error: PhotoImportError) -> String {
         switch error {
             case .accessDenied(let url):
-                return "The app may not read \(url.lastPathComponent)."
+                return "Cannot read \(url.lastPathComponent)."
 
             case .copyFailed(let text):
-                return "The file could not be copied: \(text)"
+                return "Could not copy the file: \(text)"
         }
     }
 }

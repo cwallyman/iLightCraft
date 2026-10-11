@@ -11,8 +11,8 @@
 /// - `-UnveilSweep <s>`: after the first full frame, run StressSweep for that many seconds;
 /// - `-UnveilEngineDir fresh`: open the engine on a new, empty library, so the open is cold;
 /// - `-UnveilExitAfterSweep`: end the process when the sweep ends (0 if it ran its full time);
-/// - `-UnveilPanel <name>`: after the first full frame, open that adjustment panel ("Luce",
-///   "Colore"...: the segment title, any case), so a screenshot of a panel needs no tap.
+/// - `-UnveilPanel <name>`: after the first full frame, open that adjustment panel ("Light",
+///   "Color"...: the group title, any case), so a screenshot of a panel needs no tap.
 ///
 /// They are parsed by hand, not through UserDefaults, because the last one is a flag with no value.
 /// A number that does not parse, or is negative, or not finite, counts as absent.

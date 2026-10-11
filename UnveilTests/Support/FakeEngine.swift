@@ -12,7 +12,7 @@ import Synchronization
 ///
 /// All recorded state lives in one `Mutex<State>`; the test-facing properties are computed over
 /// it, because a settable stored property is illegal in a Sendable class.
-final class FakeEngine: EngineDriving {
+final class FakeEngine: EngineDriving, EngineDiagnosing {
 
     private struct State {
         var budgets         : [UInt64] = []
@@ -21,6 +21,7 @@ final class FakeEngine: EngineDriving {
         var calls           : [String] = []
         var failNextOpen    : EngineError?
         var failNextValues  : EngineError?
+        var failNextSet     : EngineError?
         var openedPhotos    : UInt64   = 0
         var storedValues    : [DevelopAdjustmentKind: Double] = [:]
     }
@@ -46,6 +47,12 @@ final class FakeEngine: EngineDriving {
     var failNextValues: EngineError? {
         get { state.withLock { $0.failNextValues } }
         set { state.withLock { $0.failNextValues = newValue } }
+    }
+
+    /// failNextSet makes one slider operation fail so presentation tests can exercise its alert.
+    var failNextSet: EngineError? {
+        get { state.withLock { $0.failNextSet } }
+        set { state.withLock { $0.failNextSet = newValue } }
     }
 
     /// The values currentValues reports on top of the kind defaults, like a photo reopened with saved settings.
@@ -98,7 +105,17 @@ final class FakeEngine: EngineDriving {
     /// Yields once after recording, like a real `set` that is still queued when the caller moves on:
     /// a view model that does not chain its calls shows up as a reordered `calls`.
     func set(_ adjustment: DevelopAdjustmentKind, to value: Double) async throws(EngineError) {
-        state.withLock { $0.calls.append("set \(adjustment.rawValue) \(value)") }
+        let failure = state.withLock {
+            $0.calls.append("set \(adjustment.rawValue) \(value)")
+            let failure = $0.failNextSet
+            $0.failNextSet = nil
+            return failure
+        }
+
+        if let failure {
+            throw failure
+        }
+
         await Task.yield()
     }
 
@@ -120,5 +137,12 @@ final class FakeEngine: EngineDriving {
 
     func setMemoryBudget(bytes: UInt64) {
         state.withLock { $0.budgets.append(bytes) }
+    }
+
+    func diagnostic(
+        _ command: String,
+        params   : some Encodable & Sendable
+    ) async throws(EngineError) -> String {
+        throw .unknownCommand(command)
     }
 }
