@@ -424,4 +424,165 @@ struct EditorViewModelTests {
 
         #expect(engine.calls.isEmpty)
     }
+
+    // MARK: - Stepper bursts
+
+    /// A held stepper repeats its press: every press sends a draft, and exactly one full preview
+    /// (the burst's commit) follows once the presses stop, then the edited flag is read.
+    @Test
+    func aStepperBurstSendsDraftsThenExactlyOneFullPreview() async throws {
+        let engine = FakeEngine()
+        let model  = EditorViewModel(
+            engine           : engine,
+            importer         : FakeImporter(),
+            previewPixels    : 1024,
+            nudgeSettleDelay : .milliseconds(150)
+        )
+        await model.open(pickedURL: URL(filePath: "/tmp/x.JPG"))
+        let afterOpen = engine.calls.count
+        let reads     = engine.editedReads
+
+        for _ in 1 ... 5 {
+            await model.nudge(.exposure, by: 0.01)
+        }
+
+        let burst = Array(engine.calls.dropFirst(afterOpen))
+        #expect(model.values[.exposure] == 0.05)
+        #expect(burst.contains("set light.exposure 0.05"))
+        #expect(burst.allSatisfy { $0.hasPrefix("set ") || $0 == "preview 1024 draft" })
+
+        try await waitUntil(seconds: 3) { engine.calls.last == "preview 1024 full" }
+        try await Task.sleep(for: .milliseconds(400))
+
+        let fulls = engine.calls.dropFirst(afterOpen).filter { $0 == "preview 1024 full" }
+        #expect(fulls.count == 1)
+        #expect(engine.calls.last == "preview 1024 full")
+        #expect(engine.editedReads == reads + 1)
+    }
+
+    /// A press on another control, or a slider drag, commits the burst in progress first, so the
+    /// two edits stay apart and each ends with its own full preview.
+    @Test
+    func anotherControlOrADragCommitsTheBurstFirst() async throws {
+        let engine = FakeEngine()
+        let model  = EditorViewModel(
+            engine           : engine,
+            importer         : FakeImporter(),
+            previewPixels    : 1024,
+            nudgeSettleDelay : .seconds(10)
+        )
+
+        await model.nudge(.contrast, by: 1)
+        await model.nudge(.clarity, by: -1)
+
+        #expect(engine.calls == [
+            "set light.contrast 1.0", "preview 1024 draft",
+            "preview 1024 full",
+            "set effects.clarity -1.0", "preview 1024 draft"
+        ])
+
+        model.beginDrag(.exposure)
+        await model.drag(.exposure, to: 0.5)
+        await model.endDrag(.exposure)
+
+        #expect(Array(engine.calls.suffix(4)) == [
+            "preview 1024 full",
+            "set light.exposure 0.5", "preview 1024 draft",
+            "preview 1024 full"
+        ])
+    }
+
+    @Test
+    func aStepperPressSnapsToTheStepAndStopsAtTheRange() async {
+        let engine = FakeEngine()
+        let model  = EditorViewModel(
+            engine           : engine,
+            importer         : FakeImporter(),
+            previewPixels    : 1024,
+            nudgeSettleDelay : .seconds(10)
+        )
+
+        await model.drag(.exposure, to: 4.995)
+        await model.nudge(.exposure, by: 0.01)
+        await model.nudge(.exposure, by: 0.01)
+
+        #expect(model.values[.exposure] == 5)
+    }
+
+    /// Reset All commits a waiting burst first: the burst ends with its own full preview before
+    /// the reset reaches the engine, and its timer adds nothing afterwards.
+    @Test
+    func resetAllCommitsAWaitingBurstFirst() async throws {
+        let engine = FakeEngine()
+        let model  = EditorViewModel(
+            engine           : engine,
+            importer         : FakeImporter(),
+            previewPixels    : 1024,
+            nudgeSettleDelay : .milliseconds(150)
+        )
+        engine.edited = true
+        await model.open(pickedURL: URL(filePath: "/tmp/x.JPG"))
+        let before = engine.calls.count
+
+        await model.nudge(.exposure, by: 0.01)
+        await model.resetAll()
+        try await Task.sleep(for: .milliseconds(400))
+
+        #expect(Array(engine.calls[before...]) == [
+            "set light.exposure 0.01", "preview 1024 draft",
+            "preview 1024 full",
+            "reset 1", "preview 1024 full"
+        ])
+    }
+
+    /// A white balance reset commits a waiting burst first, as Reset All does.
+    @Test
+    func aWhiteBalanceResetCommitsAWaitingBurstFirst() async throws {
+        let engine = FakeEngine()
+        let model  = EditorViewModel(
+            engine           : engine,
+            importer         : FakeImporter(),
+            previewPixels    : 1024,
+            nudgeSettleDelay : .milliseconds(150)
+        )
+        await model.open(pickedURL: URL(filePath: "/tmp/x.ARW"))
+        let before = engine.calls.count
+
+        await model.nudge(.tint, by: 1)
+        await model.reset(.temperature)
+        try await Task.sleep(for: .milliseconds(400))
+
+        #expect(Array(engine.calls[before...]) == [
+            "set wb.tint 1.0", "preview 1024 draft",
+            "preview 1024 full",
+            "wb asShot", "preview 1024 full"
+        ])
+    }
+
+    /// An open commits a waiting burst first, on the photo it edited: its full preview and edited
+    /// read come before the new photo is opened.
+    @Test
+    func anOpenCommitsAWaitingBurstFirst() async throws {
+        let engine = FakeEngine()
+        let model  = EditorViewModel(
+            engine           : engine,
+            importer         : FakeImporter(),
+            previewPixels    : 1024,
+            nudgeSettleDelay : .milliseconds(150)
+        )
+        await model.open(pickedURL: URL(filePath: "/tmp/first.JPG"))
+        let before = engine.calls.count
+        let reads  = engine.editedReads
+
+        await model.nudge(.contrast, by: 1)
+        await model.open(pickedURL: URL(filePath: "/tmp/second.JPG"))
+        try await Task.sleep(for: .milliseconds(400))
+
+        #expect(Array(engine.calls[before...]) == [
+            "set light.contrast 1.0", "preview 1024 draft",
+            "preview 1024 full",
+            "open /tmp/second.JPG", "preview 1024 full"
+        ])
+        #expect(engine.editedReads == reads + 2)
+    }
 }

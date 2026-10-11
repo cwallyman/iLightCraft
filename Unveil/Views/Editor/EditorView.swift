@@ -54,6 +54,7 @@ struct EditorView<
 
                     if session.isCardOpen {
                         AdjustCard(viewModel: session.viewModel, group: $session.selectedGroup)
+                            .frame(maxHeight: .infinity, alignment: .top)
                             .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
                     }
 

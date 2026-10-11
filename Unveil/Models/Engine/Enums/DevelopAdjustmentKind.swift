@@ -33,6 +33,16 @@ nonisolated enum DevelopAdjustmentKind: String, CaseIterable, Sendable {
     /// step is the slider increment: 0.01 for exposure, 50 K for temperature, whole units for the rest.
     var step        : Double              { tuning.step }
 
+    /// snapped(_:) rounds `value` to the step grid, then clamps it to the range. A fractional step
+    /// divides by its inverse (100 for 0.01), because 70 * 0.01 is 0.7000000000000001 in binary.
+    func snapped(_ value: Double) -> Double {
+        let rounded = step >= 1
+            ? (value / step).rounded() * step
+            : (value * (1 / step)).rounded() / (1 / step)
+
+        return min(max(rounded, range.lowerBound), range.upperBound)
+    }
+
     /// isWhiteBalance is true for temperature and tint, whose default is the photo's As Shot value.
     var isWhiteBalance: Bool { self == .temperature || self == .tint }
 

@@ -51,9 +51,10 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     @ObservationIgnored
     private var cameraDefaults = DevelopMergeSettings.none
 
-    private let engine       : Engine
-    private let importer     : Importer
-    private let previewPixels: Int
+    private let engine          : Engine
+    private let importer        : Importer
+    private let previewPixels   : Int
+    private let nudgeSettleDelay: Duration
 
     // Plain bookkeeping the view never reads, so it stays out of observation.
     @ObservationIgnored
@@ -68,6 +69,11 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     @ObservationIgnored
     private var waitingDrags: Set<DevelopAdjustmentKind> = []
 
+    /// nudgeSettle is the stepper burst waiting to be committed: its kind and the timer that
+    /// commits it once the presses stop.
+    @ObservationIgnored
+    private var nudgeSettle: (kind: DevelopAdjustmentKind, timer: Task<Void, Never>)?
+
     /// isPhotoOpen is false until `open` succeeds: the view keeps the sliders disabled until then.
     var isPhotoOpen: Bool { openPhoto != nil }
 
@@ -77,12 +83,20 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         developDefaults[kind] ?? kind.defaultValue
     }
 
-    init(engine: Engine, importer: Importer, previewPixels: Int) {
-        self.engine          = engine
-        self.importer        = importer
-        self.previewPixels   = previewPixels
-        self.values          = Self.defaultValues
-        self.developDefaults = Self.defaultValues
+    /// `nudgeSettleDelay` is how long after the last stepper press the burst is committed; tests
+    /// shorten it.
+    init(
+        engine          : Engine,
+        importer        : Importer,
+        previewPixels   : Int,
+        nudgeSettleDelay: Duration = .milliseconds(300)
+    ) {
+        self.engine           = engine
+        self.importer         = importer
+        self.previewPixels    = previewPixels
+        self.nudgeSettleDelay = nudgeSettleDelay
+        self.values           = Self.defaultValues
+        self.developDefaults  = Self.defaultValues
     }
 
     /// open copies the picked file off the main actor, opens it in the engine, loads the controls'
@@ -105,8 +119,12 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// It returns true once the new photo is open in both the model and the engine. A first preview
     /// refused after that does not undo the open: the editor shows the photo's alert, or nothing
     /// for `.suspended`, since `refreshPreview` draws the photo when the engine resumes.
+    ///
+    /// A stepper burst still waiting for its timer is committed first, on the photo it edited.
     @discardableResult
     func open(pickedURL: URL, title: String? = nil) async -> Bool {
+        commitPendingNudge()
+
         let signpost = Signposts.beginOpen()
         let copy: (url: URL, isNew: Bool)
 
@@ -160,9 +178,41 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         }
     }
 
-    /// beginDrag marks the start of a slider gesture. There is nothing to prepare: `drag` does all
-    /// the work. It exists so the view calls begin, drag and end symmetrically.
-    func beginDrag(_ kind: DevelopAdjustmentKind) {}
+    /// beginDrag marks the start of a slider gesture (or of a whole edit such as a value entry).
+    /// `drag` does the work; the only thing to prepare is committing a stepper burst still waiting
+    /// for its timer, so the burst and the new edit stay two separate edits.
+    func beginDrag(_ kind: DevelopAdjustmentKind) {
+        commitPendingNudge()
+    }
+
+    /// nudge moves `kind` by `delta` from a stepper press, snapped to the step and the range. Every
+    /// press of a burst (a hold repeats it) sends a draft through `drag`; the burst is committed
+    /// once, `nudgeSettleDelay` after the last press, by one `endDrag`: the burst's commit point.
+    /// A press on another control first commits the burst in progress.
+    func nudge(_ kind: DevelopAdjustmentKind, by delta: Double) async {
+        if let pending = nudgeSettle, pending.kind != kind {
+            commitPendingNudge()
+        }
+
+        nudgeSettle?.timer.cancel()
+
+        let timer = Task { [weak self, nudgeSettleDelay] in
+            do {
+                try await Task.sleep(for: nudgeSettleDelay)
+            } catch {
+                return
+            }
+
+            // A press that lands after the sleep ended but before this resumes still cancels it.
+            guard !Task.isCancelled, let self else { return }
+
+            self.nudgeSettle = nil
+            await self.endDrag(kind)
+        }
+        nudgeSettle = (kind, timer)
+
+        await drag(kind, to: kind.snapped((values[kind] ?? kind.defaultValue) + delta))
+    }
 
     /// drag clamps the value, shows it at once and records it as the newest wanted value for its
     /// kind. If a drag link for that kind is already waiting in the chain it will pick this value up
@@ -206,8 +256,10 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// (raw detail, embedded lens corrections). The reread runs even when the merge failed, since
     /// the reset has landed by then, and so does the one full preview; the merge's error follows.
     /// Wanted drag values are dropped, so a drag link still waiting in the chain sends nothing
-    /// stale after the reset.
+    /// stale after the reset. A waiting stepper burst is committed first, as its own edit.
     func resetAll() async {
+        commitPendingNudge()
+
         guard isEdited, let photo = openPhoto else { return }
 
         wanted = [:]
@@ -232,6 +284,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
     /// reset(_:) puts one control back to its default as a whole edit. Temperature and tint go back
     /// to As Shot together (`develop.wb`), since their default is the photo's, not a constant.
+    /// Either way a waiting stepper burst is committed first (`beginDrag` does it for the others).
     func reset(_ kind: DevelopAdjustmentKind) async {
         guard kind.isWhiteBalance else {
             beginDrag(kind)
@@ -239,6 +292,8 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             await endDrag(kind)
             return
         }
+
+        commitPendingNudge()
 
         wanted[.temperature] = nil
         wanted[.tint]        = nil
@@ -297,6 +352,19 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     }
 
     // MARK: - Helpers
+
+    /// commitPendingNudge commits a stepper burst now instead of when its timer fires. The
+    /// `endDrag` link enters the chain before this returns, ahead of whatever the caller queues.
+    /// Every action that reaches the engine (a new edit, open, Reset All, a white balance reset,
+    /// and undo and redo when they come) calls it first, so the burst always ends as its own edit.
+    private func commitPendingNudge() {
+        guard let pending = nudgeSettle else { return }
+
+        pending.timer.cancel()
+        nudgeSettle = nil
+
+        Task.immediate { await self.endDrag(pending.kind) }
+    }
 
     /// reloadValues reads the engine's values and edited flag after a change the model did not
     /// make value by value. Called from inside a chain link only.

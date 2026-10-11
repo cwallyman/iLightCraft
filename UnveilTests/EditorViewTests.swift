@@ -62,6 +62,53 @@ struct EditorViewTests {
         #expect(fixture.session.isCardOpen)
     }
 
+    /// aDragReevaluatesOnlyItsOwnRow counts slider body runs while the model takes drag values:
+    /// only the dragged control's row runs again, although all five pages stay alive.
+    @Test
+    func aDragReevaluatesOnlyItsOwnRow() async throws {
+        let fixture = try Fixture()
+        defer { fixture.window.isHidden = true }
+        await fixture.model.open(pickedURL: URL(filePath: "/tmp/photo.RAF"))
+        fixture.session.showPanel(.light)
+        try await Task.sleep(for: .milliseconds(500))
+        AdjustmentSlider.bodyRuns = [:]
+
+        for step in 1 ... 5 {
+            await fixture.model.drag(.exposure, to: Double(step) / 10)
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        #expect(AdjustmentSlider.bodyRuns[.exposure, default: 0] > 0)
+        #expect(
+            AdjustmentSlider.bodyRuns.keys.allSatisfy { $0 == .exposure },
+            "body runs per row: \(AdjustmentSlider.bodyRuns)"
+        )
+    }
+
+    /// theCardHugsItsRowsAndScrollsWhenTheyDoNotFit measures the card offered 700 pt: at the
+    /// default text size it is shorter (it hugs the Light rows), at an accessibility size it
+    /// fills the space and its rows scroll.
+    @Test
+    func theCardHugsItsRowsAndScrollsWhenTheyDoNotFit() {
+        let model = EditorViewModel(
+            engine        : FakeEngine(),
+            importer      : FakeImporter(),
+            previewPixels : 1024
+        )
+
+        func height(at textSize: DynamicTypeSize) -> CGFloat {
+            let card = AdjustCard(viewModel: model, group: .constant(.light))
+                .dynamicTypeSize(textSize)
+
+            return UIHostingController(rootView: card)
+                .sizeThatFits(in: CGSize(width: 340, height: 700))
+                .height
+        }
+
+        #expect(height(at: .large) < 700)
+        #expect(height(at: .accessibility3) == 700)
+    }
+
     /// openingPhotoKeepsCanvas keeps the canvas attached even before an import (the home, not
     /// the editor, covers that state). Without a photo the Adjust tool does not open the card.
     @Test
