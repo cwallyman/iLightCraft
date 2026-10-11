@@ -58,7 +58,7 @@ impl PreviewStages {
         }
     }
 
-    fn bytes(&self) -> usize {
+    pub(crate) fn bytes(&self) -> usize {
         self.cache.bytes() + lightcraft_engine::gpu::stage_bytes(&self.cache)
     }
 }

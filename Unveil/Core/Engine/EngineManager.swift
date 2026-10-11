@@ -331,35 +331,95 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
             throw .invalidArgument("maxPixels must be in 1...\(self.maxPixels), got \(maxPixels)")
         }
 
-        // The callback cannot capture: it reaches the sink through `ctx`, unretained because
-        // the manager owns the sink and deinit keeps it alive until the session is freed.
         let generation = uv_request_preview(
             session,
             UInt32(maxPixels),
             draft,
-            { context, rgba, width, height, stride, generation, isDraft in
-                guard let context, let rgba else { return }
-
-                Unmanaged<FrameSink>.fromOpaque(context).takeUnretainedValue().receive(
-                    rgba      : UnsafeRawPointer(rgba),
-                    width     : Int(width),
-                    height    : Int(height),
-                    stride    : Int(stride),
-                    generation: generation,
-                    isDraft   : isDraft
-                )
-            },
+            Self.receiveFrame,
             Unmanaged.passUnretained(frames).toOpaque()
         )
 
+        return try Self.requested(generation, isDraft: draft, isWindow: false)
+    }
+
+    /// requestWindow asks for one window of the zoomed frame (see FrameWindow) and returns its
+    /// generation at once. The window must fit the sink; the frame lands in `frames` as its window.
+    /// The frame is asked for by its long edge (a square of `frameLong`, see FrameWindow).
+    func requestWindow(_ window: FrameWindow, draft: Bool) throws(EngineError) -> UInt64 {
+        guard window.width  > 0, window.width  <= maxPixels,
+              window.height > 0, window.height <= maxPixels,
+              window.frameWidth > 0, window.frameHeight > 0
+        else {
+            throw .invalidArgument("the window must fit 1...\(maxPixels) on each side, got \(window)")
+        }
+
+        let generation = uv_request_window(
+            session,
+            UInt32(clamping: window.frameLong),
+            UInt32(clamping: window.frameLong),
+            UInt32(clamping: window.x),
+            UInt32(clamping: window.y),
+            UInt32(window.width),
+            UInt32(window.height),
+            draft,
+            Self.receiveFrame,
+            Unmanaged.passUnretained(frames).toOpaque()
+        )
+
+        return try Self.requested(generation, isDraft: draft, isWindow: true)
+    }
+
+    /// receiveFrame is the C callback of both requests, on the engine thread. It cannot capture: it
+    /// reaches the sink through `ctx`, unretained because the manager owns the sink and deinit keeps
+    /// it alive until the session is freed.
+    private static let receiveFrame: uv_frame_cb = { context, frame in
+        guard let context, let frame, let rgba = frame.pointee.rgba else { return }
+
+        let info   = frame.pointee
+        let window = info.window ? FrameWindow(
+            frameWidth  : Int(info.frame_width),
+            frameHeight : Int(info.frame_height),
+            x           : Int(info.x),
+            y           : Int(info.y),
+            width       : Int(info.width),
+            height      : Int(info.height)
+        ) : nil
+
+        Unmanaged<FrameSink>.fromOpaque(context).takeUnretainedValue().receive(
+            rgba          : UnsafeRawPointer(rgba),
+            width         : Int(info.width),
+            height        : Int(info.height),
+            stride        : Int(info.stride),
+            generation    : info.generation,
+            isDraft       : info.draft,
+            window        : window,
+            replacesWindow: info.fallback,
+            nativeWidth   : Int(info.native_width),
+            nativeHeight  : Int(info.native_height)
+        )
+    }
+
+    /// releaseWindows frees what zoom windows keep resident in the engine (`uv_release_windows`):
+    /// it only posts a message, so it never waits on the engine.
+    func releaseWindows() {
+        uv_release_windows(session)
+    }
+
+    /// requested returns a request's generation and begins its `SliderToFrame`, or throws the
+    /// refusal that a generation of 0 means. It must run right after the request, on its thread.
+    private static func requested(
+        _ generation: UInt64,
+        isDraft     : Bool,
+        isWindow    : Bool
+    ) throws(EngineError) -> UInt64 {
         guard generation == 0 else {
-            Signposts.previewRequested(generation: generation, isDraft: draft)
+            Signposts.previewRequested(generation: generation, isDraft: isDraft, isWindow: isWindow)
             return generation
         }
 
-        // ponytail: uv_request_preview has no status code, so "suspended" is told apart by its
+        // ponytail: the requests have no status code, so "suspended" is told apart by its
         // documented message; a status out-parameter in uv.h would replace the string match.
-        let message = Self.lastError(or: "the preview was refused")
+        let message = lastError(or: "the preview was refused")
         throw message == "the session is suspended" ? .suspended(message) : .engine(message)
     }
 

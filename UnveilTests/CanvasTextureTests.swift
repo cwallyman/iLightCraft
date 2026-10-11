@@ -63,7 +63,7 @@ struct CanvasTextureTests {
 
         let frame   = try #require(sink.latest())
         let texture = try #require(CanvasView.makeTexture(for: frame, in: sink))
-        let buffer  = frame.bufferIndex == 0 ? sink.buffers.0 : sink.buffers.1
+        let buffer  = sink.buffer(at: frame.bufferIndex)
 
         #expect(texture.pixelFormat == .rgba8Unorm)
         #expect(texture.width == width && texture.height == height)

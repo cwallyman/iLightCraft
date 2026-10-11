@@ -6,15 +6,17 @@
 import SwiftUI
 
 /// EditorCanvas embeds the scene's single Metal view. SwiftUI updates only the photo identity and
-/// size and the tap and zoom callbacks; textures, gestures and frame delivery remain owned by CanvasView.
+/// size and the tap, zoom and window callbacks; textures, gestures and frame delivery remain owned
+/// by CanvasView.
 struct EditorCanvas: UIViewRepresentable {
 
-    let canvas      : CanvasView
-    let photo       : PhotoID?
-    let photoSize   : CGSize
-    let onSingleTap : () -> Void
-    let onTouchDown : (() -> Void)?
-    let onZoomChange: (Double) -> Void
+    let canvas        : CanvasView
+    let photo         : PhotoID?
+    let photoSize     : CGSize
+    let onSingleTap   : () -> Void
+    let onTouchDown   : (() -> Void)?
+    let onZoomChange  : (Double) -> Void
+    let onWindowChange: (FrameWindow?, _ isDraft: Bool) -> Void
 
     func makeUIView(context: Context) -> CanvasView {
         canvas
@@ -29,6 +31,8 @@ struct EditorCanvas: UIViewRepresentable {
         view.onZoomChange = onZoomChange
         view.photoSize    = photoSize
 
+        view.onVisibleWindowChange = onWindowChange
+
         if context.coordinator.shownPhoto != photo {
             context.coordinator.shownPhoto = photo
             view.resetZoom()
@@ -42,6 +46,8 @@ struct EditorCanvas: UIViewRepresentable {
         view.onSingleTap  = nil
         view.onTouchDown  = nil
         view.onZoomChange = nil
+
+        view.onVisibleWindowChange = nil
     }
 
     func makeCoordinator() -> Coordinator {

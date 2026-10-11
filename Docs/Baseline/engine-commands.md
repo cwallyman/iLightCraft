@@ -53,3 +53,47 @@ reading: `photos` (count), `persistent`, `lastError`. Excerpt after the sequence
 ```json
 {"albums":0,"lastError":null,"persistent":true,"photos":1,"seq":2,"unsavedError":null,"unsavedOps":0, "...":"..."}
 ```
+
+## Previews and zoom windows (ABI 2)
+
+Frames are not commands: they come from `uv_request_preview` (the whole frame fitted in `max_pixels`) and, since
+ABI 2, `uv_request_window(session, full_w, full_h, x, y, w, h, draft, cb, ctx)`: the `(x, y, w, h)` pixels of the
+frame fitted in `full_w x full_h`, for a canvas zoomed past the preview's own resolution. Both return a generation at
+once and deliver later, on the engine thread, through `uv_frame_cb(ctx, const UVFrame *)`.
+
+| `UVFrame` field | Whole-frame preview | Window |
+|---|---|---|
+| `width`, `height`, `stride`, `rgba` | the frame | the window, clamped inside the frame |
+| `window` | false | true |
+| `fallback` | true only for the whole frame answering a window that cannot render alone | false |
+| `frame_width`, `frame_height` | = `width`, `height` | the whole frame as the render fits it in `full_w x full_h` |
+| `x`, `y` | 0 | the window's origin in that frame |
+| `native_width`, `native_height` | the whole frame at the photo's own resolution | the same |
+
+`native_width x native_height` is what 100 % means: the oriented, cropped and straightened frame at the photo's
+recorded size (the size a full-size export writes), from the same geometry upstream's `region_job` builds for the
+window (`Frame::with_lens(...).native_size()`). The app measures its zoom percentage and the window's frame against
+it, so 100 % of a crop is the crop's own pixels. It ignores an automatic Upright stored without its transform (only
+XMP-imported settings) and the decoded source's size, either of which can move it by a pixel.
+
+- **Scheduling.** One render in flight; the newest pending request wins, with one refinement: a window never replaces a
+  pending preview (the app draws the window over it, so the preview renders first), while a preview replaces every older
+  pending window and a window older than the pending preview is dropped. Frames still arrive in increasing generations.
+- **Stages.** The preview and the window keep separate resident stages (they read different source levels and sizes); both
+  are dropped on photo change and on `uv_suspend`, and `uv_set_memory_budget` keeps them within a quarter of the budget
+  together, dropping the window's first. The window's source is upstream's one shared device copy of the original, emptied
+  by `uv_suspend` with the buffer pool.
+- **Release.** `uv_release_windows(session)` (void, never waits) drops the window's stages at once and, as soon as no
+  render is in flight, empties the GPU buffer pool with `trim_pool(0)`, which also frees the shared device copy of the
+  original, then returns freed heap pages (`memory::release`). A window request that arrives before that cancels the rest.
+  The app calls it once the canvas has wanted no window for 2 s. The decoded original stays in the engine's budgeted
+  source cache (dropping it alone would need a `MediaCache` method, a crate change), so the next window only uploads it.
+- **Fallback.** When `region_job` refuses the window (a spot reads farther than 8192 px), the frame delivered is the
+  whole-frame preview fitted in `max(w, h)`, with `window` false and `fallback` true: the app shows it as the preview and
+  drops the window it showed (older, maybe of older settings). The same fallback asked again (same settings, size and
+  quality: a pan within the spot's reach) is not rendered and never delivered.
+- **Errors.** As `uv_request_preview`, then a frame or window size of 0 (`UV_ERR_INVALID_ARGUMENT`, "size is 0").
+- **Accuracy** (`Engine/ffi/tests/window.rs`). On a PNG the window is bytewise equal to the same pixels of the whole frame
+  rendered at that size. On the five test RAWs at 100 % the reported frame size equals the whole-frame render's, and inside
+  a 32 px margin the window matches its crop to mean ΔE2000 0.0000 to 0.0007, p99 0.000 (max 0 to 1.19); the outer 32 px
+  reach ΔE 6.5 (spatial stages see less around the edge), which is why the app asks for that margin.

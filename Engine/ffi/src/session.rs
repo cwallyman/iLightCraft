@@ -8,8 +8,10 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use lightcraft_engine::Session;
-use lightcraft_engine::pipeline::Rendered;
+use lightcraft_engine::catalog::PhotoId;
+use lightcraft_engine::pipeline::geometry::Frame;
+use lightcraft_engine::pipeline::{PixelWindow, Rendered};
+use lightcraft_engine::{RenderJob, Session};
 use serde_json::Value;
 
 use crate::memory_budget::install_release_hook;
@@ -29,19 +31,55 @@ unsafe extern "C" {
     fn pthread_set_qos_class_self_np(qos: u32, rel: i32) -> i32;
 }
 
-/// uv_frame_cb of uv.h. Called on the engine thread; `rgba` is valid only during the call.
-pub type UvFrameCb = unsafe extern "C" fn(
-    ctx: *mut c_void,
-    rgba: *const u8,
-    width: u32,
-    height: u32,
-    stride: u32,
-    generation: u64,
-    draft: bool,
-);
+/// UVFrame of uv.h: one delivered frame. `rgba` holds `height` rows of `stride` bytes and, like
+/// the struct itself, is valid only during the callback. A whole-frame preview has `window` false,
+/// its own size as the frame size and origin 0; a window (uv_request_window) has `window` true and
+/// sits at (x, y) of a `frame_width × frame_height` frame. `fallback` marks the whole frame that
+/// answers a window the engine could not render alone. `native_width × native_height` is the
+/// whole frame at the photo's own resolution (cropped and straightened): what 100 % means.
+#[repr(C)]
+#[derive(Debug)]
+pub struct UVFrame {
+    pub rgba: *const u8,
+    pub width: u32,
+    pub height: u32,
+    pub stride: u32,
+    pub generation: u64,
+    pub draft: bool,
+    pub window: bool,
+    pub fallback: bool,
+    pub frame_width: u32,
+    pub frame_height: u32,
+    pub x: u32,
+    pub y: u32,
+    pub native_width: u32,
+    pub native_height: u32,
+}
 
-/// FrameCallback is a uv_frame_cb with its ctx, carried from uv_request_preview to the engine
-/// thread, which is the only thread that ever calls it.
+/// uv_frame_cb of uv.h. Called on the engine thread; `frame` is valid only during the call.
+pub type UvFrameCb = unsafe extern "C" fn(ctx: *mut c_void, frame: *const UVFrame);
+
+/// Placement is where a window's pixels sit: the size of the whole frame as the render fits it,
+/// and the window's origin in that frame once clamped inside it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Placement {
+    pub frame_width: u32,
+    pub frame_height: u32,
+    pub x: u32,
+    pub y: u32,
+}
+
+/// Delivery is what a frame carries besides its pixels: a window's placement (None for a whole
+/// frame), whether a whole frame answers a window request, and the frame's native size.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Delivery {
+    pub placement: Option<Placement>,
+    pub fallback: bool,
+    pub native: (u32, u32),
+}
+
+/// FrameCallback is a uv_frame_cb with its ctx, carried from uv_request_preview or
+/// uv_request_window to the engine thread, which is the only thread that ever calls it.
 #[derive(Clone, Copy)]
 pub(crate) struct FrameCallback {
     f: UvFrameCb,
@@ -54,38 +92,70 @@ unsafe impl Send for FrameCallback {}
 
 impl FrameCallback {
     /// call hands the frame's pixels to the callback without a copy: RGBA8, rows of width * 4.
-    fn call(&self, rendered: &Rendered, generation: u64, draft: bool) {
+    /// Without a placement the pixels are the whole frame.
+    fn call(&self, rendered: &Rendered, generation: u64, draft: bool, delivery: Delivery) {
         let image = &rendered.image;
         let rgba = image.data.as_flattened();
         let (width, height) = (image.width as u32, image.height as u32);
-        // SAFETY: rgba is owned by the RenderResult and outlives the call, which is all uv_frame_cb
-        // promises; ctx is valid per uv_request_preview's contract.
-        unsafe {
-            (self.f)(
-                self.ctx,
-                rgba.as_ptr(),
-                width,
-                height,
-                width * 4,
-                generation,
-                draft,
-            )
+        let whole = Placement {
+            frame_width: width,
+            frame_height: height,
+            x: 0,
+            y: 0,
         };
+        let at = delivery.placement.unwrap_or(whole);
+        let frame = UVFrame {
+            rgba: rgba.as_ptr(),
+            width,
+            height,
+            stride: width * 4,
+            generation,
+            draft,
+            window: delivery.placement.is_some(),
+            fallback: delivery.fallback,
+            frame_width: at.frame_width,
+            frame_height: at.frame_height,
+            x: at.x,
+            y: at.y,
+            native_width: delivery.native.0,
+            native_height: delivery.native.1,
+        };
+        // SAFETY: frame and the pixels it points to (owned by the RenderResult) outlive the call,
+        // which is all uv_frame_cb promises; ctx is valid per the request's contract.
+        unsafe { (self.f)(self.ctx, &frame) };
     }
 }
 
-/// PreviewRequest is one uv_request_preview. Its job is built only when it starts, so a request
-/// that waited behind a render picks up the settings of the moment.
+/// PreviewRequest is one uv_request_preview or uv_request_window. Its job is built only when it
+/// starts, so a request that waited behind a render picks up the settings of the moment.
 pub(crate) struct PreviewRequest {
     generation: u64,
-    max_pixels: u32,
+    kind: RequestKind,
     draft: bool,
     callback: FrameCallback,
+}
+
+/// RequestKind is what a PreviewRequest renders: the whole frame fitted in `max_pixels`, or
+/// `window`'s pixels of the frame fitted in `full_w × full_h`.
+#[derive(Clone, Copy)]
+enum RequestKind {
+    Fit {
+        max_pixels: u32,
+    },
+    Window {
+        full_w: u32,
+        full_h: u32,
+        window: PixelWindow,
+    },
 }
 
 impl Request for PreviewRequest {
     fn generation(&self) -> u64 {
         self.generation
+    }
+
+    fn is_window(&self) -> bool {
+        matches!(self.kind, RequestKind::Window { .. })
     }
 }
 
@@ -99,6 +169,7 @@ pub(crate) enum Msg {
     },
     Preview(PreviewRequest),
     SetBudget(u64),
+    ReleaseWindows,
     /// Answered once no render is in flight.
     Suspend {
         reply: Sender<()>,
@@ -196,10 +267,11 @@ impl UVSession {
         }
     }
 
-    /// request_preview checks only atomics, then queues the request: it never waits on the engine.
-    fn request_preview(
+    /// request checks only atomics and its arguments, then queues the request: it never waits on
+    /// the engine. The order of the checks is the documented order of the errors.
+    fn request(
         &self,
-        max_pixels: u32,
+        kind: RequestKind,
         draft: bool,
         callback: Option<UvFrameCb>,
         ctx: *mut c_void,
@@ -214,13 +286,20 @@ impl UVSession {
             return Err(Failure::new(UVStatus::UV_ERR_ENGINE, "no active photo"));
         }
         let f = callback.ok_or_else(|| Failure::invalid("callback is NULL"))?;
-        if max_pixels == 0 {
-            return Err(Failure::invalid("max_pixels is 0"));
+        match kind {
+            RequestKind::Fit { max_pixels: 0 } => return Err(Failure::invalid("max_pixels is 0")),
+            RequestKind::Window { full_w, full_h, .. } if full_w == 0 || full_h == 0 => {
+                return Err(Failure::invalid("the frame size is 0"));
+            }
+            RequestKind::Window { window, .. } if window.w == 0 || window.h == 0 => {
+                return Err(Failure::invalid("the window size is 0"));
+            }
+            _ => {}
         }
         let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
         let request = PreviewRequest {
             generation,
-            max_pixels,
+            kind,
             draft,
             callback: FrameCallback { f, ctx },
         };
@@ -298,6 +377,9 @@ fn engine_main(
         session,
         scheduler: PreviewScheduler::new(),
         stages: PreviewStages::default(),
+        window_stages: PreviewStages::default(),
+        last_fallback: None,
+        is_release_pending: false,
         worker,
         flags,
         suspend_waiter: None,
@@ -315,6 +397,7 @@ fn engine_main(
                 let result = engine.execute(&command, &params);
                 engine.publish_active();
                 engine.stages.keep_only(engine.session.active());
+                engine.window_stages.keep_only(engine.session.active());
                 let _ = reply.send(result);
             }
             Msg::Preview(request) => {
@@ -322,6 +405,8 @@ fn engine_main(
                 if engine.flags.suspended.load(Ordering::Acquire) {
                     continue;
                 }
+                // A window wanted again keeps what the release would free.
+                engine.is_release_pending &= !request.is_window();
                 if let Some(request) = engine.scheduler.submit(request) {
                     engine.start(request);
                 }
@@ -330,19 +415,26 @@ fn engine_main(
                 if let Some(budget) = caught("set_memory_budget", || {
                     engine.session.set_memory_budget(bytes as usize)
                 }) {
-                    engine.stages.trim(budget);
+                    engine.trim_stages(budget);
                 }
+            }
+            Msg::ReleaseWindows => {
+                engine.window_stages = PreviewStages::default();
+                engine.is_release_pending = true;
+                engine.release_windows();
             }
             Msg::Suspend { reply } => {
                 engine.scheduler.clear_pending();
                 // Drop the stages (171 MB NEF, 153 MB RAF at 2360 px, measured on the Mac at the iPad budget)
                 // into the GPU pool, emptied by uv_suspend; a render in flight keeps its copy until it ends.
                 engine.stages = PreviewStages::default();
+                engine.window_stages = PreviewStages::default();
                 engine.suspend_waiter = Some(reply);
                 engine.answer_suspend();
             }
             Msg::RenderDone(done) => {
                 engine.finish(*done);
+                engine.release_windows();
                 engine.answer_suspend();
             }
         }
@@ -350,12 +442,19 @@ fn engine_main(
     engine.shutdown(&rx);
 }
 
-/// Engine is the state of the engine thread: the Session, the preview scheduler, the preview
-/// view's resident stages and the render worker it feeds.
+/// Engine is the state of the engine thread: the Session, the preview scheduler, the resident
+/// stages of the two views (the whole-frame preview and the zoom window) and the render worker it
+/// feeds. The views keep separate stages because they read different source levels and sizes:
+/// one cache for both would be dropped at every switch between a preview and a window.
+/// `last_fallback` is the job key of the last fallback started (see job_for), and
+/// `is_release_pending` a uv_release_windows waiting for the render in flight (see release_windows).
 struct Engine {
     session: Session,
     scheduler: PreviewScheduler<PreviewRequest>,
     stages: PreviewStages,
+    window_stages: PreviewStages,
+    last_fallback: Option<u64>,
+    is_release_pending: bool,
     worker: RenderWorker,
     flags: Flags,
     suspend_waiter: Option<Sender<()>>,
@@ -383,6 +482,26 @@ impl Engine {
         }
     }
 
+    /// trim_stages keeps both views' stages within a quarter of `budget` together (PreviewStages::trim
+    /// is the rule for one view), dropping the window's first: the preview is the one always shown.
+    fn trim_stages(&mut self, budget: usize) {
+        if self.stages.bytes() + self.window_stages.bytes() > budget / 4 {
+            self.window_stages = PreviewStages::default();
+        }
+        self.stages.trim(budget);
+    }
+
+    /// release_windows ends a uv_release_windows once no render is in flight, when the dropped
+    /// window stages have reached the GPU pool: emptying the pool frees them along with upstream's
+    /// shared device copy of the full-size source, then the heap gives the freed pages back.
+    fn release_windows(&mut self) {
+        if self.is_release_pending && self.scheduler.is_idle() {
+            self.is_release_pending = false;
+            lightcraft_gpu::trim_pool(0);
+            lightcraft_engine::memory::release();
+        }
+    }
+
     fn publish_active(&self) {
         let active = self.session.active().is_some();
         self.flags.has_active.store(active, Ordering::Release);
@@ -392,10 +511,11 @@ impl Engine {
     /// gone) it counts as finished, and the next pending request gets its turn.
     fn start(&mut self, mut request: PreviewRequest) {
         loop {
-            if let Some(job) = self.job_for(&request) {
+            if let Some((job, delivery)) = self.job_for(&request) {
                 let work = Work {
                     job,
                     draft: request.draft,
+                    delivery,
                     callback: request.callback,
                 };
                 if self.worker.run(work) {
@@ -409,16 +529,60 @@ impl Engine {
         }
     }
 
-    fn job_for(&mut self, request: &PreviewRequest) -> Option<lightcraft_engine::RenderJob> {
+    /// job_for builds request's job for the active photo, with its view's stages attached, and what
+    /// its frame will carry. A window the engine cannot render alone (`region_job` gives None when a
+    /// spot reads farther than one render holds) becomes a whole-frame preview fitted in the
+    /// window's long edge, which the caller sized to fit its buffers, marked as a fallback so the
+    /// caller drops the window it shows. The same fallback asked again (a pan within the spot's
+    /// reach) would change nothing on screen, so it is skipped: None, as for a vanished photo.
+    fn job_for(&mut self, request: &PreviewRequest) -> Option<(RenderJob, Delivery)> {
         let active = self.session.active()?;
-        let max = request.max_pixels as usize;
-        let mut job = caught("render_job", || {
-            self.session.render_job(active, max, max, false, true)
-        })??;
+        let frame = photo_frame(&self.session, active)?;
+        let (mut job, placement, fallback) = match request.kind {
+            RequestKind::Fit { max_pixels } => (self.fit_job(active, max_pixels)?, None, false),
+            RequestKind::Window {
+                full_w,
+                full_h,
+                window,
+            } => {
+                let (full_w, full_h) = (full_w as usize, full_h as usize);
+                let region = caught("region_job", || {
+                    self.session.region_job(active, full_w, full_h, window, true)
+                })?;
+                match region {
+                    Some(job) => {
+                        let placement = placement_of(&frame, full_w, full_h, window);
+                        (self.window_stages.attach(job), Some(placement), false)
+                    }
+                    None => (self.fit_job(active, window.w.max(window.h) as u32)?, None, true),
+                }
+            }
+        };
         if request.draft {
             job = job.draft();
         }
+        let is_repeat = fallback && self.last_fallback == Some(job.key);
+        self.last_fallback = fallback.then_some(job.key);
+        if is_repeat {
+            return None;
+        }
+        let (native_w, native_h) = frame.native_size();
+        let native = (native_w.round().max(1.0) as u32, native_h.round().max(1.0) as u32);
         job.request_id = request.generation;
+        let delivery = Delivery {
+            placement,
+            fallback,
+            native,
+        };
+        Some((job, delivery))
+    }
+
+    /// fit_job is the whole-frame preview of `active` fitted in `max_pixels`, with the preview stages.
+    fn fit_job(&mut self, active: PhotoId, max_pixels: u32) -> Option<RenderJob> {
+        let max = max_pixels as usize;
+        let job = caught("render_job", || {
+            self.session.render_job(active, max, max, false, true)
+        })??;
         Some(self.stages.attach(job))
     }
 
@@ -434,7 +598,8 @@ impl Engine {
                         .scheduler
                         .should_deliver(done.generation, done.photo.0, active)
                     {
-                        done.callback.call(rendered, done.generation, done.draft);
+                        done.callback
+                            .call(rendered, done.generation, done.draft, done.delivery);
                     }
                 }
                 Err(e) => log::warn!("unveil: preview {} failed: {e}", done.generation),
@@ -454,6 +619,30 @@ impl Engine {
         if let Err(e) = self.session.close_library() {
             log::warn!("unveil: closing the library failed: {e}");
         }
+    }
+}
+
+/// photo_frame is photo `id`'s output frame as upstream's region_job builds it for a window: the
+/// recorded size, oriented, lens-corrected, cropped and straightened by the photo's develop settings
+/// (the ones every job of the photo renders). Its native size is the frame at 100 %.
+// ponytail: the pipeline frames the decoded source and solves an automatic Upright stored without
+// its transform (XMP); either can move the frame by a pixel. Upstream reporting its frame fixes it.
+fn photo_frame(session: &Session, id: PhotoId) -> Option<Frame> {
+    let p = session.catalog.photo(id)?;
+    let (w, h) = (p.width.max(1) as usize, p.height.max(1) as usize);
+    Some(Frame::with_lens(w, h, &p.develop, true, p.embedded_lens.as_ref()))
+}
+
+/// placement_of is where a window lands: `frame` fitted in `full_w × full_h`, as the pipeline fits
+/// it, and the window clamped into that the way the pipeline clamps it.
+fn placement_of(frame: &Frame, full_w: usize, full_h: usize, window: PixelWindow) -> Placement {
+    let (frame_w, frame_h) = frame.fit(full_w, full_h);
+    let clamped = window.clamped(frame_w, frame_h);
+    Placement {
+        frame_width: frame_w as u32,
+        frame_height: frame_h as u32,
+        x: clamped.x as u32,
+        y: clamped.y as u32,
     }
 }
 
@@ -599,7 +788,75 @@ pub unsafe extern "C" fn uv_request_preview(
     guard(|| {
         // SAFETY: a live session per the contract; it is only borrowed for this call.
         let session = unsafe { session.as_ref() }.ok_or_else(|| Failure::invalid("session is NULL"))?;
-        session.request_preview(max_pixels, draft, callback, ctx)
+        session.request(RequestKind::Fit { max_pixels }, draft, callback, ctx)
+    })
+}
+
+/// uv_request_window asks for the pixels of one window of the active photo's frame zoomed to
+/// `full_w × full_h` (the frame is fitted in that size, like a preview in max_pixels), at draft
+/// quality when `draft`, and returns its generation at once. The window is (x, y, w, h) in frame
+/// pixels, clamped inside the frame; spatial stages read their neighbours, so ask for a margin.
+/// The frame reaches `callback` with `window` true, the frame's size and the window's origin, so
+/// the caller can place it over the whole-frame preview.
+///
+/// Requests share uv_request_preview's generations and the newest wins, with one refinement for
+/// the preview a window is drawn over: a window never replaces a pending preview (the preview
+/// renders first), while a preview replaces every older pending window. So frames still arrive in
+/// increasing generations. When the engine cannot render the window alone (a spot reads farther
+/// than one render holds), the frame delivered is the whole-frame preview fitted in max(w, h),
+/// with `window` false and `fallback` true, and the same fallback asked again is not rendered.
+/// Errors as uv_request_preview, then a frame or window size of 0 (UV_ERR_INVALID_ARGUMENT).
+///
+/// # Safety
+/// As uv_request_preview.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn uv_request_window(
+    session: *mut UVSession,
+    full_w: u32,
+    full_h: u32,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+    draft: bool,
+    callback: Option<UvFrameCb>,
+    ctx: *mut c_void,
+) -> u64 {
+    guard(|| {
+        // SAFETY: a live session per the contract; it is only borrowed for this call.
+        let session = unsafe { session.as_ref() }.ok_or_else(|| Failure::invalid("session is NULL"))?;
+        let window = PixelWindow {
+            x: x as usize,
+            y: y as usize,
+            w: w as usize,
+            h: h as usize,
+        };
+        let kind = RequestKind::Window {
+            full_w,
+            full_h,
+            window,
+        };
+        session.request(kind, draft, callback, ctx)
+    })
+}
+
+/// uv_release_windows frees what zoom windows keep resident, for a view that no longer shows one:
+/// the window's stages at once, then, as soon as no render is in flight, the GPU buffer pool, which
+/// also frees upstream's shared device copy of the full-size source (trim_pool(0)), and the heap's
+/// freed pages. It never waits. The whole-frame preview's stages stay. A window requested before
+/// the release completes cancels the rest of it; a later one uploads its source again (the decoded
+/// original stays in the engine's budgeted cache, so it is not decoded again).
+///
+/// # Safety
+/// `session` is NULL or a live pointer from uv_session_new.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn uv_release_windows(session: *mut UVSession) {
+    guard(|| {
+        // SAFETY: a live session per the contract; it is only borrowed for this call.
+        let session = unsafe { session.as_ref() }.ok_or_else(|| Failure::invalid("session is NULL"))?;
+        session.tx.send(Msg::ReleaseWindows).map_err(|_| stopped())?;
+        Ok(())
     })
 }
 

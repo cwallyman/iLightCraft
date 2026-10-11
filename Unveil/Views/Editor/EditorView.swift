@@ -42,12 +42,15 @@ struct EditorView<
             ZStack(alignment: .trailing) {
 
                 EditorCanvas(
-                    canvas       : canvas,
-                    photo        : session.viewModel.openPhoto,
-                    photoSize    : session.viewModel.photoSize,
-                    onSingleTap  : { session.select(.move) },
-                    onTouchDown  : session.isCardOpen ? { session.select(.move) } : nil,
-                    onZoomChange : { session.zoomPercent = $0 }
+                    canvas         : canvas,
+                    photo          : session.viewModel.openPhoto,
+                    photoSize      : session.viewModel.photoSize,
+                    onSingleTap    : { session.select(.move) },
+                    onTouchDown    : session.isCardOpen ? { session.select(.move) } : nil,
+                    onZoomChange   : { session.zoomPercent = $0 },
+                    onWindowChange : { window, isDraft in
+                        Task.immediate { await session.viewModel.showWindow(window, draft: isDraft) }
+                    }
                 )
                 .ignoresSafeArea()
 

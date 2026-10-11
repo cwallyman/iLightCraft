@@ -70,6 +70,7 @@ struct SignpostsTests {
             "-UnveilExitAfterSweep",
             "-UnveilPanel", "color",
             "-UnveilZoom", "3200",
+            "-UnveilPanSweep",
             "-UnveilHomePhotos",
             "-UnveilHomeExpanded",
         ])
@@ -77,6 +78,7 @@ struct SignpostsTests {
         #expect(options.openFileName == "DSCF0267.RAF")
         #expect(options.openPanel == .color)
         #expect(options.zoomPercent == 3200)
+        #expect(options.pansDuringSweep)
         #expect(options.delaySeconds == 8)
         #expect(options.sweepSeconds == 30)
         #expect(options.isFreshEngineDirectory)
@@ -96,6 +98,7 @@ struct SignpostsTests {
         #expect(options.exitsAfterSweep == false)
         #expect(options.openPanel == nil)
         #expect(options.zoomPercent == nil)
+        #expect(options.pansDuringSweep == false)
         #expect(options.startsHomeOnPhotos == false)
         #expect(options.startsHomeExpanded == false)
     }

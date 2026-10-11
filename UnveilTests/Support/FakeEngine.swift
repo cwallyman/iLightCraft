@@ -45,7 +45,8 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
 
     /// Every openPhoto, select, set, reset and requestPreview in order, as "open <path>",
     /// "select <id>", "set <id> <value>", "reset <photo>", "merge <json>", "wb asShot" and
-    /// "preview <pixels> draft|full".
+    /// "preview <pixels> draft|full" (and requestWindow's "window ..." lines, releaseWindows'
+    /// "release windows").
     var calls: [String] { state.withLock { $0.calls } }
 
     /// The error the next openPhoto throws, once. It clears itself when thrown.
@@ -273,6 +274,34 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
         }
 
         return generation
+    }
+
+    /// requestWindow logs "window <x>,<y> <width>x<height> of <frameWidth>x<frameHeight> draft|full"
+    /// and shares the preview's generations and `failNextPreview`.
+    func requestWindow(_ window: FrameWindow, draft: Bool) throws(EngineError) -> UInt64 {
+        let (failure, generation) = state.withLock {
+            let place = "\(window.x),\(window.y) \(window.width)x\(window.height)"
+            let frame = "\(window.frameWidth)x\(window.frameHeight)"
+            $0.calls.append("window \(place) of \(frame) \(draft ? "draft" : "full")")
+
+            let failure = $0.failNextPreview
+            $0.failNextPreview = nil
+
+            if failure == nil {
+                $0.previewCounter += 1
+            }
+            return (failure, $0.previewCounter)
+        }
+
+        if let failure {
+            throw failure
+        }
+
+        return generation
+    }
+
+    func releaseWindows() {
+        state.withLock { $0.calls.append("release windows") }
     }
 
     func suspend() throws(EngineError) {

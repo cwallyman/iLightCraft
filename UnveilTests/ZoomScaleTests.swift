@@ -12,6 +12,23 @@ struct ZoomScaleTests {
     // A 26 MP photo on an iPad: fit is 44 % of the real pixels.
     private let scale = ZoomScale(percentAtFit: 44)!
 
+    /// A zoom that comes to rest within 0.5 % of the real 100 % lands on it exactly; one farther off,
+    /// or nowhere near it, stays where it is.
+    @Test
+    func aRestingZoomWithinHalfAPercentOfHundredLandsOnIt() {
+        for percent in [99.55, 99.8, 100, 100.2, 100.45] {
+            let resting = scale.restingZoom(for: scale.zoom(forPercent: percent))
+
+            #expect(resting == scale.zoom(forPercent: 100), "\(percent) %")
+        }
+
+        for percent in [99.4, 100.6, 44, 200] {
+            let zoom = scale.zoom(forPercent: percent)
+
+            #expect(scale.restingZoom(for: zoom) == zoom, "\(percent) %")
+        }
+    }
+
     @Test
     func theRangeIs5To3200PercentOfRealPixels() {
         #expect(abs(scale.range.lowerBound * 44 - 5) < 1e-9)

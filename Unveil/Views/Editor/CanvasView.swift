@@ -23,6 +23,20 @@ import UIKit
 /// transform change or a new drawable size marks the view, the next tick draws once, and the link
 /// pauses again. A view with nothing to draw costs no CPU and no GPU.
 ///
+/// Above the preview's own resolution (more than one screen pixel per preview pixel) the canvas
+/// asks, through `onVisibleWindowChange`, for the visible window of the photo rendered at the zoom
+/// on screen, capped at the photo's real pixels (FrameWindow.visible): at most every 100 ms while
+/// a gesture or a spring moves the view (a draft), and once at full quality when it rests. It
+/// keeps drawing the preview and draws the window on top at its place, so a pan never shows a
+/// hole. A window is drawn only while it belongs to the frame the canvas would ask for now (a
+/// pinch to another zoom below 100 % hides it until the new one arrives) and only if it is newer
+/// than `windowFloor`, which rises on every tick that wants no window and when the photo changes,
+/// so a window of an earlier photo or of earlier settings never comes back, even one that lands
+/// late. From 100 % the window holds the photo's real pixels and is sampled nearest-neighbour
+/// (pixels as squares; at 100 % itself moved onto the screen's pixel grid, so 1:1 is exact), from
+/// 800 % with a grid on the pixel edges. The real pixels are measured against the engine's
+/// native size of the frame (cropped and straightened), which every frame carries.
+///
 /// New frames arrive on the engine thread through `frames.onFrame`. That callback never waits on
 /// the main thread (a suspend in progress can hold main for up to 2 s, and the engine thread must
 /// not stall behind it): it schedules at most one asynchronous hop, coalesced by an atomic flag,
@@ -35,11 +49,12 @@ import UIKit
 /// and the layer's colorspace is sRGB: the engine's bytes are already display-encoded and travel
 /// to the screen untouched (see Canvas.metal for the shader side).
 ///
-/// The sink double-buffers, so a GPU pass that samples buffer A while the engine publishes twice
-/// would read A as it is rewritten (a torn frame, visual only, gone on the next frame). Two rules
-/// keep that rare and visible: at most one command buffer samples the sink at a time (a tick that
-/// finds one in flight retries on the next tick), and the completed handler counts the passes
-/// that may have torn, in `possibleTearCount`, so T13 can decide whether a third buffer is needed.
+/// The sink double-buffers each kind of frame, so a GPU pass that samples buffer A while the
+/// engine publishes twice would read A as it is rewritten (a torn frame, visual only, gone on the
+/// next frame). Two rules keep that rare and visible: at most one command buffer samples the sink
+/// at a time (a tick that finds one in flight retries on the next tick), and the completed handler
+/// counts the passes that may have torn, in `possibleTearCount`, so T13 can decide whether a
+/// fourth buffer is needed.
 final class CanvasView: UIView {
 
     nonisolated static let vertexFunctionName   = "canvasVertex"
@@ -58,7 +73,7 @@ final class CanvasView: UIView {
     private var displayLink   : CADisplayLink?
     private var isDirty       : Bool = false
     private var laidOutSize   : CGSize = .zero
-    private var cachedTextures: InlineArray<2, CachedTexture?> = [nil, nil]
+    private var cachedTextures: InlineArray<3, CachedTexture?> = [nil, nil, nil]
 
     private let pinchRecognizer = UIPinchGestureRecognizer()
     private let panRecognizer   = UIPanGestureRecognizer()
@@ -78,8 +93,23 @@ final class CanvasView: UIView {
     /// most once per display frame and only when the pill's text (ZoomScale.label) changes.
     var onZoomChange: ((Double) -> Void)?
 
-    /// photoSize is the open photo's size in real pixels (`.zero` when unknown). The zoom percentage
-    /// is measured against it, not against the smaller preview.
+    /// onVisibleWindowChange gets the window of the zoomed frame to render over the preview (nil
+    /// when the preview is enough) and whether a draft will do because the view is moving.
+    var onVisibleWindowChange: ((FrameWindow?, _ isDraft: Bool) -> Void)?
+
+    /// isMeasurementPanning makes `measurementPan(at:)` count as a gesture, so its windows are
+    /// throttled drafts as under a finger. The launch runner sets it for the pan sweep only.
+    var isMeasurementPanning = false {
+        didSet {
+            if !isMeasurementPanning {
+                wakeForWindowUpdate()
+            }
+        }
+    }
+
+    /// photoSize is the open photo's size in real pixels (`.zero` when unknown), as the editor reads
+    /// it. The zoom percentage is measured against it until a frame carries the engine's native
+    /// size of the frame (see `nativeSize`), not against the smaller preview.
     var photoSize: CGSize = .zero {
         didSet {
             if photoSize != oldValue {
@@ -99,6 +129,26 @@ final class CanvasView: UIView {
 
     /// pinchCenter is the fingers' last centroid, where a zoom stretched past the range springs back.
     private var pinchCenter: CGPoint?
+
+    /// windowRequestInterval is the least time between two window requests while the view moves.
+    private static let windowRequestInterval: CFTimeInterval = 0.1
+
+    /// gridPercent is the zoom from which a grid is drawn on the image pixels' edges, and
+    /// gridOpacity how far its lines step toward mid grey.
+    private static let gridPercent = 800.0
+    private static let gridOpacity: Float = 0.3
+
+    /// wantedWindow is the window the canvas needs for the current view (FrameWindow.visible),
+    /// recomputed on each tick; sentWindow is the last one handed to `onVisibleWindowChange`.
+    private var wantedWindow        : FrameWindow?
+    private var sentWindow          : FrameWindow?
+    private var isSentWindowDraft   : Bool = false
+    private var lastWindowSendTime  : CFTimeInterval = 0
+    private var isWindowUpdatePending = false
+
+    /// windowFloor is the newest generation published on the last tick that wanted no window (or
+    /// at the last photo change): a window at or below it is never drawn again.
+    private var windowFloor: UInt64 = 0
 
     /// canvasTransform is the gesture state (UIView already owns `transform`). Any real change to
     /// it asks for one redraw.
@@ -124,6 +174,15 @@ final class CanvasView: UIView {
         }
     }
 
+    /// CanvasStyle mirrors Canvas.metal's struct of the same name: how one quad is sampled. Its
+    /// layout (8 + 4 + 4 bytes, no padding) matches the shader's.
+    private struct CanvasStyle {
+
+        var gridSize   : SIMD2<Float>
+        var gridOpacity: Float
+        var nearest    : UInt32
+    }
+
     /// CrossThreadState is what the engine thread and Metal's completion thread touch: only atomics,
     /// so it is Sendable without a lock. It is a separate object so those closures hold it, never the
     /// view: a UIView must not be retained, and possibly freed, off the main thread.
@@ -134,16 +193,17 @@ final class CanvasView: UIView {
         let isCommandBufferInFlight = Atomic<Bool>(false)
         let possibleTears           = Atomic<Int>(0)
 
-        /// commandBufferCompleted(sampled:newest:) runs on Metal's completion thread when a pass ends.
+        /// commandBufferCompleted(sampled:newest:) runs on Metal's completion thread when a pass ends,
+        /// with the newest generation the pass sampled and the newest one published by then.
         ///
         /// Any newer generation published while the pass ran is a possible tear. One publish lands
-        /// in the other buffer and makes the sampled buffer the engine's next write target, so the
+        /// in the free buffer and frees a sampled one as the engine's next write target, so the
         /// engine may already be copying into it while the GPU still reads it; two or more publishes
         /// certainly rewrote it. The count is an upper bound: an exposed pass may still read clean.
-        func commandBufferCompleted(sampled: ReadyFrame?, newest: ReadyFrame?) {
+        func commandBufferCompleted(sampled: UInt64?, newest: UInt64?) {
             if let sampled,
                let newest,
-               newest.generation > sampled.generation {
+               newest > sampled {
                 possibleTears.add(1, ordering: .relaxed)
             }
 
@@ -238,10 +298,24 @@ final class CanvasView: UIView {
     }
 
     /// resetZoom returns to fit at once, for a newly opened photo: the old zoom and pan belonged to
-    /// the previous one.
+    /// the previous one, and so does any window published so far.
     func resetZoom() {
         spring = nil
         canvasTransform.reset()
+        windowFloor = Self.newestGeneration(frames.published())
+    }
+
+    /// measurementPan(at:) moves the image along a circle through 90 % of its pan range, one turn
+    /// every 4 s, `elapsed` seconds in: the pan sweep of the measurements, in place of a finger.
+    func measurementPan(at elapsed: Double) {
+        var edge = canvasTransform
+        edge.offset = SIMD2(1e9, 1e9)
+
+        let limits = edge.settled(viewSize: bounds.size, imageSize: imageSize).offset
+        let angle  = 2 * Double.pi * elapsed / 4
+
+        spring = nil
+        canvasTransform.offset = limits * SIMD2(cos(angle), sin(angle)) * 0.9
     }
 
     /// zoomToFit animates back to aspect fit (a jump under Reduce Motion), like a double tap from zoomed in.
@@ -272,7 +346,7 @@ final class CanvasView: UIView {
 
     /// zoom(toPercent:) animates to that percentage of the photo's real pixels on screen pixels
     /// around the view center, clamped to the zoom range and settled inside the edges. Above the
-    /// preview's own resolution the preview is upscaled.
+    /// preview's own resolution the canvas asks for a window of the photo at that zoom.
     func zoom(toPercent percent: Double) {
         guard let scale = zoomScale else { return }
 
@@ -341,9 +415,10 @@ final class CanvasView: UIView {
     private func displayLinkDidFire(_ link: CADisplayLink) {
         advanceSpring(to: link.targetTimestamp)
         reportZoom()
+        updateVisibleWindow(at: link.timestamp)
 
         guard isDirty else {
-            link.isPaused = spring == nil
+            link.isPaused = spring == nil && !isWindowUpdatePending
             return
         }
 
@@ -361,13 +436,14 @@ final class CanvasView: UIView {
             crossThread.isCommandBufferInFlight.store(false, ordering: .releasing)
         }
 
-        link.isPaused = !isDirty && spring == nil
+        link.isPaused = !isDirty && spring == nil && !isWindowUpdatePending
     }
 
-    /// encodeFrame clears the drawable and draws the sink's newest frame into it, returning false
-    /// when nothing was committed (no drawable yet, or no command buffer).
+    /// encodeFrame clears the drawable and draws the sink's newest preview into it, then the window
+    /// over it when it may be shown (see the type doc), returning false when nothing was committed
+    /// (no drawable yet, or no command buffer).
     ///
-    /// `frames.latest()` is read exactly once, here, and both the texture and the tear check come
+    /// `frames.published()` is read exactly once, here, and the textures and the tear check come
     /// from that one snapshot, so the pass never mixes the geometry of one frame with another.
     ///
     /// A nil drawable drops the draw instead of marking the view dirty again. Before the first
@@ -381,7 +457,8 @@ final class CanvasView: UIView {
             return false
         }
 
-        let frame = frames.latest()
+        let published = frames.published()
+        let frame     = published.frame
 
         // The encoder copies the descriptor, so the drawable is not kept past this pass.
         renderPass.colorAttachments[0].texture = drawable.texture
@@ -390,56 +467,162 @@ final class CanvasView: UIView {
 
         guard let encoder else { return false }
 
-        var sampledFrame: ReadyFrame? = nil
+        var sampledFrame : ReadyFrame? = nil
+        var sampledWindow: ReadyFrame? = nil
 
         if let frame, !frame.isDraft {
             lastFullFrameSize = CGSize(width: frame.width, height: frame.height)
         }
 
         if let frame, let pipeline, let texture = texture(for: frame) {
-            let quad = canvasTransform.quad(
+            let quad    = canvasTransform.quad(
                 viewSize  : bounds.size,
                 imageSize : CGSize(width: frame.width, height: frame.height)
             )
-            var corners = SIMD4<Float>(lowHalf: quad.min, highHalf: quad.max)
+            let percent = zoomScale?.percent(forZoom: canvasTransform.zoom) ?? 0
 
             encoder.setRenderPipelineState(pipeline)
-            encoder.setVertexBytes(&corners, length: MemoryLayout<SIMD4<Float>>.stride, index: 0)
-            encoder.setFragmentTexture(texture, index: 0)
-            encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
-
+            draw(
+                texture,
+                in      : quad,
+                style   : previewStyle(percent: percent),
+                encoder : encoder
+            )
             sampledFrame = frame
+
+            if let window = published.window,
+               let placement = window.window,
+               isShowable(window),
+               let windowTexture = self.texture(for: window) {
+                let windowQuad   = placement.quad(in: quad)
+                let isOneToOne   = abs(percent - 100) <= 100 * FrameWindow.realPixelsTolerance
+                let drawableSize = SIMD2<Float>(Float(laidOutSize.width), Float(laidOutSize.height))
+
+                draw(
+                    windowTexture,
+                    in      : isOneToOne ? Self.pixelAligned(windowQuad, drawableSize: drawableSize) : windowQuad,
+                    style   : windowStyle(for: placement, percent: percent),
+                    encoder : encoder
+                )
+                sampledWindow = window
+            }
         }
 
         encoder.endEncoding()
 
-        // Added before present, as Metal requires: the handler ends the frame's signposts.
+        let sampledGeneration = sampledWindow?.generation ?? sampledFrame?.generation
+
+        // Added before present, as Metal requires: the handler ends the frames' signposts.
         // The simulator's Metal has no presented handler, so its frame intervals never end.
         #if !targetEnvironment(simulator)
         if let sampledFrame {
-            drawable.addPresentedHandler(Self.presentedHandler(generation: sampledFrame.generation))
+            drawable.addPresentedHandler(Self.presentedHandler(
+                generation       : sampledFrame.generation,
+                windowGeneration : sampledWindow?.generation
+            ))
         }
         #endif
 
         commandBuffer.present(drawable)
-        commandBuffer.addCompletedHandler { [crossThread, frames, sampledFrame] _ in
-            crossThread.commandBufferCompleted(sampled: sampledFrame, newest: frames.latest())
+        commandBuffer.addCompletedHandler { [crossThread, frames] _ in
+            crossThread.commandBufferCompleted(
+                sampled : sampledGeneration,
+                newest  : Self.newestGeneration(frames.published())
+            )
         }
         commandBuffer.commit()
 
         return true
     }
 
+    /// draw encodes one textured quad (NDC corners) sampled with `style`.
+    // any: Metal vends textures and encoders only as protocol existentials.
+    private func draw(
+        _ texture: any MTLTexture,
+        in quad  : (min: SIMD2<Float>, max: SIMD2<Float>),
+        style    : CanvasStyle,
+        encoder  : any MTLRenderCommandEncoder
+    ) {
+        var corners = SIMD4<Float>(lowHalf: quad.min, highHalf: quad.max)
+        var style   = style
+
+        encoder.setVertexBytes(&corners, length: MemoryLayout<SIMD4<Float>>.stride, index: 0)
+        encoder.setFragmentBytes(&style, length: MemoryLayout<CanvasStyle>.stride, index: 0)
+        encoder.setFragmentTexture(texture, index: 0)
+        encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+    }
+
+    /// previewStyle samples the preview bilinearly. From `gridPercent` its grid follows the photo's
+    /// real pixels (the frame of the window the canvas wants), so it lines up with the window's.
+    private func previewStyle(percent: Double) -> CanvasStyle {
+        let frame = wantedWindow.map { SIMD2<Float>(Float($0.frameWidth), Float($0.frameHeight)) }
+
+        return CanvasStyle(
+            gridSize    : frame ?? .one,
+            gridOpacity : percent >= Self.gridPercent && frame != nil ? Self.gridOpacity : 0,
+            nearest     : 0
+        )
+    }
+
+    /// windowStyle samples a window nearest-neighbour from 100 % (its pixels are the photo's then:
+    /// one per screen pixel at 100 %, squares above) and bilinearly below, with the grid on its
+    /// pixels from `gridPercent`. A zoom within FrameWindow.realPixelsTolerance of 100 % counts.
+    private func windowStyle(for placement: FrameWindow, percent: Double) -> CanvasStyle {
+        CanvasStyle(
+            gridSize    : SIMD2<Float>(Float(placement.width), Float(placement.height)),
+            gridOpacity : percent >= Self.gridPercent ? Self.gridOpacity : 0,
+            nearest     : percent >= 100 * (1 - FrameWindow.realPixelsTolerance) ? 1 : 0
+        )
+    }
+
+    /// pixelAligned(_:drawableSize:) moves `quad` (NDC corners) by less than half a pixel, keeping
+    /// its size, so its corner lands on a pixel edge of a `drawableSize` drawable. At 100 % a window
+    /// texel is one pixel wide, so each pixel then samples exactly one texel: nearest sampling with
+    /// a sub-pixel pan offset would pick its texels unevenly, a column now and then twice.
+    nonisolated static func pixelAligned(
+        _ quad      : (min: SIMD2<Float>, max: SIMD2<Float>),
+        drawableSize: SIMD2<Float>
+    ) -> (min: SIMD2<Float>, max: SIMD2<Float>) {
+        let half  = drawableSize / 2
+        let pixel = (quad.min + 1) * half
+        let shift = (pixel.rounded(.toNearestOrAwayFromZero) - pixel) / half
+
+        return (min: quad.min + shift, max: quad.max + shift)
+    }
+
+    /// isShowable tells whether a published window still belongs on screen: newer than the floor
+    /// and of the frame the canvas would ask for now (see the type doc). Internal for the tests.
+    func isShowable(_ window: ReadyFrame) -> Bool {
+        guard let placement = window.window, let wantedWindow else { return false }
+
+        return window.generation > windowFloor && placement.hasSameFrame(as: wantedWindow)
+    }
+
+    /// newestGeneration is the newest generation among the published frames, 0 before any.
+    private nonisolated static func newestGeneration(_ published: (frame: ReadyFrame?, window: ReadyFrame?)) -> UInt64 {
+        max(published.frame?.generation ?? 0, published.window?.generation ?? 0)
+    }
+
     #if !targetEnvironment(simulator)
-    /// presentedHandler ends the signposts waiting for `generation` once the drawable has left the
-    /// display pipeline. It is built here, nonisolated, because Metal calls it on its own thread.
+    /// presentedHandler ends the signposts waiting for the drawn preview's `generation`, then for the
+    /// window drawn over it, once the drawable has left the display pipeline. It is built here,
+    /// nonisolated, because Metal calls it on its own thread.
     ///
     /// A presented time of 0 is reported as `dropped`, not skipped: on the iPad the first frame of
     /// an open with an otherwise idle canvas reports 0, and skipping it left the open's interval
     /// waiting for a frame that never comes (seen in a device trace, M3.4).
-    private nonisolated static func presentedHandler(generation: UInt64) -> @Sendable (any MTLDrawable) -> Void {
+    private nonisolated static func presentedHandler(
+        generation      : UInt64,
+        windowGeneration: UInt64?
+    ) -> @Sendable (any MTLDrawable) -> Void {
         { drawable in
-            Signposts.framePresented(generation: generation, isDropped: drawable.presentedTime == 0)
+            let isDropped = drawable.presentedTime == 0
+
+            Signposts.framePresented(generation: generation, isDropped: isDropped)
+
+            if let windowGeneration {
+                Signposts.framePresented(generation: windowGeneration, isDropped: isDropped)
+            }
         }
     }
     #endif
@@ -473,7 +656,7 @@ final class CanvasView: UIView {
     /// alignment and `height * bytesPerRow` fits the buffer, because FrameSink only publishes frames
     /// within its `maxPixels` and sized the buffers for that worst case.
     nonisolated static func makeTexture(for frame: ReadyFrame, in frames: FrameSink) -> (any MTLTexture)? {
-        let buffer     = frame.bufferIndex == 0 ? frames.buffers.0 : frames.buffers.1
+        let buffer     = frames.buffer(at: frame.bufferIndex)
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat : .rgba8Unorm,
             width       : frame.width,
@@ -571,7 +754,7 @@ final class CanvasView: UIView {
             viewSize    : bounds.size,
             imageSize   : imageSize,
             screenScale : Double(contentScaleFactor),
-            photoScale  : CanvasTransform.photoScale(previewSize: imageSize, photoSize: photoSize)
+            photoScale  : CanvasTransform.photoScale(previewSize: imageSize, photoSize: nativeSize)
         )
 
         move(to: target)
@@ -637,6 +820,15 @@ final class CanvasView: UIView {
         spring?.target ?? canvasTransform
     }
 
+    /// nativeSize is what 100 % measures against: the whole frame at the photo's own resolution,
+    /// cropped and straightened, as the newest frame reports it (the same for drafts), else the
+    /// editor's `photoSize` (a frame without it, or none yet).
+    private var nativeSize: CGSize {
+        guard let frame = frames.latest(), frame.nativeWidth > 0, frame.nativeHeight > 0 else { return photoSize }
+
+        return CGSize(width: frame.nativeWidth, height: frame.nativeHeight)
+    }
+
     /// zoomScale is the zoom-to-percent conversion for the current view, photo and screen, or nil
     /// while any of them is unknown.
     private var zoomScale: ZoomScale? {
@@ -644,7 +836,7 @@ final class CanvasView: UIView {
             viewSize    : bounds.size,
             imageSize   : imageSize,
             screenScale : Double(contentScaleFactor),
-            photoScale  : CanvasTransform.photoScale(previewSize: imageSize, photoSize: photoSize)
+            photoScale  : CanvasTransform.photoScale(previewSize: imageSize, photoSize: nativeSize)
         )
     }
 
@@ -668,9 +860,14 @@ final class CanvasView: UIView {
 
     /// settle springs the transform to where it should rest once no finger moves it. A flick
     /// (above 60 pt/s) glides with momentum toward its projected point, clamped to the edges;
-    /// anything else snaps back quickly.
+    /// anything else snaps back quickly. A zoom resting within ZoomScale.realPixelsSnap of the real
+    /// 100 % lands on it exactly (at once under Reduce Motion), where the window shows the photo
+    /// 1:1 with nearest sampling: a scale a hair off 1 would double or skip a column now and then.
     private func settle(velocity: SIMD2<Double>) {
         guard !isGestureActive else { return }
+
+        // The view rests where it is or springs there: either way the window catches up at rest.
+        wakeForWindowUpdate()
 
         let isFlick = (velocity * velocity).sum() > 60 * 60
         var target  = canvasTransform
@@ -679,18 +876,41 @@ final class CanvasView: UIView {
             target.offset += velocity * CanvasSpring.momentumProjection
         }
 
+        var isSnappedToRealPixels = false
+
         if let scale = zoomScale {
+            let center = pinchCenter ?? CGPoint(x: bounds.midX, y: bounds.midY)
+
             target = target.settled(
                 viewSize  : bounds.size,
                 imageSize : imageSize,
                 range     : scale.range,
-                around    : pinchCenter ?? CGPoint(x: bounds.midX, y: bounds.midY)
+                around    : center
             )
+
+            let resting = scale.restingZoom(for: target.zoom)
+
+            if resting != target.zoom {
+                target.pinch(
+                    by       : resting / target.zoom,
+                    around   : center,
+                    range    : scale.range,
+                    viewSize : bounds.size
+                )
+                target                = target.settled(viewSize: bounds.size, imageSize: imageSize)
+                isSnappedToRealPixels = true
+            }
         } else {
             target = target.settled(viewSize: bounds.size, imageSize: imageSize)
         }
 
         guard target != canvasTransform else { return }
+
+        if isSnappedToRealPixels, UIAccessibility.isReduceMotionEnabled {
+            spring          = nil
+            canvasTransform = target
+            return
+        }
 
         // A zoom springing back from past a limit snaps; momentum is for a pan alone.
         let isMomentum = isFlick && target.zoom == canvasTransform.zoom
@@ -728,6 +948,62 @@ final class CanvasView: UIView {
         if spring.isSettled(at: elapsed) {
             self.spring = nil
         }
+    }
+
+    /// visibleWindow is the window the current view needs (FrameWindow.visible), nil while the
+    /// preview is enough.
+    private var visibleWindow: FrameWindow? {
+        FrameWindow.visible(
+            transform   : canvasTransform,
+            viewSize    : bounds.size,
+            imageSize   : imageSize,
+            photoSize   : nativeSize,
+            screenScale : Double(contentScaleFactor),
+            maxPixels   : frames.maxPixels
+        )
+    }
+
+    /// updateVisibleWindow runs on each display tick: it recomputes the wanted window and hands it to
+    /// `onVisibleWindowChange` when it changed. While the view moves (a gesture, a spring or the pan
+    /// sweep) a new window waits at least `windowRequestInterval` after the last one and goes as a
+    /// draft; at rest the window goes at once, at full quality, even if its draft already went.
+    /// Losing the window (nil) goes at once. Every tick that wants no window raises `windowFloor`:
+    /// a window still rendering when the view left it lands later, and wakes a tick of its own.
+    private func updateVisibleWindow(at time: CFTimeInterval) {
+        let wanted   = visibleWindow
+        let isMoving = isGestureActive || spring != nil || isMeasurementPanning
+
+        if wanted == nil {
+            windowFloor = Self.newestGeneration(frames.published())
+        }
+
+        wantedWindow = wanted
+
+        let isCurrent = wanted == sentWindow && (isMoving || !isSentWindowDraft)
+
+        guard !isCurrent else {
+            isWindowUpdatePending = false
+            return
+        }
+
+        if wanted != nil, isMoving, time - lastWindowSendTime < Self.windowRequestInterval {
+            isWindowUpdatePending = true
+            return
+        }
+
+        sentWindow            = wanted
+        isSentWindowDraft     = isMoving && wanted != nil
+        lastWindowSendTime    = time
+        isWindowUpdatePending = false
+
+        onVisibleWindowChange?(wanted, isSentWindowDraft)
+    }
+
+    /// wakeForWindowUpdate runs the display link for at least one tick, so `updateVisibleWindow`
+    /// sees a view that stopped moving without a redraw (a gesture ending where it rests).
+    private func wakeForWindowUpdate() {
+        isWindowUpdatePending = true
+        displayLink?.isPaused = false
     }
 
     /// reportZoom runs on each display tick: it hands `onZoomChange` the percentage when its pill

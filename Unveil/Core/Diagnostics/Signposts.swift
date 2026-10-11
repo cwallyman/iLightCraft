@@ -11,8 +11,9 @@ import Synchronization
 ///
 /// - `OpenToFirstFrame`: from `EditorViewModel.open` to the presented frame at or above the open's
 ///   preview generation. It ends with `failed` when the open never asked for a preview.
-/// - `SliderToFrame` (`draft` or `full`): from `EngineManager.requestPreview`, the single place a
-///   preview is asked for, to the presented frame at or above its generation. It ends with
+/// - `SliderToFrame` (`draft` or `full`, `window-draft` or `window-full` for a zoom window): from
+///   `EngineManager.requestPreview` or `requestWindow`, the only places a render is asked for, to
+///   the presented frame at or above its generation. It ends with
 ///   `presented` for its own frame, `dropped` for its own frame with no presented time, and
 ///   `overtaken` when a newer frame was shown instead.
 /// - `Command` (the command name), `ImportCopy` and `ShaderCompile` are begun and ended in place by
@@ -45,10 +46,10 @@ nonisolated enum Signposts {
     }
 
     /// previewRequested begins one `SliderToFrame` for the render that will carry `generation`.
-    static func previewRequested(generation: UInt64, isDraft: Bool) {
+    static func previewRequested(generation: UInt64, isDraft: Bool, isWindow: Bool = false) {
         guard signposter.isEnabled else { return }
 
-        let quality = isDraft ? "draft" : "full"
+        let quality = (isWindow ? "window-" : "") + (isDraft ? "draft" : "full")
         let state   = signposter.beginInterval(
             "SliderToFrame",
             id: signposter.makeSignpostID(),

@@ -109,15 +109,17 @@ pub struct Frames {
     pub cv: Condvar,
 }
 
-pub extern "C" fn record(
-    ctx: *mut std::ffi::c_void,
-    rgba: *const u8,
-    w: u32,
-    h: u32,
-    stride: u32,
-    g: u64,
-    draft: bool,
-) {
+pub extern "C" fn record(ctx: *mut std::ffi::c_void, frame: *const UVFrame) {
+    // SAFETY: the engine passes a frame valid for the duration of the callback.
+    let UVFrame {
+        rgba,
+        width: w,
+        height: h,
+        stride,
+        generation: g,
+        draft,
+        ..
+    } = *unsafe { &*frame };
     // A panic here aborts the test binary, which is the failure we want for a wrong thread.
     assert_eq!(std::thread::current().name(), Some("unveil-engine"));
     // SAFETY: ctx is the Frames the test keeps alive in an Arc for the whole session.

@@ -45,6 +45,37 @@ struct EngineManagerTests {
         try await waitUntil(seconds: 30) { (manager.frames.latest()?.generation ?? 0) >= generation }
     }
 
+    /// A window of the fixture at 400 % comes back through the C callback as a window frame, with
+    /// its placement, in the sink's window slot: the preview stays where it was. Both carry the
+    /// fixture's own 96 x 64 as the native size of the frame.
+    @Test
+    func aWindowRequestDeliversAPlacedWindowBesideThePreview() async throws {
+        let manager = try makeManager(maxPixels: 512)
+        _ = try await manager.openPhoto(at: fixtureURL())
+
+        let preview = try manager.requestPreview(maxPixels: 96, draft: false)
+        try await waitUntil(seconds: 30) { (manager.frames.latest()?.generation ?? 0) >= preview }
+
+        let asked = FrameWindow(
+            frameWidth  : 384,
+            frameHeight : 256,
+            x           : 100,
+            y           : 40,
+            width       : 120,
+            height      : 80
+        )
+        let generation = try manager.requestWindow(asked, draft: false)
+
+        try await waitUntil(seconds: 30) { (manager.frames.published().window?.generation ?? 0) >= generation }
+
+        let published = manager.frames.published()
+        #expect(published.window?.window == asked)
+        #expect(published.window?.width == 120 && published.window?.height == 80)
+        #expect(published.frame?.generation == preview && published.frame?.window == nil)
+        #expect(published.frame?.nativeWidth == 96 && published.frame?.nativeHeight == 64)
+        #expect(published.window?.nativeWidth == 96 && published.window?.nativeHeight == 64)
+    }
+
     @Test
     func reopeningAfterTheFileMovedRelinksItAndStillRenders() async throws {
         let manager  = try makeManager(maxPixels: 256)

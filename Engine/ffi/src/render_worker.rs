@@ -7,13 +7,14 @@ use lightcraft_engine::RenderJob;
 use lightcraft_engine::catalog::PhotoId;
 use lightcraft_engine::media::RenderResult;
 
-use crate::session::{FrameCallback, Msg, caught, set_user_initiated_qos};
+use crate::session::{Delivery, FrameCallback, Msg, caught, set_user_initiated_qos};
 
 /// Work is one render for the worker: the job (its request_id is the generation) and what the
 /// engine thread needs back to deliver the frame.
 pub(crate) struct Work {
     pub job: RenderJob,
     pub draft: bool,
+    pub delivery: Delivery,
     pub callback: FrameCallback,
 }
 
@@ -24,6 +25,7 @@ pub(crate) struct RenderDone {
     pub draft: bool,
     pub photo: PhotoId,
     pub result: Option<RenderResult>,
+    pub delivery: Delivery,
     pub callback: FrameCallback,
 }
 
@@ -42,7 +44,13 @@ impl RenderWorker {
             .stack_size(8 << 20)
             .spawn(move || {
                 set_user_initiated_qos();
-                for Work { job, draft, callback } in rx {
+                for Work {
+                    job,
+                    draft,
+                    delivery,
+                    callback,
+                } in rx
+                {
                     let (generation, photo) = (job.request_id, job.photo);
                     let result = caught("render", || job.run());
                     let done_msg = RenderDone {
@@ -50,6 +58,7 @@ impl RenderWorker {
                         draft,
                         photo,
                         result,
+                        delivery,
                         callback,
                     };
                     // The engine thread is gone only after a shutdown that gave up on this render.
