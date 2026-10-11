@@ -77,13 +77,26 @@ struct CanvasTransformTests {
         let finger = CGPoint(x: 600, y: 500)
         let before = CanvasTransform().imagePoint(at: finger, viewSize: view, imageSize: image)
 
-        let zoomed = CanvasTransform().toggledZoom(at: finger, viewSize: view, imageSize: image, screenScale: 2)
+        let zoomed = CanvasTransform().toggledZoom(
+            at         : finger,
+            viewSize   : view,
+            imageSize  : image,
+            screenScale: 2,
+            photoScale : 1
+        )
         let after  = zoomed.imagePoint(at: finger, viewSize: view, imageSize: image)
 
         #expect(zoomed.zoom == 2)
         #expect(zoomed.screenPixelsPerImagePixel(viewSize: view, imageSize: image, screenScale: 2) == 1)
         #expect(abs(before.x - after.x) < 0.5 && abs(before.y - after.y) < 0.5)
-        #expect(zoomed.toggledZoom(at: finger, viewSize: view, imageSize: image, screenScale: 2) == CanvasTransform())
+        let back = zoomed.toggledZoom(
+            at         : finger,
+            viewSize   : view,
+            imageSize  : image,
+            screenScale: 2,
+            photoScale : 1
+        )
+        #expect(back == CanvasTransform())
     }
 
     @Test
@@ -92,7 +105,13 @@ struct CanvasTransformTests {
         let view  = CGSize(width: 1000, height: 1000)
         let image = CGSize(width: 2000, height: 2000)
 
-        let zoomed = CanvasTransform().toggledZoom(at: .zero, viewSize: view, imageSize: image, screenScale: 2)
+        let zoomed = CanvasTransform().toggledZoom(
+            at         : .zero,
+            viewSize   : view,
+            imageSize  : image,
+            screenScale: 2,
+            photoScale : 1
+        )
 
         #expect(zoomed.zoom == CanvasTransform.minimumToggleZoom)
     }
@@ -120,5 +139,51 @@ struct CanvasTransformTests {
         transform.reset()
 
         #expect(transform == CanvasTransform())
+    }
+
+    @Test
+    func theZoomPercentageRoundsToTheNearestWholeNumber() {
+        #expect(CanvasTransform.percent(of: 1) == 100)
+        #expect(CanvasTransform.percent(of: 0.4349) == 43)
+        #expect(CanvasTransform.percent(of: 0.4351) == 44)
+        #expect(CanvasTransform.percent(of: 2.004) == 200)
+    }
+
+    @Test
+    func doubleTapZoomsToThePhotosReal100Percent() {
+        // A 2000 px preview of a 6000 px photo: real 100 % is 3 screen pixels per preview pixel.
+        let view  = CGSize(width: 1000, height: 1000)
+        let image = CGSize(width: 2000, height: 2000)
+        let scale = CanvasTransform.photoScale(previewSize: image, photoSize: CGSize(width: 6000, height: 6000))
+
+        let zoomed = CanvasTransform().toggledZoom(
+            at         : .zero,
+            viewSize   : view,
+            imageSize  : image,
+            screenScale: 2,
+            photoScale : scale
+        )
+        let ratio  = zoomed.screenPixelsPerImagePixel(viewSize: view, imageSize: image, screenScale: 2) ?? 0
+
+        #expect(abs(zoomed.zoom - 3) < 1e-9)
+        #expect(CanvasTransform.percent(of: ratio * scale) == 100)
+    }
+
+    @Test
+    func theZoomPercentageIsMeasuredAgainstThePhotosRealPixels() {
+        let preview = CGSize(width: 2752, height: 1835)
+        let photo   = CGSize(width: 6240, height: 4160)
+        let scale   = CanvasTransform.photoScale(previewSize: preview, photoSize: photo)
+
+        // One screen pixel per preview pixel at fit is 44% of a 26 MP photo.
+        #expect(CanvasTransform.percent(of: 1 * scale) == 44)
+
+        // The real 100% needs this many screen pixels per preview pixel.
+        #expect(abs(1 / scale - 6240.0 / 2752) < 1e-9)
+
+        // A portrait photo is measured on its long edge too, and an unknown size changes nothing.
+        let portrait = CGSize(width: 4160, height: 6240)
+        #expect(CanvasTransform.photoScale(previewSize: preview, photoSize: portrait) == scale)
+        #expect(CanvasTransform.photoScale(previewSize: preview, photoSize: .zero) == 1)
     }
 }

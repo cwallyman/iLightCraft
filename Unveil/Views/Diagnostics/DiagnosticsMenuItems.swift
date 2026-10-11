@@ -1,18 +1,19 @@
 //
-//  DiagnosticsMenu.swift
+//  DiagnosticsMenuItems.swift
 //  Unveil
 //
 
 import SwiftUI
 
-/// DiagnosticsMenu declares the system menu; command execution belongs to EditorDiagnostics.
-struct DiagnosticsMenu<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoImporting>: View {
+/// DiagnosticsMenuItems declares the Debug items of the editor's ellipsis menu; command
+/// execution belongs to EditorDiagnostics.
+struct DiagnosticsMenuItems<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoImporting>: View {
 
     let diagnostics: EditorDiagnostics<Engine, Importer>
     let isPhotoOpen: Bool
 
     var body: some View {
-        Menu("Diagnostics", systemImage: "ellipsis") {
+        Section("Diagnostics") {
             Button("Engine state", systemImage: "cpu") {
                 Task { await diagnostics.showEngineState() }
             }

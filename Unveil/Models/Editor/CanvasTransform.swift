@@ -30,8 +30,8 @@ nonisolated struct CanvasTransform: Equatable, Sendable {
     /// zoomRange bounds a pinch. Below 1 is only a rubber band: `settled` returns to fit.
     static let zoomRange: ClosedRange<Double> = 0.25 ... 16
 
-    /// minimumToggleZoom is the least a double tap zooms in. The preview is about as large
-    /// as the screen, so 100 % is often fit itself, and a double tap must still go somewhere.
+    /// minimumToggleZoom is the least a double tap zooms in: a photo no larger than the screen
+    /// is at 100 % (or more) already at fit, and a double tap must still go somewhere.
     static let minimumToggleZoom = 2.0
 
     /// rubberBandStiffness sets how fast the resistance grows past an edge: the
@@ -97,6 +97,23 @@ nonisolated struct CanvasTransform: Equatable, Sendable {
     /// pixel on one screen pixel. `screenScale` is the screen's pixels per point.
     func screenPixelsPerImagePixel(viewSize: CGSize, imageSize: CGSize, screenScale: Double) -> Double? {
         Self.fitScale(viewSize: viewSize, imageSize: imageSize).map { $0 * zoom * screenScale }
+    }
+
+    /// percent(of:) is a screen-to-image pixel ratio as the whole percentage the zoom pill shows.
+    static func percent(of ratio: Double) -> Int {
+        Int((ratio * 100).rounded())
+    }
+
+    /// photoScale(previewSize:photoSize:) is preview pixels per photo pixel: the preview's long edge
+    /// over the photo's. A screen-to-preview ratio times it is the ratio to real photo pixels. It is
+    /// 1 while either size is unknown, so the pill falls back to preview pixels.
+    static func photoScale(previewSize: CGSize, photoSize: CGSize) -> Double {
+        let previewLong = Double(max(previewSize.width, previewSize.height))
+        let photoLong   = Double(max(photoSize.width, photoSize.height))
+
+        guard previewLong > 0, photoLong > 0 else { return 1 }
+
+        return previewLong / photoLong
     }
 
     /// pinch(by:around:viewSize:) multiplies the zoom by `factor`, clamped, keeping
@@ -169,22 +186,27 @@ nonisolated struct CanvasTransform: Equatable, Sendable {
         return result
     }
 
-    /// toggledZoom(at:viewSize:imageSize:screenScale:) is the double tap: from a zoomed
-    /// in view it returns to fit; from fit (or below) it zooms in on `point` to 100 %,
-    /// or to `minimumToggleZoom` when 100 % is too close to fit to be worth a tap.
+    /// toggledZoom(at:viewSize:imageSize:screenScale:photoScale:) is the double tap: from a
+    /// zoomed in view it returns to fit; from fit (or below) it zooms in on `point` to the
+    /// photo's real 100 %, or to `minimumToggleZoom` when that is closer to fit. `photoScale`
+    /// is preview pixels per photo pixel (see `photoScale(previewSize:photoSize:)`).
     func toggledZoom(
         at point   : CGPoint,
         viewSize   : CGSize,
         imageSize  : CGSize,
-        screenScale: Double
+        screenScale: Double,
+        photoScale : Double
     ) -> CanvasTransform {
         guard zoom <= 1.001 else { return CanvasTransform() }
 
-        guard let fitScale = Self.fitScale(viewSize: viewSize, imageSize: imageSize), screenScale > 0 else {
+        guard let fitScale = Self.fitScale(viewSize: viewSize, imageSize: imageSize),
+              screenScale > 0,
+              photoScale  > 0
+        else {
             return self
         }
 
-        let actualPixels = 1 / (fitScale * screenScale)
+        let actualPixels = 1 / (fitScale * screenScale * photoScale)
         let targetZoom   = min(max(actualPixels, Self.minimumToggleZoom), Self.zoomRange.upperBound)
         var result       = CanvasTransform()
 

@@ -33,6 +33,9 @@ nonisolated enum DevelopAdjustmentKind: String, CaseIterable, Sendable {
     /// step is the slider increment: 0.01 for exposure, 50 K for temperature, whole units for the rest.
     var step        : Double              { tuning.step }
 
+    /// isWhiteBalance is true for temperature and tint, whose default is the photo's As Shot value.
+    var isWhiteBalance: Bool { self == .temperature || self == .tint }
+
     /// tuning is the one table of slider numbers, one row per kind.
     private var tuning: (range: ClosedRange<Double>, defaultValue: Double, step: Double) {
         switch self {

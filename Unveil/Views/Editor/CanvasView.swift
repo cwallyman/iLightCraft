@@ -16,7 +16,7 @@ import UIKit
 /// The gestures write the transform directly while the fingers are down; when they lift, a
 /// CanvasSpring carries it to where it should rest (see CanvasTransform.settled), with the flick's
 /// velocity as momentum. The spring runs on the same display link as the redraw, so the link stays
-/// awake only while something moves. ZoomIndicatorView shows the zoom while it changes.
+/// awake only while something moves. `onZoomChange` reports the zoom percentage for the editor's pill.
 ///
 /// There is no polling. A CADisplayLink runs only while something is dirty: a new frame, a
 /// transform change or a new drawable size marks the view, the next tick draws once, and the link
@@ -58,7 +58,6 @@ final class CanvasView: UIView {
 
     private let pinchRecognizer = UIPinchGestureRecognizer()
     private let panRecognizer   = UIPanGestureRecognizer()
-    private let zoomIndicator   = ZoomIndicatorView()
 
     private var spring           : CanvasSpring?
     private var springStartTime  : CFTimeInterval = 0
@@ -66,6 +65,23 @@ final class CanvasView: UIView {
 
     /// onSingleTap runs when the canvas is tapped once (the editor closes its panel with it).
     var onSingleTap: (() -> Void)?
+
+    /// onZoomChange gets the zoom as a whole percentage of the photo's real pixels on screen pixels,
+    /// at most once per display frame and only when the rounded value changes.
+    var onZoomChange: ((Int) -> Void)?
+
+    /// photoSize is the open photo's size in real pixels (`.zero` when unknown). The zoom percentage
+    /// is measured against it, not against the smaller preview.
+    var photoSize: CGSize = .zero {
+        didSet {
+            if photoSize != oldValue {
+                reportedPercent = nil
+                setNeedsRedraw()
+            }
+        }
+    }
+
+    private var reportedPercent: Int?
 
     /// canvasTransform is the gesture state (UIView already owns `transform`). Any real change to
     /// it asks for one redraw.
@@ -161,7 +177,6 @@ final class CanvasView: UIView {
         configureLayer(device: device)
         configureRenderPass()
         configureGestures()
-        configureZoomIndicator()
         configureAccessibility()
         listenForFrames()
     }
@@ -176,6 +191,31 @@ final class CanvasView: UIView {
     func resetZoom() {
         spring = nil
         canvasTransform.reset()
+    }
+
+    /// zoomToFit animates back to aspect fit (a jump under Reduce Motion), like a double tap from zoomed in.
+    func zoomToFit() {
+        move(to: CanvasTransform())
+    }
+
+    /// zoom(toPercent:) animates to that percentage of the photo's real pixels on screen pixels
+    /// around the view center, clamped to the zoom range and settled inside the edges. Above the
+    /// preview's own resolution the preview is upscaled.
+    func zoom(toPercent percent: Int) {
+        guard let fitScale = CanvasTransform.fitScale(viewSize: bounds.size, imageSize: imageSize),
+              contentScaleFactor > 0
+        else { return }
+
+        let photoScale = CanvasTransform.photoScale(previewSize: imageSize, photoSize: photoSize)
+        let wanted     = Double(percent) / 100 / photoScale / (fitScale * Double(contentScaleFactor))
+        var target = canvasTransform
+        target.pinch(
+            by       : wanted / target.zoom,
+            around   : CGPoint(x: bounds.midX, y: bounds.midY),
+            viewSize : bounds.size
+        )
+
+        move(to: target.settled(viewSize: bounds.size, imageSize: imageSize))
     }
 
     /// setNeedsRedraw marks the canvas dirty: the next display link tick draws once, then the link
@@ -239,6 +279,7 @@ final class CanvasView: UIView {
     @objc
     private func displayLinkDidFire(_ link: CADisplayLink) {
         advanceSpring(to: link.targetTimestamp)
+        reportZoom()
 
         guard isDirty else {
             link.isPaused = spring == nil
@@ -398,7 +439,6 @@ final class CanvasView: UIView {
                     viewSize : bounds.size
                 )
                 recognizer.scale = 1
-                updateZoomIndicator()
 
             case .ended, .cancelled, .failed:
                 settle(velocity: .zero)
@@ -434,7 +474,8 @@ final class CanvasView: UIView {
         }
     }
 
-    /// handleDoubleTap toggles fit and 100 % around the tap (see CanvasTransform.toggledZoom).
+    /// handleDoubleTap toggles fit and the photo's real 100 % around the tap (see
+    /// CanvasTransform.toggledZoom).
     /// With Reduce Motion the zoom jumps instead of animating.
     @objc
     private func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
@@ -442,13 +483,18 @@ final class CanvasView: UIView {
             at          : recognizer.location(in: self),
             viewSize    : bounds.size,
             imageSize   : imageSize,
-            screenScale : Double(contentScaleFactor)
+            screenScale : Double(contentScaleFactor),
+            photoScale  : CanvasTransform.photoScale(previewSize: imageSize, photoSize: photoSize)
         )
 
+        move(to: target)
+    }
+
+    /// move goes to `target` with the snap spring, or at once under Reduce Motion.
+    private func move(to target: CanvasTransform) {
         if UIAccessibility.isReduceMotionEnabled {
             spring          = nil
             canvasTransform = target
-            updateZoomIndicator()
         } else {
             animate(to: target, velocity: .zero, frequency: CanvasSpring.snapFrequency)
         }
@@ -543,7 +589,7 @@ final class CanvasView: UIView {
     }
 
     /// advanceSpring moves the transform to where the running spring is at `time`, and ends the
-    /// spring once it has settled. A spring that changes the zoom keeps the indicator up.
+    /// spring once it has settled.
     private func advanceSpring(to time: CFTimeInterval) {
         guard let spring else { return }
 
@@ -553,32 +599,26 @@ final class CanvasView: UIView {
         if spring.isSettled(at: elapsed) {
             self.spring = nil
         }
-
-        if spring.start.zoom != spring.target.zoom {
-            updateZoomIndicator()
-        }
     }
 
-
-    /// updateZoomIndicator shows "Fit" or the zoom percentage and gives VoiceOver the same
-    /// text as the canvas's value.
-    private func updateZoomIndicator() {
-        let text: String
-
-        if canvasTransform.isFit {
-            text = String(localized: "Fit")
-        } else if let ratio = canvasTransform.screenPixelsPerImagePixel(
+    /// reportZoom runs on each display tick: it hands `onZoomChange` the rounded percentage when
+    /// it differs from the last one, and gives VoiceOver the same text as the canvas's value.
+    private func reportZoom() {
+        guard let ratio = canvasTransform.screenPixelsPerImagePixel(
             viewSize    : bounds.size,
             imageSize   : imageSize,
             screenScale : Double(contentScaleFactor)
-        ) {
-            text = "\(Int((ratio * 100).rounded()))%"
-        } else {
-            return
-        }
+        ) else { return }
 
-        zoomIndicator.show(text)
-        accessibilityValue = text
+        let percent = CanvasTransform.percent(
+            of: ratio * CanvasTransform.photoScale(previewSize: imageSize, photoSize: photoSize)
+        )
+
+        guard percent != reportedPercent else { return }
+
+        reportedPercent    = percent
+        accessibilityValue = "\(percent)%"
+        onZoomChange?(percent)
     }
 
     // MARK: - Setup
@@ -617,17 +657,6 @@ final class CanvasView: UIView {
         addGestureRecognizer(panRecognizer)
         addGestureRecognizer(doubleTap)
         addGestureRecognizer(singleTap)
-    }
-
-    /// configureZoomIndicator floats the zoom capsule at the bottom center, clear of the toolbars.
-    private func configureZoomIndicator() {
-        zoomIndicator.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(zoomIndicator)
-
-        NSLayoutConstraint.activate([
-            zoomIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
-            zoomIndicator.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -24),
-        ])
     }
 
     private func configureAccessibility() {

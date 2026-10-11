@@ -24,8 +24,10 @@ struct AdjustmentPanel<Engine: EngineDriving, Importer: PhotoImporting>: View {
                 AdjustmentSlider(
                     kind             : kind,
                     value            : binding(for: kind),
+                    defaultValue     : viewModel.defaultValue(of: kind),
                     onEditingChanged : { editingChanged(kind, isEditing: $0) },
-                    onCommit         : { commit(kind, to: $0) }
+                    onCommit         : { commit(kind, to: $0) },
+                    onReset          : { Task.immediate { await viewModel.reset(kind) } }
                 )
             }
         }
@@ -42,7 +44,7 @@ struct AdjustmentPanel<Engine: EngineDriving, Importer: PhotoImporting>: View {
         )
     }
 
-    /// commit runs one discrete change (a stepper press, a VoiceOver step, a reset) as a whole edit:
+    /// commit runs one discrete change (a stepper press, a VoiceOver step) as a whole edit:
     /// set the value, then a full preview. Each one is final, so it must not stop on a draft frame.
     private func commit(
         _ kind     : DevelopAdjustmentKind,

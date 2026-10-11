@@ -16,8 +16,11 @@ struct EditorView<
     @Bindable
     private var session: EditorSession<Engine, Importer, LibraryLoader>
 
-    @Environment(\.horizontalSizeClass)
-    private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion)
+    private var reduceMotion
+
+    @State
+    private var isInfoShown = false
 
     private let canvas     : CanvasView
     private let diagnostics: EditorDiagnostics<Engine, Importer>
@@ -33,33 +36,55 @@ struct EditorView<
     }
 
     var body: some View {
-        
+
         NavigationStack {
-            
-            EditorCanvas(canvas: canvas, photo: session.viewModel.openPhoto) {
-                session.isInspectorPresented = false
+
+            ZStack(alignment: .trailing) {
+
+                EditorCanvas(
+                    canvas       : canvas,
+                    photo        : session.viewModel.openPhoto,
+                    photoSize    : session.viewModel.photoSize,
+                    onSingleTap  : { session.select(.move) },
+                    onZoomChange : { session.zoomPercent = $0 }
+                )
+                .ignoresSafeArea()
+
+                HStack(spacing: 12) {
+
+                    if session.isCardOpen {
+                        AdjustCard(viewModel: session.viewModel, group: $session.selectedGroup)
+                            .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
+                    }
+
+                    ToolRail(
+                        tool        : session.tool,
+                        isPhotoOpen : session.viewModel.isPhotoOpen,
+                        onSelect    : session.select
+                    )
+                }
+                .padding(16)
+                .animation(.smooth(duration: 0.3), value: session.tool)
             }
-            .ignoresSafeArea()
             .toolbar { toolbar }
-            .inspector(isPresented: $session.isInspectorPresented) {
-                inspector
+            .sheet(isPresented: $isInfoShown) {
+                PhotoInfoSheet(
+                    name : session.viewModel.photoTitle,
+                    type : session.viewModel.photoType,
+                    size : session.viewModel.photoSize
+                )
             }
-            
+
         }
         .modifier(EditorAlertPresenter(
             alert     : session.presentedAlert,
-            isActive  : !isCompactInspectorPresented,
             onDismiss : session.dismissAlert
         ))
     }
 
-    private var isCompactInspectorPresented: Bool {
-        horizontalSizeClass == .compact && session.isInspectorPresented
-    }
-
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        
+
         ToolbarItem(placement: .topBarLeading) {
             Button(
                 "Home",
@@ -69,38 +94,59 @@ struct EditorView<
             .accessibilityIdentifier("home-button")
         }
 
+        ToolbarSpacer(.fixed, placement: .topBarLeading)
+
+        ToolbarItem(placement: .topBarLeading) {
+            Menu {
+                Button("Info", systemImage: "info.circle") { isInfoShown = true }
+            } label: {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(session.viewModel.photoTitle)
+                        .font(.headline)
+
+                    Text(session.viewModel.isEdited ? "Edited" : "Original")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityIdentifier("title-menu")
+        }
+
+        ToolbarSpacer(.fixed, placement: .topBarLeading)
+
+        ToolbarItem(placement: .topBarLeading) {
+            ZoomPill(session: session, canvas: canvas)
+        }
+
         ToolbarItemGroup(placement: .topBarTrailing) {
-            DiagnosticsMenu(diagnostics: diagnostics, isPhotoOpen: session.viewModel.isPhotoOpen)
+            Button("Undo", systemImage: "arrow.uturn.backward") { }
+                .disabled(true)
 
-            Button(
-                "Adjustments",
-                systemImage : "slider.horizontal.3",
-                action      : session.toggleInspector
-            )
-            .disabled(!session.viewModel.isPhotoOpen)
-            .accessibilityIdentifier("adjustments-toggle")
+            Button("Redo", systemImage: "arrow.uturn.forward") { }
+                .disabled(true)
         }
-    }
 
-    private var inspector: some View {
-        
-        NavigationStack {
-        
-            AdjustmentInspector(
-                viewModel: session.viewModel,
-                selection: session.inspector
-            )
-            .navigationTitle("Adjustments")
-            .navigationBarTitleDisplayMode(.inline)
+        ToolbarSpacer(.fixed, placement: .topBarTrailing)
 
+        ToolbarItem(placement: .topBarTrailing) {
+            Button("Share", systemImage: "square.and.arrow.up") { }
+                .disabled(true)
         }
-        .inspectorColumnWidth(360)
-        .modifier(
-            EditorAlertPresenter(
-                alert    : session.presentedAlert,
-                isActive : isCompactInspectorPresented,
-                onDismiss: session.dismissAlert
-            )
-        )
+
+        ToolbarSpacer(.fixed, placement: .topBarTrailing)
+
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu("More", systemImage: "ellipsis") {
+                Button("Reset All", systemImage: "arrow.counterclockwise") {
+                    Task { await session.viewModel.resetAll() }
+                }
+                .disabled(!session.viewModel.isEdited)
+
+                #if DEBUG
+                DiagnosticsMenuItems(diagnostics: diagnostics, isPhotoOpen: session.viewModel.isPhotoOpen)
+                #endif
+            }
+            .accessibilityIdentifier("more-menu")
+        }
     }
 }

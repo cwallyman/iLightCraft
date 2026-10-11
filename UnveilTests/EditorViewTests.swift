@@ -13,49 +13,40 @@ import UIKit
 @MainActor
 struct EditorViewTests {
 
-    /// inspectorRetainsCanvasAndClosesOnTap verifies native touch routing and canvas identity
-    /// through the SwiftUI inspector's regular column and compact sheet presentations.
-    @Test(arguments: [false, true])
-    func inspectorRetainsCanvasAndClosesOnTap(isCompact: Bool) async throws {
-        let fixture = try Fixture(isCompact: isCompact)
+    /// cardKeepsCanvasAndClosesOnTap verifies native touch routing and canvas identity while the
+    /// adjust card opens and closes: the card floats over the canvas and never resizes it.
+    @Test
+    func cardKeepsCanvasAndClosesOnTap() async throws {
+        let fixture = try Fixture()
         defer { fixture.window.isHidden = true }
         await fixture.model.open(pickedURL: URL(filePath: "/tmp/photo.RAF"))
         try await waitUntil(seconds: 3) { fixture.canvasReceivesCenterTouch }
-        let width = fixture.canvas.bounds.width
+        let size = fixture.canvas.bounds.size
 
         fixture.session.showPanel(.color)
-        try await waitUntil(seconds: 3) {
-            isCompact
-                ? fixture.host.presentedViewController != nil
-                : fixture.canvas.bounds.width < width - 100
-        }
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(fixture.session.isCardOpen)
+        #expect(fixture.session.selectedGroup == .color)
         #expect(findCanvas(in: fixture.host.view) === fixture.canvas)
-        #expect(fixture.session.inspector.selectedGroup == .color)
+        #expect(fixture.canvas.bounds.size == size)
 
         fixture.canvas.onSingleTap?()
         try await waitUntil(seconds: 3) {
-            !fixture.session.isInspectorPresented && fixture.canvasReceivesCenterTouch
-                && abs(fixture.canvas.bounds.width - width) < 1
-                && fixture.host.presentedViewController == nil
+            !fixture.session.isCardOpen && fixture.canvasReceivesCenterTouch
         }
         #expect(findCanvas(in: fixture.host.view) === fixture.canvas)
+        #expect(fixture.canvas.bounds.size == size)
     }
 
-    /// adjustmentFailureIsVisibleAboveInspector checks that the compact sheet does not swallow
-    /// an editing error. Closing the alert clears the model while leaving the inspector open.
-    @Test(arguments: [false, true])
-    func adjustmentFailureIsVisibleAboveInspector(isCompact: Bool) async throws {
-        let fixture = try Fixture(isCompact: isCompact)
+    /// adjustmentFailureIsVisibleWhileCardIsOpen checks that the card does not hide an editing
+    /// error. Closing the alert clears the model while leaving the card open.
+    @Test
+    func adjustmentFailureIsVisibleWhileCardIsOpen() async throws {
+        let fixture = try Fixture()
         defer { fixture.window.isHidden = true }
         await fixture.model.open(pickedURL: URL(filePath: "/tmp/photo.RAF"))
         try await waitUntil(seconds: 3) { fixture.canvasReceivesCenterTouch }
-        let width = fixture.canvas.bounds.width
         fixture.session.showPanel(.light)
-        try await waitUntil(seconds: 3) {
-            isCompact
-                ? fixture.host.presentedViewController != nil
-                : fixture.canvas.bounds.width < width - 100
-        }
         try await Task.sleep(for: .milliseconds(500))
 
         fixture.engine.failNextSet = .engine("Adjustment failed")
@@ -63,29 +54,47 @@ struct EditorViewTests {
         try await waitUntil(seconds: 3) {
             findAlert(in: fixture.host)?.message == "Adjustment failed"
         }
-        #expect(fixture.session.isInspectorPresented)
+        #expect(fixture.session.isCardOpen)
 
         fixture.session.dismissAlert()
         try await waitUntil(seconds: 3) { findAlert(in: fixture.host) == nil }
         #expect(fixture.model.errorMessage == nil)
-        #expect(fixture.session.isInspectorPresented)
-        fixture.host.dismiss(animated: false)
+        #expect(fixture.session.isCardOpen)
     }
 
     /// openingPhotoKeepsCanvas keeps the canvas attached even before an import (the home, not
-    /// the editor, now covers that state). Opening a photo never replaces the Metal view.
-    @Test(arguments: [false, true])
-    func openingPhotoKeepsCanvas(isCompact: Bool) async throws {
-        let fixture = try Fixture(isCompact: isCompact)
+    /// the editor, covers that state). Without a photo the Adjust tool does not open the card.
+    @Test
+    func openingPhotoKeepsCanvas() async throws {
+        let fixture = try Fixture()
         defer { fixture.window.isHidden = true }
         try await waitUntil(seconds: 3) { !fixture.canvas.bounds.isEmpty }
 
         fixture.session.showPanel(.light)
-        #expect(!fixture.session.isInspectorPresented)
+        #expect(!fixture.session.isCardOpen)
 
         await fixture.model.open(pickedURL: URL(filePath: "/tmp/photo.RAF"))
         try await waitUntil(seconds: 3) { fixture.canvasReceivesCenterTouch }
         #expect(findCanvas(in: fixture.host.view) === fixture.canvas)
+    }
+
+    /// canvasSurvivesHomeAndBackWithTheCardClosed hosts the whole workspace: going home and back
+    /// keeps the one canvas, and with the card closed it receives a touch at its center.
+    @Test
+    func canvasSurvivesHomeAndBackWithTheCardClosed() async throws {
+        let fixture = try Fixture(hostsWorkspace: true)
+        defer { fixture.window.isHidden = true }
+        await fixture.session.open(pickedURL: URL(filePath: "/tmp/photo.RAF"))
+        try await waitUntil(seconds: 3) { fixture.canvasReceivesCenterTouch }
+
+        fixture.session.goHome()
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(fixture.canvas.window === fixture.window)
+
+        await fixture.session.open(pickedURL: URL(filePath: "/tmp/photo.RAF"))
+        try await waitUntil(seconds: 3) { fixture.canvasReceivesCenterTouch }
+        #expect(findCanvas(in: fixture.host.view) === fixture.canvas)
+        #expect(!fixture.session.isCardOpen)
     }
 
     private func findCanvas(in view: UIView) -> CanvasView? {
@@ -118,10 +127,11 @@ struct EditorViewTests {
         let model  : EditorViewModel<FakeEngine, FakeImporter>
         let session: EditorSession<FakeEngine, FakeImporter, PhotoLibraryLoader>
         let canvas : CanvasView
-        let host   : UIHostingController<EditorView<FakeEngine, FakeImporter, PhotoLibraryLoader>>
+        // AnyView: one fixture hosts either the editor or the whole workspace, chosen at run time.
+        let host   : UIHostingController<AnyView>
         let window : UIWindow
 
-        init(isCompact: Bool) throws {
+        init(hostsWorkspace: Bool = false) throws {
             let engine = FakeEngine()
             let model = EditorViewModel(
                 engine        : engine,
@@ -139,28 +149,20 @@ struct EditorViewTests {
                 possibleTearCount : { [weak canvas] in canvas?.possibleTearCount ?? 0 },
                 present           : { [weak session] in session?.alert = $0 }
             )
-            let host = UIHostingController(rootView: EditorView(
-                session     : session,
-                canvas      : canvas,
-                diagnostics : diagnostics
-            ))
-            host.traitOverrides.horizontalSizeClass = isCompact ? .compact : .regular
-            host.traitOverrides.preferredContentSizeCategory = isCompact
-                ? .accessibilityExtraExtraExtraLarge
-                : .large
+            let root = hostsWorkspace
+                ? AnyView(WorkspaceView(
+                    session       : session,
+                    canvas        : canvas,
+                    diagnostics   : diagnostics,
+                    launchOptions : MeasurementLaunchOptions(arguments: [])
+                ))
+                : AnyView(EditorView(session: session, canvas: canvas, diagnostics: diagnostics))
+            let host = UIHostingController(rootView: root)
             let scene = try #require(
                 UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
             )
             let window = UIWindow(windowScene: scene)
-            if isCompact {
-                window.frame = CGRect(
-                    x      : 0,
-                    y      : 0,
-                    width  : 320,
-                    height : 480
-                )
-            }
-            window.overrideUserInterfaceStyle = isCompact ? .dark : .light
+            window.overrideUserInterfaceStyle = .light
             window.rootViewController = host
             window.makeKeyAndVisible()
             window.layoutIfNeeded()

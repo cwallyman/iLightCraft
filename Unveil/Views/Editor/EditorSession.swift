@@ -20,10 +20,12 @@ final class EditorSession<
 > {
 
     let viewModel: EditorViewModel<Engine, Importer>
-    let inspector = AdjustmentInspectorState()
 
-    var isInspectorPresented: Bool = false
-    var alert               : EditorAlert?
+    var alert         : EditorAlert?
+    var selectedGroup : AdjustmentGroup = .light
+    var zoomPercent   : Int = 100
+
+    private(set) var tool: EditorTool = .move
 
     private(set) var isEditorPresented: Bool = false
     private(set) var isImporting      : Bool = false
@@ -56,26 +58,25 @@ final class EditorSession<
         }
     }
 
+    /// isCardOpen is true while the Adjust tool is selected: the adjust card follows it.
+    var isCardOpen: Bool { tool == .adjust }
+
+    /// select changes the tool. Adjust needs an open photo; Move (and closing the card) never does.
+    func select(_ tool: EditorTool) {
+        guard tool == .move || viewModel.isPhotoOpen else { return }
+
+        self.tool = tool
+    }
+
     func showPanel(_ group: AdjustmentGroup) {
-        guard viewModel.isPhotoOpen else { return }
-
-        inspector.selectedGroup = group
-        isInspectorPresented    = true
+        selectedGroup = group
+        select(.adjust)
     }
 
-    func toggleInspector() {
-        if isInspectorPresented {
-            isInspectorPresented = false
-        } else {
-            showPanel(inspector.selectedGroup)
-        }
-    }
-
-    /// goHome closes the inspector with the editor, so a compact inspector sheet never stays
-    /// over the home. The photo, its values and the canvas stay as they are.
+    /// goHome closes the card with the editor. The photo, its values and the canvas stay as they are.
     func goHome() {
-        isInspectorPresented = false
-        isEditorPresented    = false
+        tool              = .move
+        isEditorPresented = false
     }
 
     /// open imports a file picked in Files (or named by `-UnveilOpen`) and presents the editor
@@ -99,7 +100,7 @@ final class EditorSession<
 
         do throws(PhotoLibraryError) {
             let pickedURL = try await libraryLoader.loadPhoto(from: provider)
-            await openAndPresent(pickedURL)
+            await openAndPresent(pickedURL, title: Self.title(ofStagedPhoto: pickedURL))
 
             do throws(PhotoLibraryError) {
                 try await libraryLoader.discardPhoto(at: pickedURL)
@@ -112,9 +113,17 @@ final class EditorSession<
         }
     }
 
-    private func openAndPresent(_ pickedURL: URL) async {
-        if await viewModel.open(pickedURL: pickedURL) {
+    private func openAndPresent(_ pickedURL: URL, title: String? = nil) async {
+        if await viewModel.open(pickedURL: pickedURL, title: title) {
             isEditorPresented = true
         }
+    }
+
+    /// title(ofStagedPhoto:) is the picker file's name when it reads like one (IMG_0042), and
+    /// "Photo" when it is only a generated identifier.
+    private static func title(ofStagedPhoto url: URL) -> String {
+        let name = url.deletingPathExtension().lastPathComponent
+
+        return name.isEmpty || UUID(uuidString: name) != nil ? "Photo" : name
     }
 }

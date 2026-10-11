@@ -3,7 +3,7 @@
 //  Unveil
 //
 
-/// AdjustmentGroup names the sets of develop controls shown in the inspector.
+/// AdjustmentGroup names the sets of develop controls shown in the adjust card.
 /// Case order determines the order of the group picker.
 nonisolated enum AdjustmentGroup: Int, CaseIterable, Identifiable, Sendable {
 

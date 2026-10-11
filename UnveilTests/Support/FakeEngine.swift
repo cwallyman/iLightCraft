@@ -3,6 +3,7 @@
 //  UnveilTests
 //
 
+import CoreGraphics
 import Foundation
 import Metal
 import Synchronization
@@ -15,16 +16,20 @@ import Synchronization
 final class FakeEngine: EngineDriving, EngineDiagnosing {
 
     private struct State {
-        var budgets         : [UInt64] = []
-        var lifecycle       : [String] = []
-        var previewCounter  : UInt64   = 0
-        var calls           : [String] = []
-        var failNextOpen    : EngineError?
-        var failNextValues  : EngineError?
-        var failNextSet     : EngineError?
-        var failNextPreview : EngineError?
-        var openedPhotos    : UInt64   = 0
-        var storedValues    : [DevelopAdjustmentKind: Double] = [:]
+        var budgets            : [UInt64]  = []
+        var lifecycle          : [String]  = []
+        var previewCounter     : UInt64    = 0
+        var calls              : [String]  = []
+        var failNextOpen       : EngineError?
+        var failNextValues     : EngineError?
+        var failNextSet        : EngineError?
+        var failNextPreview    : EngineError?
+        var failNextMerge      : EngineError?
+        var openedPhotos       : UInt64    = 0
+        var storedValues       : [DevelopAdjustmentKind: Double] = [:]
+        var edited             : Bool      = false
+        var editedReads        : Int       = 0
+        var photoInfo          : PhotoInfo = .image
     }
 
     private let state = Mutex(State())
@@ -34,8 +39,9 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
     var budgets  : [UInt64] { state.withLock { $0.budgets } }
     var lifecycle: [String] { state.withLock { $0.lifecycle } }
 
-    /// Every openPhoto, select, set and requestPreview in order, as "open <path>", "select <id>",
-    /// "set <id> <value>" and "preview <pixels> draft|full".
+    /// Every openPhoto, select, set, reset and requestPreview in order, as "open <path>",
+    /// "select <id>", "set <id> <value>", "reset <photo>", "merge <json>", "wb asShot" and
+    /// "preview <pixels> draft|full".
     var calls: [String] { state.withLock { $0.calls } }
 
     /// The error the next openPhoto throws, once. It clears itself when thrown.
@@ -62,10 +68,80 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
         set { state.withLock { $0.failNextPreview = newValue } }
     }
 
+    /// The error resetDevelop's merge throws, once, after the reset has landed.
+    var failNextMerge: EngineError? {
+        get { state.withLock { $0.failNextMerge } }
+        set { state.withLock { $0.failNextMerge = newValue } }
+    }
+
     /// The values currentValues reports on top of the kind defaults, like a photo reopened with saved settings.
     var storedValues: [DevelopAdjustmentKind: Double] {
         get { state.withLock { $0.storedValues } }
         set { state.withLock { $0.storedValues = newValue } }
+    }
+
+    /// The engine's edited flag that isEdited(_:) reports. The fake never changes it by itself:
+    /// a test sets it, so the status can only have come from the engine.
+    var edited: Bool {
+        get { state.withLock { $0.edited } }
+        set { state.withLock { $0.edited = newValue } }
+    }
+
+    /// How many times isEdited(_:) was called.
+    var editedReads: Int { state.withLock { $0.editedReads } }
+
+    /// What photoInfo(of:) reports for every photo: a plain image unless a test makes it a raw.
+    var photoInfo: PhotoInfo {
+        get { state.withLock { $0.photoInfo } }
+        set { state.withLock { $0.photoInfo = newValue } }
+    }
+
+    func isEdited(_ photo: PhotoID) async throws(EngineError) -> Bool {
+        state.withLock {
+            $0.editedReads += 1
+            return $0.edited
+        }
+    }
+
+    func photoInfo(of photo: PhotoID) async throws(EngineError) -> PhotoInfo {
+        photoInfo
+    }
+
+    /// resetDevelop clears the stored values, then a non-empty merge (recorded as its sorted JSON)
+    /// stores its detail values, or throws `failNextMerge` with the reset already applied.
+    func resetDevelop(
+        _ photo            : PhotoID,
+        restoring settings : DevelopMergeSettings
+    ) async throws(EngineError) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let json = (try? encoder.encode(settings)).map { String(decoding: $0, as: UTF8.self) } ?? "?"
+
+        let failure = state.withLock {
+            $0.calls.append("reset \(photo.rawValue)")
+            $0.storedValues = [:]
+
+            guard !settings.isEmpty else { return EngineError?.none }
+
+            $0.calls.append("merge \(json)")
+
+            let failure = $0.failNextMerge
+            $0.failNextMerge = nil
+
+            if failure == nil, let detail = settings.detail {
+                $0.storedValues = [.sharpening: detail.sharpenAmount, .colorNoise: detail.nrColor]
+            }
+            return failure
+        }
+
+        if let failure {
+            throw failure
+        }
+    }
+
+    /// resetWhiteBalance keeps the stored temperature and tint: the fake treats them as the As Shot ones.
+    func resetWhiteBalance() async throws(EngineError) {
+        state.withLock { $0.calls.append("wb asShot") }
     }
 
     func currentValues() async throws(EngineError) -> [DevelopAdjustmentKind: Double] {
@@ -114,6 +190,7 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
     func set(_ adjustment: DevelopAdjustmentKind, to value: Double) async throws(EngineError) {
         let failure = state.withLock {
             $0.calls.append("set \(adjustment.rawValue) \(value)")
+
             let failure = $0.failNextSet
             $0.failNextSet = nil
             return failure

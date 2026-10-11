@@ -11,7 +11,7 @@ import Testing
 struct EditorSessionTests {
 
     @Test
-    func inspectorRequiresPhotoAndRetainsSelection() async {
+    func adjustToolRequiresPhotoAndRetainsGroup() async {
         let model = EditorViewModel(
             engine        : FakeEngine(),
             importer      : FakeImporter(),
@@ -20,17 +20,18 @@ struct EditorSessionTests {
         let session = EditorSession(viewModel: model, libraryLoader: ControlledPhotoLibraryLoader())
 
         session.showPanel(.color)
-        #expect(!session.isInspectorPresented)
+        #expect(!session.isCardOpen)
 
         await model.open(pickedURL: URL(filePath: "/tmp/photo.RAF"))
         session.showPanel(.color)
-        #expect(session.isInspectorPresented)
-        #expect(session.inspector.selectedGroup == .color)
+        #expect(session.isCardOpen)
+        #expect(session.selectedGroup == .color)
 
-        session.isInspectorPresented = false
-        session.toggleInspector()
-        #expect(session.isInspectorPresented)
-        #expect(session.inspector.selectedGroup == .color)
+        session.select(.move)
+        #expect(!session.isCardOpen)
+        session.select(.adjust)
+        #expect(session.isCardOpen)
+        #expect(session.selectedGroup == .color)
     }
 
     /// failedOpenReleasesStagingAndKeepsPhoto verifies that moving import ownership out of the
@@ -204,7 +205,7 @@ struct EditorSessionTests {
 
         session.goHome()
         #expect(!session.isEditorPresented)
-        #expect(!session.isInspectorPresented)
+        #expect(!session.isCardOpen)
         #expect(model.openPhoto == photo)
         #expect(model.values[.exposure] == 1)
     }
@@ -233,5 +234,24 @@ struct EditorSessionTests {
         #expect(engine.calls.first == "open /tmp/first.RAF")
         #expect(session.isEditorPresented)
         #expect(!session.isImporting)
+    }
+
+    /// A Photos pick is titled with the picker file's name, or "Photo" for a generated identifier.
+    @Test(arguments: [("IMG_0042.HEIC", "IMG_0042"), ("\(UUID().uuidString).JPG", "Photo")])
+    func photosPickIsTitledByAMeaningfulFileName(name: String, title: String) async throws {
+        let model = EditorViewModel(
+            engine        : FakeEngine(),
+            importer      : FakeImporter(),
+            previewPixels : 64
+        )
+        let loader  = ControlledPhotoLibraryLoader()
+        let session = EditorSession(viewModel: model, libraryLoader: loader)
+        let task    = Task { await session.importLibraryPhoto(from: NSItemProvider()) }
+        try await waitUntil(seconds: 3) { loader.loadCount == 1 }
+
+        loader.complete(.success(URL(filePath: "/tmp/\(name)")))
+        await task.value
+
+        #expect(model.photoTitle == title)
     }
 }

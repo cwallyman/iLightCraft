@@ -16,7 +16,9 @@ struct EngineManagerTests {
     /// A PNG the engine can import: the simulator has no RAW samples.
     func fixtureURL() throws -> URL {
         let url      = FileManager.default.temporaryDirectory.appending(path: "fixture-\(UUID()).png")
-        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 96, height: 64))
+        let format   = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 96, height: 64), format: format)
         let data     = renderer.pngData { context in
             UIColor.systemTeal.setFill()
             context.fill(CGRect(x: 0, y: 0, width: 96, height: 64))
@@ -86,6 +88,40 @@ struct EngineManagerTests {
 
         #expect(values[.exposure] == 0.5)
         #expect(values.count == DevelopAdjustmentKind.allCases.count)
+    }
+
+    @Test
+    func editedFlagSizeAndResetsSpeakTheEngineJSON() async throws {
+        let manager = try makeManager(maxPixels: 256)
+        let photo   = try await manager.openPhoto(at: fixtureURL())
+
+        let info    = try await manager.photoInfo(of: photo)
+        #expect(info.size == CGSize(width: 96, height: 64))
+        #expect(!info.isRaw)
+        #expect(!info.hasEmbeddedLens)
+        #expect(info.cameraDefaultsMerge.isEmpty)
+        #expect(try await !manager.isEdited(photo))
+
+        // Upstream `is_unedited` ignores white balance, so on a plain image only a non-WB
+        // control makes the photo edited.
+        try await manager.set(.exposure, to: 0.5)
+        #expect(try await manager.isEdited(photo))
+
+        try await manager.set(.tint, to: 20)
+        try await manager.resetWhiteBalance()
+
+        // On a plain image the raw look is an edit, which proves the merge reached the engine.
+        let rawLook = DevelopMergeSettings(detail: PhotoInfo.rawDetail, optics: .init(lensProfile: true))
+        try await manager.resetDevelop(photo, restoring: rawLook)
+
+        let values = try await manager.currentValues()
+        #expect(values[.exposure] == 0)
+        #expect(values[.sharpening] == 40)
+        #expect(values[.colorNoise] == 25)
+        #expect(try await manager.isEdited(photo))
+
+        try await manager.resetDevelop(photo, restoring: .none)
+        #expect(try await !manager.isEdited(photo))
     }
 
     @Test

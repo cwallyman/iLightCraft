@@ -2,7 +2,7 @@
 
 iPad RAW editor (iPadOS 26+): SwiftUI editor shell and panels, UIKit/Metal canvas and system adapters, and a Rust engine in `Engine/` (the vendored LightCraft workspace plus the `Engine/ffi` bridge).
 
-`UnveilApp` is the SwiftUI entry point and presents `ContentView` in a `WindowGroup`. `ContentView` retains an `EditorWorkspace`, which composes one `CanvasView`, `EditorSession` and `EditorDiagnostics` for `EditorView`. `AppDelegate` remains only as a service-startup adapter through `UIApplicationDelegateAdaptor`; there is no custom scene delegate or root hosting controller. SwiftUI owns navigation, toolbar menus, the inspector, empty state and alerts. `EditorCanvas` bridges the stable native view; frame delivery remains `EngineManager` → `FrameSink` → `CanvasView`, outside observable UI state. Low-level lifecycle notifications and the Photos item-provider adapter remain native.
+`UnveilApp` is the SwiftUI entry point and presents `ContentView` in a `WindowGroup`. `ContentView` retains an `EditorWorkspace`, which composes one `CanvasView`, `EditorSession` and `EditorDiagnostics` for `EditorView`. `AppDelegate` remains only as a service-startup adapter through `UIApplicationDelegateAdaptor`; there is no custom scene delegate or root hosting controller. SwiftUI owns navigation, the home screen, the editor's toolbar (title menu, zoom pill, Undo/Redo, More menu), the trailing tool rail with its adjust card, and alerts. `EditorCanvas` bridges the stable native view; frame delivery remains `EngineManager` → `FrameSink` → `CanvasView`, outside observable UI state. Low-level lifecycle notifications and the Photos item-provider adapter remain native.
 
 ## Read first
 

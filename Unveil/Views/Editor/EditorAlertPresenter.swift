@@ -5,20 +5,18 @@
 
 import SwiftUI
 
-/// EditorAlertPresenter attaches the same alert contract to the active presentation surface.
-/// In compact width the inspector is a sheet, so its content must own the visible alert.
+/// EditorAlertPresenter attaches the editor's one alert contract: an alert value, an OK button.
 struct EditorAlertPresenter: ViewModifier {
 
     let alert    : EditorAlert?
-    let isActive : Bool
     let onDismiss: () -> Void
 
     func body(content: Content) -> some View {
         content.alert(
             alert?.title ?? "",
             isPresented: Binding(
-                get: { isActive && alert != nil },
-                set: { if !$0 && isActive { onDismiss() } }
+                get: { alert != nil },
+                set: { if !$0 { onDismiss() } }
             ),
             presenting: alert
         ) { _ in

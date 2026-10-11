@@ -3,6 +3,7 @@
 //  Unveil
 //
 
+import CoreGraphics
 import Foundation
 
 /// EngineDriving is the whole surface the editor sees of the engine: open a photo, set a
@@ -27,6 +28,23 @@ nonisolated protocol EngineDriving: AnyObject, Sendable {
     /// The current value of each develop control of the active photo, as the engine holds it: the
     /// photo's saved settings, or the as-shot values for a first open.
     func currentValues() async throws(EngineError) -> [DevelopAdjustmentKind: Double]
+
+    /// The engine's own "edited" flag for `photo`: its settings differ from what import gave it.
+    func isEdited(_ photo: PhotoID) async throws(EngineError) -> Bool
+
+    /// What the library records of the photo: its pixel size and what decides its develop defaults.
+    func photoInfo(of photo: PhotoID) async throws(EngineError) -> PhotoInfo
+
+    /// Puts every develop setting of `photo` back to the engine's reset look (As Shot white balance,
+    /// the rest at control defaults), then applies `settings` in one `develop.merge` unless empty.
+    /// A throw may come from the merge, after the reset already landed.
+    func resetDevelop(
+        _ photo            : PhotoID,
+        restoring settings : DevelopMergeSettings
+    ) async throws(EngineError)
+
+    /// Puts the active photo's temperature and tint back to As Shot.
+    func resetWhiteBalance() async throws(EngineError)
 
     /// Starts a render and returns its generation without waiting for it. That generation may never be
     /// delivered if a newer request overtakes it, so wait for a frame at or above it, not equal to it.

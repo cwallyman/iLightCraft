@@ -8,13 +8,14 @@ import SwiftUI
 /// AdjustmentSlider is one develop control: its name, its current value, a slider over the kind's
 /// range and a compact stepper (minus and plus) that moves the value by one step.
 ///
-/// It knows nothing about the engine. The value comes in as a binding, the drag edges go out
-/// through `onEditingChanged`, and every discrete change (a stepper press, a VoiceOver step, a
-/// reset) goes out through `onCommit` as a whole edit, so the panel decides what each one means.
+/// It knows nothing about the engine. The value comes in as a binding and the photo's own default
+/// as `defaultValue`; the drag edges go out through `onEditingChanged`, every discrete change (a
+/// stepper press, a VoiceOver step) through `onCommit` as a whole edit, and a reset through
+/// `onReset`, since temperature and tint go back to As Shot rather than to a number.
 ///
 /// The stepper repeats while held (`buttonRepeatBehavior`), each repeat being one more step. A
 /// double tap on the name or on the slider (or the VoiceOver action "Reset") resets the
-/// value to the kind's default.
+/// value to the default.
 ///
 /// Haptics: a selection tick when a drag crosses or lands on the default and at every stepper
 /// press, and a light impact on reset.
@@ -26,8 +27,10 @@ struct AdjustmentSlider: View {
 
     let kind            : DevelopAdjustmentKind
     let value           : Binding<Double>
+    let defaultValue    : Double
     let onEditingChanged: (Bool) -> Void
     let onCommit        : (Double) -> Void
+    let onReset         : () -> Void
 
     @Environment(\.isEnabled)
     private var isEnabled
@@ -132,7 +135,7 @@ struct AdjustmentSlider: View {
         guard isEnabled else { return }
 
         resets += 1
-        onCommit(kind.defaultValue)
+        onReset()
     }
 
     /// adjust moves the value one step in the VoiceOver direction. A disabled slider (no photo
@@ -151,15 +154,15 @@ struct AdjustmentSlider: View {
     }
 
     private func crossesDefault(from oldValue: Double, to newValue: Double) -> Bool {
-        let before = oldValue - kind.defaultValue
-        let after  = newValue - kind.defaultValue
+        let before = oldValue - defaultValue
+        let after  = newValue - defaultValue
 
         return before * after < 0 || (after == 0 && before != 0)
     }
 
     // MARK: - Text
 
-    private var isAtDefault: Bool { value.wrappedValue == kind.defaultValue }
+    private var isAtDefault: Bool { value.wrappedValue == defaultValue }
 
     /// formattedValue shows exposure in EV with a sign and two decimals, temperature in kelvin,
     /// and every other control as an integer, signed when its range goes below zero.
