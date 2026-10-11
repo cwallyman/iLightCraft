@@ -68,6 +68,7 @@ struct EditorView<
                 .padding(16)
                 .animation(cardAnimation, value: session.tool)
             }
+            .background { zoomInAliases }
             .toolbar { toolbar }
             .sheet(isPresented: $isInfoShown) {
                 PhotoInfoSheet(
@@ -78,10 +79,28 @@ struct EditorView<
             }
 
         }
+        .focusedSceneValue(\.zoomCanvas, session.canZoom ? canvas : nil)
         .modifier(EditorAlertPresenter(
             alert     : session.presentedAlert,
             onDismiss : session.dismissAlert
         ))
+    }
+
+    /// zoomInAliases add Cmd = and Cmd Shift = to Zoom In, next to ZoomCommands' Cmd +: plus needs
+    /// Shift on a US keyboard and "=" needs it on an Italian one. They are invisible, zero-size
+    /// buttons, kept out of the View menu so it lists Zoom In once.
+    private var zoomInAliases: some View {
+        Group {
+            Button("Zoom In", action: canvas.zoomIn)
+                .keyboardShortcut("=", modifiers: .command)
+
+            Button("Zoom In", action: canvas.zoomIn)
+                .keyboardShortcut("=", modifiers: [.command, .shift])
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+        .disabled(!session.canZoom)
     }
 
     /// cardAnimation opens and closes the card: a short slide, or a cross-fade under Reduce Motion.

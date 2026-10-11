@@ -4,6 +4,7 @@
 //
 
 import CoreGraphics
+import Foundation
 
 /// CanvasTransform maps the image into the view: aspect fit at zoom 1, then zoom and pan.
 ///
@@ -19,16 +20,14 @@ import CoreGraphics
 /// DOWN (the UIKit convention). The quad is returned in NDC with y UP (the Metal
 /// convention), so the vertical offset changes sign on the way out.
 ///
-/// A gesture may leave the transform somewhere it should not rest: zoomed out
-/// below fit, or with the image pulled past an edge. That is on purpose, it is
-/// the rubber band. `settled` is where it springs back to when the fingers lift.
+/// A gesture may leave the transform somewhere it should not rest: with the image
+/// pulled past an edge, or pinched past the ends of the zoom range. That is on purpose,
+/// it is the rubber band. `settled` is where it springs back to when the fingers lift.
+/// Zoom below fit is allowed and stays; the range of a zoom comes from `ZoomScale`.
 nonisolated struct CanvasTransform: Equatable, Sendable {
 
     // nonisolated: pure value math, callable from the engine thread and from tests,
     // while the project default would pin it to the main actor.
-
-    /// zoomRange bounds a pinch. Below 1 is only a rubber band: `settled` returns to fit.
-    static let zoomRange: ClosedRange<Double> = 0.25 ... 16
 
     /// minimumToggleZoom is the least a double tap zooms in: a photo no larger than the screen
     /// is at 100 % (or more) already at fit, and a double tap must still go somewhere.
@@ -37,6 +36,10 @@ nonisolated struct CanvasTransform: Equatable, Sendable {
     /// rubberBandStiffness sets how fast the resistance grows past an edge: the
     /// image moves half as far as the finger at the edge, and less the further it goes.
     private static let rubberBandStiffness = 4.0
+
+    /// zoomOvershootLimit is the farthest a pinch stretches past either end of its range, as a
+    /// factor of that end: 1.25 lets 3200 % reach 4000 % before it stops dead.
+    private static let zoomOvershootLimit = 1.25
 
     /// 1 means aspect fit.
     var zoom  : Double = 1
@@ -93,17 +96,6 @@ nonisolated struct CanvasTransform: Equatable, Sendable {
         )
     }
 
-    /// screenPixelsPerImagePixel is the zoom as the user reads it: 1 is 100 %, one image
-    /// pixel on one screen pixel. `screenScale` is the screen's pixels per point.
-    func screenPixelsPerImagePixel(viewSize: CGSize, imageSize: CGSize, screenScale: Double) -> Double? {
-        Self.fitScale(viewSize: viewSize, imageSize: imageSize).map { $0 * zoom * screenScale }
-    }
-
-    /// percent(of:) is a screen-to-image pixel ratio as the whole percentage the zoom pill shows.
-    static func percent(of ratio: Double) -> Int {
-        Int((ratio * 100).rounded())
-    }
-
     /// photoScale(previewSize:photoSize:) is preview pixels per photo pixel: the preview's long edge
     /// over the photo's. A screen-to-preview ratio times it is the ratio to real photo pixels. It is
     /// 1 while either size is unknown, so the pill falls back to preview pixels.
@@ -116,27 +108,52 @@ nonisolated struct CanvasTransform: Equatable, Sendable {
         return previewLong / photoLong
     }
 
-    /// pinch(by:around:viewSize:) multiplies the zoom by `factor`, clamped, keeping
-    /// the image point under `point` (view points, y down) where it is.
+    /// pinch(by:around:range:viewSize:) multiplies the zoom by `factor`, keeping the image point
+    /// under `point` (view points, y down) where it is.
     ///
     /// With `d` the point relative to the view center, the image point under it is
     /// `(d - offset) / (fitScale * zoom)`. Asking for the same point after the zoom
     /// changes by `ratio` gives `offset' = d - ratio * (d - offset)`. The fit scale
-    /// cancels out, which is why no image size is needed. The ratio comes from the
-    /// CLAMPED zoom, so hitting a limit never drags the image. A non-finite or
-    /// non-positive factor is ignored.
-    mutating func pinch(by factor: Double, around point: CGPoint, viewSize: CGSize) {
+    /// cancels out, which is why no image size is needed. A non-finite or non-positive
+    /// factor is ignored.
+    ///
+    /// Inside `range` the zoom follows the fingers. Past an end it is the rubber band of
+    /// `pan`, in log space so that it feels the same at 5 % and at 3200 %: an outward step
+    /// is damped by `0.5 / (1 + k * overshoot / ln 2)` and stops at `zoomOvershootLimit`,
+    /// a step back in is never damped. `settled(viewSize:imageSize:range:around:)` brings
+    /// the zoom back to the end when the fingers lift.
+    mutating func pinch(
+        by factor   : Double,
+        around point: CGPoint,
+        range       : ClosedRange<Double>,
+        viewSize    : CGSize
+    ) {
         guard factor.isFinite, factor > 0 else { return }
 
-        let clampedZoom = min(max(zoom * factor, Self.zoomRange.lowerBound), Self.zoomRange.upperBound)
-        let ratio       = clampedZoom / zoom
-        let fromCenter  = SIMD2<Double>(
+        let lower = log(range.lowerBound)
+        let upper = log(range.upperBound)
+        let step  = log(factor)
+
+        // The part of the step that stays inside the range is free; only the rest is damped.
+        let start     = log(zoom)
+        let isInside  = start >= lower && start <= upper
+        let freeStep  = isInside ? min(max(start + step, lower), upper) - start : 0
+        let restStep  = step - freeStep
+        let position  = start + freeStep
+        let overshoot = max(position - upper, lower - position, 0)
+        let isOutward = restStep > 0 ? position >= upper : position <= lower
+        let damping   = isOutward ? 0.5 / (1 + Self.rubberBandStiffness * overshoot / log(2.0)) : 1
+        let margin    = log(Self.zoomOvershootLimit)
+        let newZoom   = exp(min(max(position + restStep * damping, lower - margin), upper + margin))
+
+        let ratio      = newZoom / zoom
+        let fromCenter = SIMD2<Double>(
             Double(point.x) - Double(viewSize.width)  / 2,
             Double(point.y) - Double(viewSize.height) / 2
         )
 
         offset = fromCenter - ratio * (fromCenter - offset)
-        zoom   = clampedZoom
+        zoom   = newZoom
     }
 
     /// pan(by:viewSize:imageSize:) moves the image by a gesture translation, in view points.
@@ -171,12 +188,10 @@ nonisolated struct CanvasTransform: Equatable, Sendable {
         }
     }
 
-    /// settled(viewSize:imageSize:) is where the transform comes to rest: back to fit
-    /// if it was zoomed out below it, otherwise the same zoom with the image pushed
-    /// back inside its edges (an axis smaller than the view is centered).
+    /// settled(viewSize:imageSize:) is where the transform comes to rest: the same zoom
+    /// with the image pushed back inside its edges (an axis smaller than the view,
+    /// as when zoomed out below fit, is centered).
     func settled(viewSize: CGSize, imageSize: CGSize) -> CanvasTransform {
-        guard zoom > 1 else { return CanvasTransform() }
-
         var result = self
 
         if let limits = offsetLimits(viewSize: viewSize, imageSize: imageSize) {
@@ -184,6 +199,27 @@ nonisolated struct CanvasTransform: Equatable, Sendable {
         }
 
         return result
+    }
+
+    /// settled(viewSize:imageSize:range:around:) is the rest after a pinch: a zoom stretched past
+    /// an end of `range` springs back to that end around `point` (the fingers' last centroid), so
+    /// the image under them stays put, and then the image is pushed back inside its edges.
+    func settled(
+        viewSize    : CGSize,
+        imageSize   : CGSize,
+        range       : ClosedRange<Double>,
+        around point: CGPoint
+    ) -> CanvasTransform {
+        var result = self
+
+        result.pinch(
+            by       : min(max(zoom, range.lowerBound), range.upperBound) / zoom,
+            around   : point,
+            range    : range,
+            viewSize : viewSize
+        )
+
+        return result.settled(viewSize: viewSize, imageSize: imageSize)
     }
 
     /// toggledZoom(at:viewSize:imageSize:screenScale:photoScale:) is the double tap: from a
@@ -207,10 +243,11 @@ nonisolated struct CanvasTransform: Equatable, Sendable {
         }
 
         let actualPixels = 1 / (fitScale * screenScale * photoScale)
-        let targetZoom   = min(max(actualPixels, Self.minimumToggleZoom), Self.zoomRange.upperBound)
+        let upperZoom    = ZoomScale(percentAtFit: fitScale * screenScale * photoScale * 100)?.range.upperBound ?? 1
+        let targetZoom   = min(max(actualPixels, Self.minimumToggleZoom), upperZoom)
         var result       = CanvasTransform()
 
-        result.pinch(by: targetZoom, around: point, viewSize: viewSize)
+        result.pinch(by: targetZoom, around: point, range: 1 ... targetZoom, viewSize: viewSize)
 
         return result.settled(viewSize: viewSize, imageSize: imageSize)
     }

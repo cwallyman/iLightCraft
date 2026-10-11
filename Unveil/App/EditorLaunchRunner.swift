@@ -15,6 +15,7 @@ final class EditorLaunchRunner {
     func start(
         engine : EngineManager,
         session: EditorSession<EngineManager, PhotoImporter, PhotoLibraryLoader>,
+        canvas : CanvasView,
         options: MeasurementLaunchOptions
     ) {
         guard !hasStarted else { return }
@@ -24,6 +25,7 @@ final class EditorLaunchRunner {
         runMeasurement(
             options : options,
             session : session,
+            canvas  : canvas,
             engine  : engine
         )
     }
@@ -72,6 +74,7 @@ final class EditorLaunchRunner {
     private func runMeasurement(
         options: MeasurementLaunchOptions,
         session: EditorSession<EngineManager, PhotoImporter, PhotoLibraryLoader>,
+        canvas : CanvasView,
         engine : EngineManager
     ) {
         guard let fileName = options.openFileName else { return }
@@ -99,6 +102,10 @@ final class EditorLaunchRunner {
 
             if let panel = options.openPanel {
                 session.showPanel(panel)
+            }
+
+            if let percent = options.zoomPercent {
+                canvas.zoom(toPercent: percent)
             }
 
             guard let seconds = options.sweepSeconds else { return }

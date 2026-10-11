@@ -56,6 +56,7 @@ final class EditorWorkspace {
         launchRunner.start(
             engine  : engine,
             session : session,
+            canvas  : canvas,
             options : launchOptions
         )
     }

@@ -21,24 +21,70 @@ struct CanvasTransformTests {
     }
 
     @Test
-    func pinchIsClampedBetweenAQuarterOfFitAnd16x() {
+    func pinchStretchesPastTheRangeByAtMostAQuarter() {
         var transform = CanvasTransform()
+        let view      = CGSize(width: 100, height: 100)
 
-        transform.pinch(by: 100, around: .zero, viewSize: CGSize(width: 100, height: 100))
-        #expect(transform.zoom == 16)
+        // Inside the range the zoom follows the fingers exactly.
+        transform.pinch(by: 8, around: .zero, range: 0.1 ... 16, viewSize: view)
+        #expect(abs(transform.zoom - 8) < 1e-12)
 
-        transform.pinch(by: 0.001, around: .zero, viewSize: CGSize(width: 100, height: 100))
-        #expect(transform.zoom == 0.25)
+        // Past an end it moves less than the fingers, and stops at 1.25 times the end.
+        transform.pinch(by: 2.5, around: .zero, range: 0.1 ... 16, viewSize: view)
+        #expect(transform.zoom > 16 && transform.zoom < 20)
+
+        transform.pinch(by: 100, around: .zero, range: 0.1 ... 16, viewSize: view)
+        #expect(abs(transform.zoom - 20) < 1e-9)
+
+        transform.pinch(by: 0.000001, around: .zero, range: 0.1 ... 16, viewSize: view)
+        #expect(abs(transform.zoom - 0.08) < 1e-9)
     }
 
     @Test
-    func belowFitSettlesBackToFit() {
+    func aStretchedZoomSettlesBackToTheLimitAroundTheFingers() {
+        var transform = CanvasTransform()
+        let view      = CGSize(width: 1000, height: 1000)
+        let image     = CGSize(width: 2000, height: 2000)
+        let finger    = CGPoint(x: 700, y: 400)
+
+        transform.pinch(by: 40, around: finger, range: 0.05 ... 32, viewSize: view)
+        #expect(transform.zoom > 32)
+
+        let before  = transform.imagePoint(at: finger, viewSize: view, imageSize: image)
+        let settled = transform.settled(
+            viewSize  : view,
+            imageSize : image,
+            range     : 0.05 ... 32,
+            around    : finger
+        )
+        let after   = settled.imagePoint(at: finger, viewSize: view, imageSize: image)
+
+        #expect(abs(settled.zoom - 32) < 1e-9)
+        #expect(abs(before.x - after.x) < 0.5 && abs(before.y - after.y) < 0.5)
+
+        // Below the range it returns to the lower end, centred since the image is smaller than the view.
+        transform.pinch(by: 0.0001, around: finger, range: 0.05 ... 32, viewSize: view)
+        let low = transform.settled(
+            viewSize  : view,
+            imageSize : image,
+            range     : 0.05 ... 32,
+            around    : finger
+        )
+
+        #expect(abs(low.zoom - 0.05) < 1e-9)
+        #expect(low.offset == .zero)
+    }
+
+    @Test
+    func belowFitStaysAndIsCentered() {
         var transform = CanvasTransform()
         let view      = CGSize(width: 1000, height: 1000)
 
-        transform.pinch(by: 0.5, around: CGPoint(x: 100, y: 100), viewSize: view)
+        transform.pinch(by: 0.5, around: CGPoint(x: 100, y: 100), range: 0.05 ... 32, viewSize: view)
+        let settled = transform.settled(viewSize: view, imageSize: view)
 
-        #expect(transform.settled(viewSize: view, imageSize: view) == CanvasTransform())
+        #expect(settled.zoom == 0.5)
+        #expect(settled.offset == .zero)
     }
 
     @Test
@@ -87,7 +133,13 @@ struct CanvasTransformTests {
         let after  = zoomed.imagePoint(at: finger, viewSize: view, imageSize: image)
 
         #expect(zoomed.zoom == 2)
-        #expect(zoomed.screenPixelsPerImagePixel(viewSize: view, imageSize: image, screenScale: 2) == 1)
+        let scale = ZoomScale(
+            viewSize    : view,
+            imageSize   : image,
+            screenScale : 2,
+            photoScale  : 1
+        )
+        #expect(scale?.percent(forZoom: zoomed.zoom) == 100)
         #expect(abs(before.x - after.x) < 0.5 && abs(before.y - after.y) < 0.5)
         let back = zoomed.toggledZoom(
             at         : finger,
@@ -124,7 +176,7 @@ struct CanvasTransformTests {
         let finger    = CGPoint(x: 750, y: 500)
         let before    = transform.imagePoint(at: finger, viewSize: view, imageSize: image)
 
-        transform.pinch(by: 2, around: finger, viewSize: view)
+        transform.pinch(by: 2, around: finger, range: 0.05 ... 32, viewSize: view)
 
         let after = transform.imagePoint(at: finger, viewSize: view, imageSize: image)
         #expect(abs(before.x - after.x) < 0.5 && abs(before.y - after.y) < 0.5)
@@ -134,19 +186,11 @@ struct CanvasTransformTests {
     func resetReturnsToFit() {
         var transform = CanvasTransform()
 
-        transform.pinch(by: 3, around: .zero, viewSize: CGSize(width: 100, height: 100))
+        transform.pinch(by: 3, around: .zero, range: 0.05 ... 32, viewSize: CGSize(width: 100, height: 100))
         transform.pan(by: CGPoint(x: 40, y: 10), viewSize: .zero, imageSize: .zero)
         transform.reset()
 
         #expect(transform == CanvasTransform())
-    }
-
-    @Test
-    func theZoomPercentageRoundsToTheNearestWholeNumber() {
-        #expect(CanvasTransform.percent(of: 1) == 100)
-        #expect(CanvasTransform.percent(of: 0.4349) == 43)
-        #expect(CanvasTransform.percent(of: 0.4351) == 44)
-        #expect(CanvasTransform.percent(of: 2.004) == 200)
     }
 
     @Test
@@ -163,10 +207,15 @@ struct CanvasTransformTests {
             screenScale: 2,
             photoScale : scale
         )
-        let ratio  = zoomed.screenPixelsPerImagePixel(viewSize: view, imageSize: image, screenScale: 2) ?? 0
+        let shown  = ZoomScale(
+            viewSize    : view,
+            imageSize   : image,
+            screenScale : 2,
+            photoScale  : scale
+        )?.percent(forZoom: zoomed.zoom) ?? 0
 
         #expect(abs(zoomed.zoom - 3) < 1e-9)
-        #expect(CanvasTransform.percent(of: ratio * scale) == 100)
+        #expect(abs(shown - 100) < 1e-9)
     }
 
     @Test
@@ -176,7 +225,7 @@ struct CanvasTransformTests {
         let scale   = CanvasTransform.photoScale(previewSize: preview, photoSize: photo)
 
         // One screen pixel per preview pixel at fit is 44% of a 26 MP photo.
-        #expect(CanvasTransform.percent(of: 1 * scale) == 44)
+        #expect(Int((scale * 100).rounded()) == 44)
 
         // The real 100% needs this many screen pixels per preview pixel.
         #expect(abs(1 / scale - 6240.0 / 2752) < 1e-9)

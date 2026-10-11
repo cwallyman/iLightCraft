@@ -14,7 +14,7 @@ struct EditorCanvas: UIViewRepresentable {
     let photoSize   : CGSize
     let onSingleTap : () -> Void
     let onTouchDown : (() -> Void)?
-    let onZoomChange: (Int) -> Void
+    let onZoomChange: (Double) -> Void
 
     func makeUIView(context: Context) -> CanvasView {
         canvas

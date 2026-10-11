@@ -10,8 +10,9 @@ import Synchronization
 import UIKit
 
 /// CanvasView draws the newest ready frame of a FrameSink through its CAMetalLayer, with pinch to
-/// zoom (from a quarter of fit to 16x), pan with momentum and rubber-banded edges, and a double tap
-/// that toggles between fit and 100 % at the tap point. A single tap is handed to `onSingleTap`.
+/// zoom (from 5 % to 3200 % of the photo's real pixels, below fit included, rubber-banded past
+/// both ends), pan with momentum and rubber-banded edges, and a double tap that toggles between
+/// fit and 100 % at the tap point. A single tap is handed to `onSingleTap`.
 ///
 /// The gestures write the transform directly while the fingers are down; when they lift, a
 /// CanvasSpring carries it to where it should rest (see CanvasTransform.settled), with the flick's
@@ -73,9 +74,9 @@ final class CanvasView: UIView {
     /// sets it only while its card is open, so the card closes without waiting for the double-tap window.
     var onTouchDown: (() -> Void)?
 
-    /// onZoomChange gets the zoom as a whole percentage of the photo's real pixels on screen pixels,
-    /// at most once per display frame and only when the rounded value changes.
-    var onZoomChange: ((Int) -> Void)?
+    /// onZoomChange gets the zoom as a percentage of the photo's real pixels on screen pixels, at
+    /// most once per display frame and only when the pill's text (ZoomScale.label) changes.
+    var onZoomChange: ((Double) -> Void)?
 
     /// photoSize is the open photo's size in real pixels (`.zero` when unknown). The zoom percentage
     /// is measured against it, not against the smaller preview.
@@ -88,7 +89,16 @@ final class CanvasView: UIView {
         }
     }
 
-    private var reportedPercent: Int?
+    private var reportedPercent: String?
+
+    private lazy var haptics = TickHaptics(view: self)
+
+    /// disarmedLandmark is the landmark zoom that ticked last and may not tick again until the
+    /// pinch leaves the band around it (ZoomScale.landmarkTick).
+    private var disarmedLandmark: Double?
+
+    /// pinchCenter is the fingers' last centroid, where a zoom stretched past the range springs back.
+    private var pinchCenter: CGPoint?
 
     /// canvasTransform is the gesture state (UIView already owns `transform`). Any real change to
     /// it asks for one redraw.
@@ -239,24 +249,34 @@ final class CanvasView: UIView {
         move(to: CanvasTransform())
     }
 
+    /// zoomToFill animates to the zoom at which the photo covers the whole view, around the view center.
+    func zoomToFill() {
+        guard let scale = zoomScale else { return }
+
+        zoomAroundCenter(to: scale.fillZoom(viewSize: bounds.size, imageSize: imageSize), scale: scale)
+    }
+
+    /// zoomIn animates to the next preset above the current zoom, around the view center.
+    func zoomIn() {
+        guard let scale = zoomScale else { return }
+
+        zoomAroundCenter(to: scale.zoomIn(from: restingTransform.zoom), scale: scale)
+    }
+
+    /// zoomOut animates to the next preset below the current zoom, around the view center.
+    func zoomOut() {
+        guard let scale = zoomScale else { return }
+
+        zoomAroundCenter(to: scale.zoomOut(from: restingTransform.zoom), scale: scale)
+    }
+
     /// zoom(toPercent:) animates to that percentage of the photo's real pixels on screen pixels
     /// around the view center, clamped to the zoom range and settled inside the edges. Above the
     /// preview's own resolution the preview is upscaled.
-    func zoom(toPercent percent: Int) {
-        guard let fitScale = CanvasTransform.fitScale(viewSize: bounds.size, imageSize: imageSize),
-              contentScaleFactor > 0
-        else { return }
+    func zoom(toPercent percent: Double) {
+        guard let scale = zoomScale else { return }
 
-        let photoScale = CanvasTransform.photoScale(previewSize: imageSize, photoSize: photoSize)
-        let wanted     = Double(percent) / 100 / photoScale / (fitScale * Double(contentScaleFactor))
-        var target = canvasTransform
-        target.pinch(
-            by       : wanted / target.zoom,
-            around   : CGPoint(x: bounds.midX, y: bounds.midY),
-            viewSize : bounds.size
-        )
-
-        move(to: target.settled(viewSize: bounds.size, imageSize: imageSize))
+        zoomAroundCenter(to: scale.zoom(forPercent: percent), scale: scale)
     }
 
     /// setNeedsRedraw marks the canvas dirty: the next display link tick draws once, then the link
@@ -468,18 +488,44 @@ final class CanvasView: UIView {
 
     // MARK: - Gestures
 
-    /// handlePinch zooms around the fingers; resetting `scale` makes each call a relative step.
+    /// handlePinch zooms around the fingers; resetting `scale` makes each call a relative step. A
+    /// trackpad pinch is damped (ZoomScale.indirectPinchFactor); fit and 100 % tick (TickHaptics).
     @objc
     private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
         switch recognizer.state {
             case .began, .changed:
                 spring = nil
+
+                guard let scale = zoomScale else { return }
+
+                let zoomBefore = canvasTransform.zoom
+                let center     = recognizer.location(in: self)
+
+                // A trackpad pinch arrives as a transform event, with no touches.
+                let isIndirect = recognizer.numberOfTouches == 0
+                let factor     = Double(recognizer.scale)
+
                 canvasTransform.pinch(
-                    by       : Double(recognizer.scale),
-                    around   : recognizer.location(in: self),
+                    by       : isIndirect ? ZoomScale.indirectPinchFactor(for: factor) : factor,
+                    around   : center,
+                    range    : scale.range,
                     viewSize : bounds.size
                 )
                 recognizer.scale = 1
+                pinchCenter      = center
+
+                let tick = scale.landmarkTick(
+                    from     : zoomBefore,
+                    to       : canvasTransform.zoom,
+                    disarmed : disarmedLandmark
+                )
+                disarmedLandmark = tick.disarmed
+
+                if tick.ticks {
+                    haptics.tick(at: center)
+                }
+
+                haptics.prepare()
 
             case .ended, .cancelled, .failed:
                 settle(velocity: .zero)
@@ -586,13 +632,43 @@ final class CanvasView: UIView {
         return CGSize(width: frame.width, height: frame.height)
     }
 
+    /// restingTransform is where the canvas is going: the running spring's target, or the current one.
+    private var restingTransform: CanvasTransform {
+        spring?.target ?? canvasTransform
+    }
+
+    /// zoomScale is the zoom-to-percent conversion for the current view, photo and screen, or nil
+    /// while any of them is unknown.
+    private var zoomScale: ZoomScale? {
+        ZoomScale(
+            viewSize    : bounds.size,
+            imageSize   : imageSize,
+            screenScale : Double(contentScaleFactor),
+            photoScale  : CanvasTransform.photoScale(previewSize: imageSize, photoSize: photoSize)
+        )
+    }
+
+    /// zoomAroundCenter moves to `zoom` keeping the view center fixed, settled inside the edges.
+    private func zoomAroundCenter(to zoom: Double, scale: ZoomScale) {
+        var target = restingTransform
+
+        target.pinch(
+            by       : zoom / target.zoom,
+            around   : CGPoint(x: bounds.midX, y: bounds.midY),
+            range    : scale.range,
+            viewSize : bounds.size
+        )
+
+        move(to: target.settled(viewSize: bounds.size, imageSize: imageSize))
+    }
+
     private var isGestureActive: Bool {
         [pinchRecognizer.state, panRecognizer.state].contains { $0 == .began || $0 == .changed }
     }
 
     /// settle springs the transform to where it should rest once no finger moves it. A flick
     /// (above 60 pt/s) glides with momentum toward its projected point, clamped to the edges;
-    /// anything else, or a change of zoom (a release below fit), snaps back quickly.
+    /// anything else snaps back quickly.
     private func settle(velocity: SIMD2<Double>) {
         guard !isGestureActive else { return }
 
@@ -603,10 +679,20 @@ final class CanvasView: UIView {
             target.offset += velocity * CanvasSpring.momentumProjection
         }
 
-        target = target.settled(viewSize: bounds.size, imageSize: imageSize)
+        if let scale = zoomScale {
+            target = target.settled(
+                viewSize  : bounds.size,
+                imageSize : imageSize,
+                range     : scale.range,
+                around    : pinchCenter ?? CGPoint(x: bounds.midX, y: bounds.midY)
+            )
+        } else {
+            target = target.settled(viewSize: bounds.size, imageSize: imageSize)
+        }
 
         guard target != canvasTransform else { return }
 
+        // A zoom springing back from past a limit snaps; momentum is for a pan alone.
         let isMomentum = isFlick && target.zoom == canvasTransform.zoom
 
         animate(
@@ -644,23 +730,18 @@ final class CanvasView: UIView {
         }
     }
 
-    /// reportZoom runs on each display tick: it hands `onZoomChange` the rounded percentage when
-    /// it differs from the last one, and gives VoiceOver the same text as the canvas's value.
+    /// reportZoom runs on each display tick: it hands `onZoomChange` the percentage when its pill
+    /// text differs from the last one, and gives VoiceOver the same text as the canvas's value.
     private func reportZoom() {
-        guard let ratio = canvasTransform.screenPixelsPerImagePixel(
-            viewSize    : bounds.size,
-            imageSize   : imageSize,
-            screenScale : Double(contentScaleFactor)
-        ) else { return }
+        guard let scale = zoomScale else { return }
 
-        let percent = CanvasTransform.percent(
-            of: ratio * CanvasTransform.photoScale(previewSize: imageSize, photoSize: photoSize)
-        )
+        let percent = scale.percent(forZoom: canvasTransform.zoom)
+        let label   = ZoomScale.label(forPercent: percent)
 
-        guard percent != reportedPercent else { return }
+        guard label != reportedPercent else { return }
 
-        reportedPercent    = percent
-        accessibilityValue = "\(percent)%"
+        reportedPercent    = label
+        accessibilityValue = "\(label)%"
         onZoomChange?(percent)
     }
 

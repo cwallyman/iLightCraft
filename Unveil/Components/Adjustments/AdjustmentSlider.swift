@@ -23,9 +23,10 @@ import SwiftUI
 /// capsule names the band while it is not full speed. The fill follows `SliderFill`: centred
 /// controls fill from the default.
 ///
-/// Haptics: a selection tick when a drag crosses or lands on the default, reaches either end of
-/// the range or changes speed band, and at every stepper press; a light impact on reset. A double
-/// tap on the name or on the track resets; a tap on the value opens a field to type it in.
+/// Haptics: a tick when a drag crosses or lands on the default or reaches either end of the range
+/// (HapticsAnchor, so a trackpad drag clicks too), a selection tick when it changes speed band and
+/// at every stepper press, and a light impact on reset. A double tap on the name or on the track
+/// resets; a tap on the value opens a field to type it in.
 ///
 /// For VoiceOver the row is one element: the name and the value are read once, a swipe up or
 /// down moves the value by one step, and "Reset" resets it.
@@ -69,6 +70,14 @@ struct AdjustmentSlider: View {
 
     @State
     private var selectionTicks = 0
+
+    /// alignmentTicks counts the default and range-end ticks; HapticsAnchor fires one per change,
+    /// at `alignmentTickX` on the track.
+    @State
+    private var alignmentTicks = 0
+
+    @State
+    private var alignmentTickX: CGFloat = 0
 
     @State
     private var resets = 0
@@ -122,8 +131,9 @@ struct AdjustmentSlider: View {
         .overlay(alignment: .top) { speedLabel }
         .animation(.easeOut(duration: 0.15), value: drag?.speed)
         .onChange(of: value) { oldValue, newValue in
-            if drag != nil, ticks(from: oldValue, to: newValue) {
-                selectionTicks += 1
+            if let drag, ticks(from: oldValue, to: newValue) {
+                alignmentTickX  = drag.lastX
+                alignmentTicks += 1
             }
         }
         .onChange(of: isTrackTouched) { _, isTouched in
@@ -187,6 +197,13 @@ struct AdjustmentSlider: View {
             .contentShape(Rectangle())
             .gesture(trackDrag(usableWidth: usable, height: proxy.size.height))
             .simultaneousGesture(TapGesture(count: 2).onEnded(reset))
+            .background {
+                HapticsAnchor(
+                    ticks      : alignmentTicks,
+                    location   : CGPoint(x: alignmentTickX, y: proxy.size.height / 2),
+                    isDragging : drag != nil
+                )
+            }
         }
         .frame(height: 32)
     }
