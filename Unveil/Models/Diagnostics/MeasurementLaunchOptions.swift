@@ -23,6 +23,8 @@
 ///   negative), committed like a released slider, so a screenshot of a clipping photo needs no drag;
 /// - `-UnveilClipping`: after the first full frame, turn on both clipping overlays (they show with
 ///   the card, so pair it with `-UnveilPanel`);
+/// - `-UnveilBefore`: after the first full frame (and the exposure), show the unedited look, so a
+///   screenshot of the before view needs no press and hold;
 /// - `-UnveilHomePhotos`: start the home's panel on Photos instead of Files;
 /// - `-UnveilHomeExpanded`: start the home's panel at full height, so its screenshot needs no drag.
 ///
@@ -41,6 +43,7 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
     let cyclesZoom            : Bool
     let exposure              : Double?
     let showsClipping         : Bool
+    let showsBefore           : Bool
     let startsHomeOnPhotos    : Bool
     let startsHomeExpanded    : Bool
 
@@ -78,6 +81,7 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
         cyclesZoom             = arguments.contains("-UnveilZoomCycle")
         exposure               = value(after: "-UnveilExposure").flatMap(Double.init).flatMap { $0.isFinite ? $0 : nil }
         showsClipping          = arguments.contains("-UnveilClipping")
+        showsBefore            = arguments.contains("-UnveilBefore")
         startsHomeOnPhotos     = arguments.contains("-UnveilHomePhotos")
         startsHomeExpanded     = arguments.contains("-UnveilHomeExpanded")
     }

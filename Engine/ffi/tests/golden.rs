@@ -85,7 +85,7 @@ fn render(s: &TestSession, latest: &Latest) -> Result<(u32, u32, Vec<u8>), Strin
     *latest.frame.lock().unwrap() = None;
     let ctx = latest as *const Latest as *mut std::ffi::c_void;
     // SAFETY: s.raw is live; latest outlives the session because the caller declares it first.
-    let g = unsafe { uv_request_preview(s.raw, MAX_PIXELS, false, Some(keep), ctx) };
+    let g = unsafe { uv_request_preview(s.raw, MAX_PIXELS, false, false, Some(keep), ctx) };
     if g == 0 {
         return Err(format!("uv_request_preview: {}", last_error()));
     }

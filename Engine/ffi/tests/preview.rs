@@ -6,7 +6,16 @@ use unveil_ffi::*;
 
 fn request(s: &TestSession, max: u32, draft: bool, frames: &Arc<Frames>) -> u64 {
     // SAFETY: s.raw is live; every test declares frames before s, so it outlives the session.
-    unsafe { uv_request_preview(s.raw, max, draft, Some(record), Arc::as_ptr(frames) as *mut _) }
+    unsafe {
+        uv_request_preview(
+            s.raw,
+            max,
+            draft,
+            false,
+            Some(record),
+            Arc::as_ptr(frames) as *mut _,
+        )
+    }
 }
 
 #[test]
@@ -70,12 +79,12 @@ fn no_callback_after_free_returns() {
 fn preview_without_an_active_photo_is_an_error() {
     let s = TestSession::new();
     // SAFETY: s.raw is live; ctx is never used: the request fails before queueing.
-    let g = unsafe { uv_request_preview(s.raw, 256, false, Some(record), std::ptr::null_mut()) };
+    let g = unsafe { uv_request_preview(s.raw, 256, false, false, Some(record), std::ptr::null_mut()) };
     assert_eq!(g, 0);
     assert!(last_error().contains("no active photo"), "{}", last_error());
     // The missing photo wins over the missing callback.
     // SAFETY: s.raw is live; ctx is never used: the request fails before queueing.
-    let g = unsafe { uv_request_preview(s.raw, 256, false, None, std::ptr::null_mut()) };
+    let g = unsafe { uv_request_preview(s.raw, 256, false, false, None, std::ptr::null_mut()) };
     assert_eq!(g, 0);
     assert!(last_error().contains("no active photo"), "{}", last_error());
 }
@@ -85,7 +94,7 @@ fn a_null_callback_is_an_invalid_argument() {
     let s = TestSession::new();
     import_fixture(&s);
     // SAFETY: s.raw is live; ctx is never used: the request fails before queueing.
-    let g = unsafe { uv_request_preview(s.raw, 256, false, None, std::ptr::null_mut()) };
+    let g = unsafe { uv_request_preview(s.raw, 256, false, false, None, std::ptr::null_mut()) };
     assert_eq!(g, 0);
     assert!(last_error().contains("callback"), "{}", last_error());
 }
@@ -161,6 +170,7 @@ fn a_render_that_cannot_load_its_source_is_reported() {
             s.raw,
             512,
             false,
+            false,
             Some(record_failure),
             Arc::as_ptr(&failures) as *mut _,
         )
@@ -192,6 +202,7 @@ fn only_the_newest_failure_is_reported() {
             uv_request_preview(
                 s.raw,
                 512,
+                false,
                 false,
                 Some(record_failure),
                 Arc::as_ptr(&failures) as *mut _,

@@ -256,9 +256,9 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
         await Task.yield()
     }
 
-    func requestPreview(maxPixels: Int, draft: Bool) throws(EngineError) -> UInt64 {
+    func requestPreview(maxPixels: Int, draft: Bool, before: Bool) throws(EngineError) -> UInt64 {
         let (failure, generation) = state.withLock {
-            $0.calls.append("preview \(maxPixels) \(draft ? "draft" : "full")")
+            $0.calls.append("preview \(maxPixels) \(draft ? "draft" : "full")\(before ? " before" : "")")
 
             let failure = $0.failNextPreview
             $0.failNextPreview = nil
@@ -278,11 +278,11 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
 
     /// requestWindow logs "window <x>,<y> <width>x<height> of <frameWidth>x<frameHeight> draft|full"
     /// and shares the preview's generations and `failNextPreview`.
-    func requestWindow(_ window: FrameWindow, draft: Bool) throws(EngineError) -> UInt64 {
+    func requestWindow(_ window: FrameWindow, draft: Bool, before: Bool) throws(EngineError) -> UInt64 {
         let (failure, generation) = state.withLock {
             let place = "\(window.x),\(window.y) \(window.width)x\(window.height)"
             let frame = "\(window.frameWidth)x\(window.frameHeight)"
-            $0.calls.append("window \(place) of \(frame) \(draft ? "draft" : "full")")
+            $0.calls.append("window \(place) of \(frame) \(draft ? "draft" : "full")\(before ? " before" : "")")
 
             let failure = $0.failNextPreview
             $0.failNextPreview = nil

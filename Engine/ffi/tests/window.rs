@@ -79,7 +79,7 @@ extern "C" fn keep_shot(ctx: *mut std::ffi::c_void, frame: *const UVFrame) {
 fn preview(s: &TestSession, shots: &Arc<Shots>, max: u32, draft: bool) -> u64 {
     let ctx = Arc::as_ptr(shots) as *mut _;
     // SAFETY: s.raw is live; every test declares shots before s, so it outlives the session.
-    let g = unsafe { uv_request_preview(s.raw, max, draft, Some(keep_shot), ctx) };
+    let g = unsafe { uv_request_preview(s.raw, max, draft, false, Some(keep_shot), ctx) };
     assert!(g > 0, "{}", last_error());
     g
 }
@@ -88,7 +88,21 @@ fn window(s: &TestSession, shots: &Arc<Shots>, full: (u32, u32), win: [u32; 4], 
     let ctx = Arc::as_ptr(shots) as *mut _;
     let [x, y, w, h] = win;
     // SAFETY: s.raw is live; every test declares shots before s, so it outlives the session.
-    let g = unsafe { uv_request_window(s.raw, full.0, full.1, x, y, w, h, draft, Some(keep_shot), ctx) };
+    let g = unsafe {
+        uv_request_window(
+            s.raw,
+            full.0,
+            full.1,
+            x,
+            y,
+            w,
+            h,
+            draft,
+            false,
+            Some(keep_shot),
+            ctx,
+        )
+    };
     assert!(g > 0, "{}", last_error());
     g
 }
@@ -325,6 +339,7 @@ fn a_window_request_with_an_empty_size_is_an_invalid_argument() {
                 win[1],
                 win[2],
                 win[3],
+                false,
                 false,
                 Some(keep_shot),
                 ctx,

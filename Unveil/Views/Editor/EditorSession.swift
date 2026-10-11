@@ -33,6 +33,16 @@ final class EditorSession<
 
     private(set) var tool: EditorTool = .move
 
+    /// toolClosedByTouch is the tool the last touch-down closed, so a hold that follows it can bring
+    /// its card back on release; a tap or a pan leaves the card closed. Every touch-down overwrites it.
+    @ObservationIgnored
+    private var toolClosedByTouch: EditorTool?
+
+    /// holdStartedOnBefore is nil outside a hold and, during one, whether the before look was already
+    /// on when it began (backslash or the menu): the release then leaves it on.
+    @ObservationIgnored
+    private var holdStartedOnBefore: Bool?
+
     private(set) var isEditorPresented: Bool = false
     private(set) var isImporting      : Bool = false
 
@@ -101,6 +111,41 @@ final class EditorSession<
         self.tool = tool
     }
 
+    /// touchDown closes the card the moment a finger lands on the canvas and remembers which tool it
+    /// closed. A second finger during a hold does not touch the record.
+    func touchDown() {
+        guard holdStartedOnBefore == nil else { return }
+
+        toolClosedByTouch = isCardOpen ? tool : nil
+
+        if isCardOpen {
+            select(.move)
+        }
+    }
+
+    /// holdChanged shows the before look while the canvas is held. The release returns the look to
+    /// what it was before the hold and reopens the card the hold's touch-down closed.
+    func holdChanged(_ isHolding: Bool) {
+        if isHolding {
+            holdStartedOnBefore = viewModel.isShowingBefore
+            Task.immediate { await viewModel.setShowingBefore(true) }
+            return
+        }
+
+        guard let wasShowingBefore = holdStartedOnBefore else { return }
+
+        holdStartedOnBefore = nil
+
+        if !wasShowingBefore {
+            Task.immediate { await viewModel.setShowingBefore(false) }
+        }
+
+        if let tool = toolClosedByTouch {
+            toolClosedByTouch = nil
+            select(tool)
+        }
+    }
+
     func showPanel(_ group: AdjustmentGroup) {
         selectedGroup = group
         select(.adjust)
@@ -108,8 +153,12 @@ final class EditorSession<
 
     /// goHome closes the card with the editor. The photo, its values and the canvas stay as they are.
     func goHome() {
-        tool              = .move
-        isEditorPresented = false
+        tool                = .move
+        isEditorPresented   = false
+        toolClosedByTouch   = nil
+        holdStartedOnBefore = nil
+
+        Task.immediate { await viewModel.setShowingBefore(false) }
     }
 
     /// open imports a file picked in Files (or named by `-UnveilOpen`) and presents the editor

@@ -5,7 +5,7 @@ use unveil_ffi::*;
 
 #[test]
 fn abi_version_matches_header() {
-    assert_eq!(uv_abi_version(), 4);
+    assert_eq!(uv_abi_version(), 5);
 }
 
 #[test]

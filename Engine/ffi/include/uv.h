@@ -1,9 +1,9 @@
-// uv.h: C ABI of the Unveil engine bridge. Version 4.
+// uv.h: C ABI of the Unveil engine bridge. Version 5.
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
 
-#define UV_ABI_VERSION 4
+#define UV_ABI_VERSION 5
 
 typedef enum UVStatus {
     UV_OK                    =  0,
@@ -76,8 +76,11 @@ int32_t     uv_execute(UVSession *session, const char *command, const char *para
 void        uv_string_free(char *string);
 const char *uv_last_error(void);
 
-/// Callable from any thread; the newest generation always wins.
-uint64_t    uv_request_preview(UVSession *session, uint32_t max_pixels, bool draft,
+/// Callable from any thread; the newest generation always wins. `before` (ABI 5) asks for the
+/// photo's unedited look, its crop kept, as a render of its import settings (what develop.reset
+/// gives); its histogram is that look's. A before and an edited request are ordinary requests
+/// that differ in the look: generations order them like any other.
+uint64_t    uv_request_preview(UVSession *session, uint32_t max_pixels, bool draft, bool before,
                                uv_frame_cb callback, void *ctx);
 /// The (x, y, w, h) window of the frame fitted in full_w x full_h, same generations. A window
 /// never replaces a pending preview (it is drawn over it); a preview replaces older windows.
@@ -85,7 +88,7 @@ uint64_t    uv_request_preview(UVSession *session, uint32_t max_pixels, bool dra
 /// `fallback` set; the same fallback asked again is not rendered.
 uint64_t    uv_request_window(UVSession *session, uint32_t full_w, uint32_t full_h,
                               uint32_t x, uint32_t y, uint32_t w, uint32_t h, bool draft,
-                              uv_frame_cb callback, void *ctx);
+                              bool before, uv_frame_cb callback, void *ctx);
 /// Frees what windows keep resident (their stages, then, once no render is in flight, the GPU
 /// buffer pool with the shared full-size source); never waits. A later window rebuilds them.
 void        uv_release_windows(UVSession *session);

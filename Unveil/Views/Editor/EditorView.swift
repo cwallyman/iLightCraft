@@ -46,8 +46,11 @@ struct EditorView<
                     photo          : session.viewModel.openPhoto,
                     photoSize      : session.viewModel.photoSize,
                     clipping       : session.clippingOverlay,
+                    isShowingBefore: session.viewModel.isShowingBefore,
                     onSingleTap    : { session.select(.move) },
-                    onTouchDown    : session.isCardOpen ? { session.select(.move) } : nil,
+                    onTouchDown    : { session.touchDown() },
+                    onHoldChange   : { session.holdChanged($0) },
+                    onToggleBefore : toggleBefore,
                     onZoomChange   : { session.zoomPercent = $0 },
                     onWindowChange : { window, isDraft in
                         Task.immediate { await session.viewModel.showWindow(window, draft: isDraft) }
@@ -76,6 +79,16 @@ struct EditorView<
                 .padding(16)
                 .animation(cardAnimation, value: session.tool)
             }
+            .overlay(alignment: .top) {
+                if session.viewModel.isShowingBefore {
+                    BeforeCapsule()
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.15), value: session.viewModel.isShowingBefore)
+            .sensoryFeedback(trigger: session.viewModel.isShowingBefore) { _, isShowing in
+                isShowing ? .impact(weight: .light) : nil
+            }
             .overlay(alignment: .bottom) {
                 if let message = session.viewModel.renderErrorMessage {
                     RenderErrorBanner(
@@ -88,6 +101,7 @@ struct EditorView<
             .animation(cardAnimation, value: session.viewModel.renderErrorMessage)
             .background(EditorSurround.color.ignoresSafeArea())
             .background { zoomInAliases }
+            .background { beforeShortcut }
             .toolbar { toolbar }
             .sheet(isPresented: $isInfoShown) {
                 PhotoInfoSheet(
@@ -120,6 +134,27 @@ struct EditorView<
         .frame(width: 0, height: 0)
         .accessibilityHidden(true)
         .disabled(!session.canZoom)
+    }
+
+    /// beforeShortcut is the backslash key, Lightroom's before and after, as a toggle: the keyboard
+    /// reports no key release to SwiftUI, so a hold would need a UIKit key handler. Invisible and
+    /// zero-size like zoomInAliases; the More menu has the same toggle for touch.
+    private var beforeShortcut: some View {
+        Button("Show Original", action: toggleBefore)
+            .keyboardShortcut("\\", modifiers: [])
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .disabled(!session.canZoom)
+    }
+
+    /// setShowingBefore turns the before look on or off for the viewmodel, in order with the edits.
+    private func setShowingBefore(_ isShowing: Bool) {
+        Task.immediate { await session.viewModel.setShowingBefore(isShowing) }
+    }
+
+    private func toggleBefore() {
+        setShowingBefore(!session.viewModel.isShowingBefore)
     }
 
     /// cardAnimation opens and closes the card: a short slide, or a cross-fade under Reduce Motion.
@@ -170,13 +205,13 @@ struct EditorView<
                 Task { await session.viewModel.undo() }
             }
             .keyboardShortcut("z", modifiers: .command)
-            .disabled(!session.viewModel.canUndo)
+            .disabled(!session.viewModel.canUndo || session.viewModel.isShowingBefore)
 
             Button("Redo", systemImage: "arrow.uturn.forward") {
                 Task { await session.viewModel.redo() }
             }
             .keyboardShortcut("z", modifiers: [.command, .shift])
-            .disabled(!session.viewModel.canRedo)
+            .disabled(!session.viewModel.canRedo || session.viewModel.isShowingBefore)
         }
 
         ToolbarSpacer(.fixed, placement: .topBarTrailing)
@@ -190,10 +225,20 @@ struct EditorView<
 
         ToolbarItem(placement: .topBarTrailing) {
             Menu("More", systemImage: "ellipsis") {
+                Toggle(
+                    "Show Original",
+                    systemImage : "circle.lefthalf.filled",
+                    isOn        : Binding(
+                        get : { session.viewModel.isShowingBefore },
+                        set : setShowingBefore
+                    )
+                )
+                .disabled(!session.canZoom)
+
                 Button("Reset All", systemImage: "arrow.counterclockwise") {
                     Task { await session.viewModel.resetAll() }
                 }
-                .disabled(!session.viewModel.isEdited)
+                .disabled(!session.viewModel.isEdited || session.viewModel.isShowingBefore)
 
                 #if DEBUG
                 DiagnosticsMenuItems(diagnostics: diagnostics, isPhotoOpen: session.viewModel.isPhotoOpen)

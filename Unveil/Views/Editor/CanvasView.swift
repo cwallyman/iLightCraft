@@ -77,6 +77,11 @@ final class CanvasView: UIView {
 
     private let pinchRecognizer = UIPinchGestureRecognizer()
     private let panRecognizer   = UIPanGestureRecognizer()
+    private let holdRecognizer  = UILongPressGestureRecognizer()
+    private var isHolding       = false
+
+    /// holdDuration is how long a still finger must stay down before the before look shows.
+    static let holdDuration: TimeInterval = 0.35
 
     private var spring           : CanvasSpring?
     private var springStartTime  : CFTimeInterval = 0
@@ -86,8 +91,31 @@ final class CanvasView: UIView {
     var onSingleTap: (() -> Void)?
 
     /// onTouchDown runs the moment a finger lands on the canvas, before any gesture is decided. The editor
-    /// sets it only while its card is open, so the card closes without waiting for the double-tap window.
+    /// closes its card with it, without waiting for the double-tap window, and a hold brings the card back.
     var onTouchDown: (() -> Void)?
+
+    /// onHoldChange runs with true when a press and hold begins (the finger stayed within the usual slop
+    /// for `holdDuration`, alone on the canvas) and with false when it ends: the editor shows the
+    /// before look for as long as the finger stays down.
+    var onHoldChange: ((Bool) -> Void)?
+
+    /// onToggleBefore is VoiceOver's "Show Original" action; `isShowingBefore` names it.
+    var onToggleBefore: (() -> Void)?
+
+    /// isShowingBefore names the VoiceOver action for what it does next; the editor sets it. A change
+    /// is announced, since VoiceOver reads neither the renamed action nor the capsule on its own.
+    var isShowingBefore = false {
+        didSet {
+            guard isShowingBefore != oldValue else { return }
+
+            let announcement = isShowingBefore
+                ? String(localized: "Showing original")
+                : String(localized: "Showing edits")
+
+            configureAccessibilityActions()
+            UIAccessibility.post(notification: .announcement, argument: announcement)
+        }
+    }
 
     /// onZoomChange gets the zoom as a percentage of the photo's real pixels on screen pixels, at
     /// most once per display frame and only when the pill's text (ZoomScale.label) changes.
@@ -844,6 +872,13 @@ final class CanvasView: UIView {
         }
     }
 
+    /// A hold never begins while a pinch or a pan moves the image, nor on a canvas with no frame yet.
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === holdRecognizer else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
+
+        return !isGestureActive && frames.latest() != nil
+    }
+
     // MARK: - Motion
 
     /// imageSize is the size of the photo on screen, in preview pixels: the last full frame's,
@@ -1091,21 +1126,63 @@ final class CanvasView: UIView {
         pinchRecognizer.addTarget(self, action: #selector(handlePinch(_:)))
         panRecognizer.addTarget(self, action: #selector(handlePan(_:)))
 
-        doubleTap.numberOfTapsRequired = 2
-        pinchRecognizer.delegate       = self
-        panRecognizer.delegate         = self
+        holdRecognizer.addTarget(self, action: #selector(handleHold(_:)))
+
+        doubleTap.numberOfTapsRequired         = 2
+        holdRecognizer.minimumPressDuration    = Self.holdDuration
+        holdRecognizer.numberOfTouchesRequired = 1
+        pinchRecognizer.delegate               = self
+        panRecognizer.delegate                 = self
+        holdRecognizer.delegate                = self
         singleTap.require(toFail: doubleTap)
+        singleTap.require(toFail: holdRecognizer)
 
         addGestureRecognizer(pinchRecognizer)
         addGestureRecognizer(panRecognizer)
+        addGestureRecognizer(holdRecognizer)
         addGestureRecognizer(doubleTap)
         addGestureRecognizer(singleTap)
+    }
+
+    /// handleHold starts the before look when the hold begins and ends it when the finger lifts, or
+    /// when anything takes the touch away. A tap that never became a hold (failed) says nothing, so
+    /// it cannot end a before look the keyboard turned on.
+    @objc
+    private func handleHold(_ recognizer: UILongPressGestureRecognizer) {
+        switch recognizer.state {
+            case .began:
+                isHolding = true
+                onHoldChange?(true)
+
+            case .ended, .cancelled, .failed:
+                guard isHolding else { return }
+
+                isHolding = false
+                onHoldChange?(false)
+
+            default:
+                break
+        }
     }
 
     private func configureAccessibility() {
         isAccessibilityElement = true
         accessibilityLabel     = String(localized: "Photo")
         accessibilityTraits    = .image
+
+        configureAccessibilityActions()
+    }
+
+    /// configureAccessibilityActions gives VoiceOver the toggle of the before look, named for what it does next.
+    private func configureAccessibilityActions() {
+        let name = isShowingBefore ? String(localized: "Show Edited") : String(localized: "Show Original")
+
+        accessibilityCustomActions = [
+            UIAccessibilityCustomAction(name: name) { [weak self] _ in
+                self?.onToggleBefore?()
+                return true
+            }
+        ]
     }
 
     /// listenForFrames sets the sink's wake-up. It runs on the engine thread, so it only flips an
@@ -1131,11 +1208,13 @@ final class CanvasView: UIView {
 
 extension CanvasView: UIGestureRecognizerDelegate {
 
-    /// Pinch and pan run together, so two fingers can zoom and move the image in one gesture.
+    /// Pinch and pan run together, so two fingers can zoom and move the image in one gesture. The hold
+    /// runs alone: once it begins, a pending pan, pinch or double tap fails for that touch, so the
+    /// image stays still under a drifting finger; a pan or pinch already moving keeps the hold out.
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
-        true
+        gestureRecognizer !== holdRecognizer && otherGestureRecognizer !== holdRecognizer
     }
 }
