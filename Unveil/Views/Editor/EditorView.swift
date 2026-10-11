@@ -46,6 +46,7 @@ struct EditorView<
                     photo        : session.viewModel.openPhoto,
                     photoSize    : session.viewModel.photoSize,
                     onSingleTap  : { session.select(.move) },
+                    onTouchDown  : session.isCardOpen ? { session.select(.move) } : nil,
                     onZoomChange : { session.zoomPercent = $0 }
                 )
                 .ignoresSafeArea()
@@ -65,7 +66,7 @@ struct EditorView<
                     )
                 }
                 .padding(16)
-                .animation(.smooth(duration: 0.3), value: session.tool)
+                .animation(cardAnimation, value: session.tool)
             }
             .toolbar { toolbar }
             .sheet(isPresented: $isInfoShown) {
@@ -81,6 +82,11 @@ struct EditorView<
             alert     : session.presentedAlert,
             onDismiss : session.dismissAlert
         ))
+    }
+
+    /// cardAnimation opens and closes the card: a short slide, or a cross-fade under Reduce Motion.
+    private var cardAnimation: Animation {
+        reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.25)
     }
 
     @ToolbarContentBuilder

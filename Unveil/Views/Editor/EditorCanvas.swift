@@ -13,6 +13,7 @@ struct EditorCanvas: UIViewRepresentable {
     let photo       : PhotoID?
     let photoSize   : CGSize
     let onSingleTap : () -> Void
+    let onTouchDown : (() -> Void)?
     let onZoomChange: (Int) -> Void
 
     func makeUIView(context: Context) -> CanvasView {
@@ -24,6 +25,7 @@ struct EditorCanvas: UIViewRepresentable {
         context: Context
     ) {
         view.onSingleTap  = onSingleTap
+        view.onTouchDown  = onTouchDown
         view.onZoomChange = onZoomChange
         view.photoSize    = photoSize
 
@@ -38,6 +40,7 @@ struct EditorCanvas: UIViewRepresentable {
         coordinator: Coordinator
     ) {
         view.onSingleTap  = nil
+        view.onTouchDown  = nil
         view.onZoomChange = nil
     }
 

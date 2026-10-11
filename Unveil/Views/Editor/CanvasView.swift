@@ -66,6 +66,10 @@ final class CanvasView: UIView {
     /// onSingleTap runs when the canvas is tapped once (the editor closes its panel with it).
     var onSingleTap: (() -> Void)?
 
+    /// onTouchDown runs the moment a finger lands on the canvas, before any gesture is decided. The editor
+    /// sets it only while its card is open, so the card closes without waiting for the double-tap window.
+    var onTouchDown: (() -> Void)?
+
     /// onZoomChange gets the zoom as a whole percentage of the photo's real pixels on screen pixels,
     /// at most once per display frame and only when the rounded value changes.
     var onZoomChange: ((Int) -> Void)?
@@ -505,11 +509,13 @@ final class CanvasView: UIView {
         onSingleTap?()
     }
 
-    /// A finger landing on the canvas catches a gliding image, as in a scroll view.
+    /// A finger landing on the canvas catches a gliding image, as in a scroll view, and tells
+    /// `onTouchDown` at once so the editor can close its card.
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesBegan(touches, with: event)
 
         spring = nil
+        onTouchDown?()
     }
 
     /// A touch that ends without becoming a gesture still lets a caught image settle.

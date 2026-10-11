@@ -38,6 +38,25 @@ struct EditorViewTests {
         #expect(fixture.canvas.bounds.size == size)
     }
 
+    /// touchDownClosesTheCardAtOnce checks that the canvas has a touch-down hook only while the card
+    /// is open, and that it closes the card without waiting for the double-tap window.
+    @Test
+    func touchDownClosesTheCardAtOnce() async throws {
+        let fixture = try Fixture()
+        defer { fixture.window.isHidden = true }
+        await fixture.model.open(pickedURL: URL(filePath: "/tmp/photo.RAF"))
+        try await waitUntil(seconds: 3) { fixture.canvasReceivesCenterTouch }
+        #expect(fixture.canvas.onTouchDown == nil)
+
+        fixture.session.showPanel(.light)
+        try await waitUntil(seconds: 3) { fixture.canvas.onTouchDown != nil }
+        #expect(fixture.session.isCardOpen)
+
+        fixture.canvas.touchesBegan([], with: nil)
+        #expect(!fixture.session.isCardOpen)
+        try await waitUntil(seconds: 3) { fixture.canvas.onTouchDown == nil }
+    }
+
     /// adjustmentFailureIsVisibleWhileCardIsOpen checks that the card does not hide an editing
     /// error. Closing the alert clears the model while leaving the card open.
     @Test
