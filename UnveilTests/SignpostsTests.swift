@@ -71,6 +71,8 @@ struct SignpostsTests {
             "-UnveilPanel", "color",
             "-UnveilZoom", "3200",
             "-UnveilPanSweep",
+            "-UnveilExposure", "-2.5",
+            "-UnveilClipping",
             "-UnveilHomePhotos",
             "-UnveilHomeExpanded",
         ])
@@ -79,6 +81,8 @@ struct SignpostsTests {
         #expect(options.openPanel == .color)
         #expect(options.zoomPercent == 3200)
         #expect(options.pansDuringSweep)
+        #expect(options.exposure == -2.5)
+        #expect(options.showsClipping)
         #expect(options.delaySeconds == 8)
         #expect(options.sweepSeconds == 30)
         #expect(options.isFreshEngineDirectory)
@@ -99,6 +103,8 @@ struct SignpostsTests {
         #expect(options.openPanel == nil)
         #expect(options.zoomPercent == nil)
         #expect(options.pansDuringSweep == false)
+        #expect(options.exposure == nil)
+        #expect(options.showsClipping == false)
         #expect(options.startsHomeOnPhotos == false)
         #expect(options.startsHomeExpanded == false)
     }

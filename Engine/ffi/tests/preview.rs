@@ -141,6 +141,10 @@ extern "C" fn record_failure(ctx: *mut std::ffi::c_void, frame: *const UVFrame) 
         f.status == 0 || f.rgba.is_null(),
         "a failed frame carries no pixels"
     );
+    assert!(
+        f.status == 0 || f.histogram.is_null(),
+        "a failed frame carries no histogram"
+    );
     failures.0.lock().unwrap().push((f.generation, f.status, message));
 }
 

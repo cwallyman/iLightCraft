@@ -40,6 +40,15 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     private(set) var photoTitle  : String = "Photo"
     private(set) var photoType   : String?
 
+    /// histogram is the newest whole-frame preview's histogram for the open photo; nil until the first
+    /// frame of a newly opened photo. Zoom windows never replace it. At fit a drag's drafts update it;
+    /// zoomed in, drafts render only the window, so it holds until the next whole frame (the release).
+    private(set) var histogram: FrameHistogram?
+
+    /// captureSummary is the open photo's exposure as recorded ("ISO 200 · 1/250 s · f/2.8 · 35 mm"),
+    /// nil when the file records none.
+    private(set) var captureSummary: String?
+
     /// isEdited is the editor's "Edited" status: the engine's own flag (`Photo::is_edited`, which
     /// compares with the photo's import look), read after open and after every committed change.
     /// A drag does not read it: the status catches up when the slider is released.
@@ -85,6 +94,11 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// failure of an older one says nothing about what the canvas shows now.
     @ObservationIgnored
     private var newestPreviewGeneration: UInt64 = 0
+
+    /// histogramFloor is the frame sink's floor at the last open: a histogram at or below it belongs
+    /// to the photo shown before, heard just before the open and delivered just after.
+    @ObservationIgnored
+    private var histogramFloor: UInt64 = 0
 
     @ObservationIgnored
     private var wanted: [DevelopAdjustmentKind: Double] = [:]
@@ -152,6 +166,10 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
         engine.frames.onFailure = { [weak self] failure in
             Task { @MainActor in self?.show(failure) }
+        }
+
+        engine.frames.onHistogram = { [weak self] histogram in
+            Task { @MainActor in self?.show(histogram) }
         }
     }
 
@@ -236,12 +254,14 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             self.photoSize       = info.size
             self.developDefaults = info.developDefaults
             self.cameraDefaults  = info.cameraDefaultsMerge
+            self.captureSummary  = info.capture?.summary
+            self.histogram       = nil
 
             self.photoTitle = title ?? pickedURL.deletingPathExtension().lastPathComponent
             self.photoType  = UTType(filenameExtension: pickedURL.pathExtension)?.localizedDescription
 
-            // The previous photo's frame must not show while this one renders.
-            engine.frames.invalidate()
+            // The previous photo's frame must not show while this one renders, nor its histogram.
+            self.histogramFloor = engine.frames.invalidate()
 
             do throws(EngineError) {
                 previewGeneration = try self.requestPreview(draft: false)
@@ -506,6 +526,14 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         guard !failure.isWindow, failure.generation >= newestPreviewGeneration else { return }
 
         renderErrorMessage = failure.message
+    }
+
+    /// show takes a published preview's histogram unless it is the previous photo's or older than
+    /// the one shown (the main actor may run two hops from the engine thread out of order).
+    private func show(_ histogram: FrameHistogram) {
+        guard histogram.generation > max(histogramFloor, self.histogram?.generation ?? 0) else { return }
+
+        self.histogram = histogram
     }
 
     /// requestPreview asks for a whole-frame preview and clears the render banner: the new request

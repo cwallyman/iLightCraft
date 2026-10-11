@@ -54,6 +54,7 @@ nonisolated final class FrameSink: @unchecked Sendable {
         var latestWindow: ReadyFrame?                         = nil
         var onFrame     : (@Sendable () -> Void)?             = nil
         var onFailure   : (@Sendable (FrameFailure) -> Void)? = nil
+        var onHistogram : (@Sendable (FrameHistogram) -> Void)? = nil
 
         /// floor is the newest generation discarded by `invalidate`: nothing at or below it returns.
         var floor: UInt64 = 0
@@ -81,6 +82,13 @@ nonisolated final class FrameSink: @unchecked Sendable {
     var onFailure: (@Sendable (FrameFailure) -> Void)? {
         get { state.withLock { $0.onFailure } }
         set { state.withLock { $0.onFailure = newValue } }
+    }
+
+    /// onHistogram hears the histogram of each whole-frame preview the sink publishes, draft or not,
+    /// on the engine thread after the canvas is woken. A window carries none.
+    var onHistogram: (@Sendable (FrameHistogram) -> Void)? {
+        get { state.withLock { $0.onHistogram } }
+        set { state.withLock { $0.onHistogram = newValue } }
     }
 
     /// init(device:maxPixels:) allocates the three buffers for the largest frame, a square of
@@ -135,7 +143,8 @@ nonisolated final class FrameSink: @unchecked Sendable {
     /// render alone) also unpublishes the window, which is older and may hold older settings.
     ///
     /// `rgba` must point to `height` rows of `stride` bytes, each holding at least `width * 4`.
-    /// The pointer is only read during the call. The native size is passed through to the frame.
+    /// The pointer is only read during the call. The native size is passed through to the frame,
+    /// and a published preview's `histogram` goes to `onHistogram`.
     func receive(
         rgba          : UnsafeRawPointer,
         width         : Int,
@@ -146,7 +155,8 @@ nonisolated final class FrameSink: @unchecked Sendable {
         window        : FrameWindow? = nil,
         replacesWindow: Bool = false,
         nativeWidth   : Int = 0,
-        nativeHeight  : Int = 0
+        nativeHeight  : Int = 0,
+        histogram     : FrameHistogram? = nil
     ) {
         guard width > 0, height > 0, stride >= width * 4 else {
             logger.error("Dropped a malformed frame: \(width)x\(height), stride \(stride)")
@@ -190,8 +200,10 @@ nonisolated final class FrameSink: @unchecked Sendable {
             nativeHeight: nativeHeight
         )
 
-        let wake = state.withLock { current -> (@Sendable () -> Void)? in
-            guard generation > current.newestGeneration else { return nil }
+        let (wake, hear) = state.withLock { current in
+            guard generation > current.newestGeneration else {
+                return (nil, nil) as ((@Sendable () -> Void)?, (@Sendable (FrameHistogram) -> Void)?)
+            }
 
             if window == nil {
                 current.latestFrame = frame
@@ -203,10 +215,14 @@ nonisolated final class FrameSink: @unchecked Sendable {
                 current.latestWindow = frame
             }
 
-            return current.onFrame
+            return (current.onFrame, window == nil ? current.onHistogram : nil)
         }
 
         wake?()
+
+        if let hear, let histogram {
+            hear(histogram)
+        }
     }
 
     /// receiveFailure reports a render the engine could not finish. Like a frame, it is dropped when
@@ -237,17 +253,21 @@ nonisolated final class FrameSink: @unchecked Sendable {
 
     /// invalidate unpublishes both frames, for a new photo whose first frame is still rendering:
     /// the old photo's frame must not show in its place. Anything at or below the newest generation
-    /// so far is refused afterwards, and the canvas is woken to draw the empty surround.
-    func invalidate() {
-        let wake = state.withLock { current -> (@Sendable () -> Void)? in
+    /// so far is refused afterwards, and the canvas is woken to draw the empty surround. It returns
+    /// that floor, so a histogram already heard from below it can be told apart as the old photo's.
+    @discardableResult
+    func invalidate() -> UInt64 {
+        let (wake, floor) = state.withLock { current -> ((@Sendable () -> Void)?, UInt64) in
             current.floor        = current.newestGeneration
             current.latestFrame  = nil
             current.latestWindow = nil
 
-            return current.onFrame
+            return (current.onFrame, current.floor)
         }
 
         wake?()
+
+        return floor
     }
 
     /// copyRows copies `height` rows of `width * 4` bytes, one memcpy each, into the buffer at `index`.

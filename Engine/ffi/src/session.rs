@@ -39,7 +39,8 @@ unsafe extern "C" {
 /// whole frame at the photo's own resolution (cropped and straightened): what 100 % means.
 /// `status` is UV_OK for a frame. A render that failed is delivered as a frame with `status` set,
 /// `error` pointing to its message (valid only during the call), `rgba` NULL and the sizes 0;
-/// `generation`, `draft` and `window` still say which request failed.
+/// `generation`, `draft` and `window` still say which request failed. `histogram` describes a
+/// whole frame (a preview or a fallback, draft or not) and is NULL for a window or a failure.
 #[repr(C)]
 #[derive(Debug)]
 pub struct UVFrame {
@@ -59,6 +60,46 @@ pub struct UVFrame {
     pub native_height: u32,
     pub status: i32,
     pub error: *const c_char,
+    pub histogram: *const UVHistogram,
+}
+
+/// UVHistogram of uv.h: the engine's histogram of a whole frame, 256 bins per channel and for
+/// luminance, over at most about 1 MP sampled on a grid; `total` is the pixels sampled. The
+/// clipped counts are the sampled pixels at 0 (`clipped_low`) and 255 (`clipped_high`) in R, G, B.
+#[repr(C)]
+#[derive(Debug)]
+pub struct UVHistogram {
+    pub r: [u32; 256],
+    pub g: [u32; 256],
+    pub b: [u32; 256],
+    pub luma: [u32; 256],
+    pub total: u32,
+    pub clipped_low: [u32; 3],
+    pub clipped_high: [u32; 3],
+}
+
+impl UVHistogram {
+    /// of copies the histogram the engine computed with the frame. Upstream's bins are always 256
+    /// long; a shorter one would leave its missing bins at 0 rather than fail the frame.
+    fn of(rendered: &Rendered) -> UVHistogram {
+        let h = &rendered.histogram;
+        let bins = |v: &[u32]| {
+            let mut out = [0u32; 256];
+            let n = v.len().min(256);
+            out[..n].copy_from_slice(&v[..n]);
+            out
+        };
+        let (r, g, b) = (bins(&h.r), bins(&h.g), bins(&h.b));
+        UVHistogram {
+            luma: bins(&h.luma),
+            total: h.total,
+            clipped_low: [r[0], g[0], b[0]],
+            clipped_high: [r[255], g[255], b[255]],
+            r,
+            g,
+            b,
+        }
+    }
 }
 
 /// uv_frame_cb of uv.h. Called on the engine thread; `frame` is valid only during the call.
@@ -109,6 +150,8 @@ impl FrameCallback {
             y: 0,
         };
         let at = delivery.placement.unwrap_or(whole);
+        // A window's histogram covers only the window; the app's describes the whole photo.
+        let histogram = delivery.placement.is_none().then(|| UVHistogram::of(rendered));
         let frame = UVFrame {
             rgba: rgba.as_ptr(),
             width,
@@ -126,9 +169,12 @@ impl FrameCallback {
             native_height: delivery.native.1,
             status: UVStatus::UV_OK as i32,
             error: std::ptr::null(),
+            histogram: histogram
+                .as_ref()
+                .map_or(std::ptr::null(), |h| h as *const UVHistogram),
         };
-        // SAFETY: frame and the pixels it points to (owned by the RenderResult) outlive the call,
-        // which is all uv_frame_cb promises; ctx is valid per the request's contract.
+        // SAFETY: frame, its pixels (owned by the RenderResult) and histogram outlive the call, which
+        // is all uv_frame_cb promises; ctx is valid per the request's contract.
         unsafe { (self.f)(self.ctx, &frame) };
     }
 
@@ -154,6 +200,7 @@ impl FrameCallback {
             native_height: delivery.native.1,
             status: failure.status as i32,
             error: message.as_ptr(),
+            histogram: std::ptr::null(),
         };
         // SAFETY: frame and message outlive the call, which is all uv_frame_cb promises; ctx is
         // valid per the request's contract.

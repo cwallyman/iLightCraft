@@ -1,9 +1,9 @@
-// uv.h: C ABI of the Unveil engine bridge. Version 3.
+// uv.h: C ABI of the Unveil engine bridge. Version 4.
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
 
-#define UV_ABI_VERSION 3
+#define UV_ABI_VERSION 4
 
 typedef enum UVStatus {
     UV_OK                    =  0,
@@ -18,6 +18,19 @@ typedef enum UVStatus {
 
 typedef struct UVSession UVSession;
 
+/// The engine's histogram of a whole frame: 256 bins per channel and for luminance
+/// ((54 R + 183 G + 19 B) >> 8), over at most about 1 MP sampled on a grid; `total` is the pixels
+/// sampled. clipped_low and clipped_high are the sampled pixels at 0 and at 255 in R, G, B.
+typedef struct UVHistogram {
+    uint32_t r[256];
+    uint32_t g[256];
+    uint32_t b[256];
+    uint32_t luma[256];
+    uint32_t total;
+    uint32_t clipped_low[3];
+    uint32_t clipped_high[3];
+} UVHistogram;
+
 /// One delivered frame: `height` rows of `stride` bytes of RGBA8. A whole-frame preview has
 /// `window` false, frame_width/frame_height equal to width/height and x = y = 0. A window
 /// (uv_request_window) has `window` true and sits at (x, y) of a frame_width x frame_height frame.
@@ -29,6 +42,8 @@ typedef struct UVSession UVSession;
 /// `error` its message (valid only during the call), `rgba` NULL and the sizes 0; `generation`,
 /// `draft` and `window` say which request failed. Only the newest request's outcome is delivered,
 /// frame or failure, under the same generation rules.
+/// `histogram` (ABI 4) describes a whole frame (a preview or a fallback, draft or not) and is NULL
+/// for a window and a failure; like the pixels it is valid only during the call.
 typedef struct UVFrame {
     const uint8_t *rgba;
     uint32_t       width;
@@ -46,6 +61,7 @@ typedef struct UVFrame {
     uint32_t       native_height;
     int32_t        status;
     const char    *error;
+    const UVHistogram *histogram;
 } UVFrame;
 
 /// Called on the engine thread; `frame` and its pixels are valid only during the call.

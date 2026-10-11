@@ -32,11 +32,13 @@ vertex CanvasVertex canvasVertex(
 }
 
 // CanvasStyle is how one quad is sampled (CanvasView.CanvasStyle): grid lines every image pixel
-// of gridSize (none at gridOpacity 0); nearest 1 for real pixels from 99.8 %, else bilinear.
+// of gridSize (none at gridOpacity 0); nearest 1 for real pixels from 99.8 %, else bilinear;
+// clipping marks clipped pixels (ClippingOverlay: 1 shadows in blue, 2 highlights in red).
 struct CanvasStyle {
     float2 gridSize;
     float  gridOpacity;
     uint   nearest;
+    uint   clipping;
 };
 
 fragment float4 canvasFragment(
@@ -60,5 +62,15 @@ fragment float4 canvasFragment(
 
     // Neutral: a step toward mid grey, visible on light and dark pixels alike.
     color.rgb = mix(color.rgb, float3(0.5), line * style.gridOpacity);
+
+    // Clipping is a property of one pixel: test the nearest texel, never a bilinear blend of several.
+    if (style.clipping != 0u) {
+        float3 texel = image.sample(nearest, in.textureCoordinate).rgb;
+        if ((style.clipping & 2u) != 0u && any(texel > 254.5 / 255.0)) {
+            color.rgb = float3(1.0, 0.0, 0.0);
+        } else if ((style.clipping & 1u) != 0u && any(texel < 0.5 / 255.0)) {
+            color.rgb = float3(0.0, 0.0, 1.0);
+        }
+    }
     return color;
 }

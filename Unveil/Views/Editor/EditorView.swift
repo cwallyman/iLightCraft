@@ -45,6 +45,7 @@ struct EditorView<
                     canvas         : canvas,
                     photo          : session.viewModel.openPhoto,
                     photoSize      : session.viewModel.photoSize,
+                    clipping       : session.clippingOverlay,
                     onSingleTap    : { session.select(.move) },
                     onTouchDown    : session.isCardOpen ? { session.select(.move) } : nil,
                     onZoomChange   : { session.zoomPercent = $0 },
@@ -57,9 +58,13 @@ struct EditorView<
                 HStack(spacing: 12) {
 
                     if session.isCardOpen {
-                        AdjustCard(viewModel: session.viewModel, group: $session.selectedGroup)
-                            .frame(maxHeight: .infinity, alignment: .top)
-                            .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
+                        AdjustCard(
+                            viewModel : session.viewModel,
+                            group     : $session.selectedGroup,
+                            clipping  : $session.clipping
+                        )
+                        .frame(maxHeight: .infinity, alignment: .top)
+                        .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
                     }
 
                     ToolRail(

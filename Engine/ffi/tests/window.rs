@@ -22,6 +22,17 @@ struct Shot {
     y: u32,
     native: (u32, u32),
     rgba: Vec<u8>,
+    histogram: Option<Histogram>,
+}
+
+/// Histogram is what a shot keeps of its UVHistogram: the sampled total, each channel's bins
+/// summed, its edge bins and the clipped counts.
+#[derive(Clone, Debug)]
+struct Histogram {
+    total: u32,
+    sums: [u32; 4],
+    edges: [[u32; 3]; 2],
+    clipped: [[u32; 3]; 2],
 }
 
 #[derive(Default)]
@@ -51,6 +62,13 @@ extern "C" fn keep_shot(ctx: *mut std::ffi::c_void, frame: *const UVFrame) {
         y: f.y,
         native: (f.native_width, f.native_height),
         rgba,
+        // SAFETY: a non-NULL histogram is valid during the callback, like the frame.
+        histogram: unsafe { f.histogram.as_ref() }.map(|h| Histogram {
+            total: h.total,
+            sums: [&h.r, &h.g, &h.b, &h.luma].map(|bins| bins.iter().sum()),
+            edges: [[h.r[0], h.g[0], h.b[0]], [h.r[255], h.g[255], h.b[255]]],
+            clipped: [h.clipped_low, h.clipped_high],
+        }),
     };
     // SAFETY: ctx is the Shots the test keeps alive in an Arc for the whole session.
     let shots = unsafe { &*(ctx as *const Shots) };
@@ -372,4 +390,59 @@ fn raw_windows_match_the_whole_frame() {
             "inside the margin: mean {mean}, p99 {p99}"
         );
     }
+}
+
+#[test]
+fn whole_frames_carry_their_histogram_and_windows_do_not() {
+    let shots = Arc::new(Shots::default());
+    let s = TestSession::new();
+    import_png(&s, &gradient_png(s.dir.path(), "histogram.png", 640, 427));
+    for draft in [false, true] {
+        let whole = shot_at(&shots, preview(&s, &shots, 640, draft));
+        let h = whole.histogram.expect("a whole frame without a histogram");
+        assert!(h.total > 0);
+        assert_eq!(
+            h.sums, [h.total; 4],
+            "every sampled pixel lands in one bin per channel"
+        );
+        assert_eq!(h.clipped, h.edges, "the clipped counts are the edge bins");
+    }
+    let part = shot_at(
+        &shots,
+        window(&s, &shots, (1280, 1280), [300, 200, 256, 192], false),
+    );
+    assert!(
+        part.window && part.histogram.is_none(),
+        "a window carried a histogram"
+    );
+}
+
+#[test]
+fn an_exposure_that_clips_shows_in_the_clipped_counts() {
+    let shots = Arc::new(Shots::default());
+    let s = TestSession::new();
+    import_png(&s, &gradient_png(s.dir.path(), "clip.png", 640, 427));
+    let mut clipped = Vec::new();
+    for exposure in [-5.0, 0.0, 5.0] {
+        let control = format!(r#"{{"control":"light.exposure","value":{exposure}}}"#);
+        exec_ok(&s, "develop.set", &control);
+        let h = shot_at(&shots, preview(&s, &shots, 640, false))
+            .histogram
+            .unwrap();
+        let most = |side: [u32; 3]| side.into_iter().max().unwrap();
+        clipped.push((most(h.clipped[0]), most(h.clipped[1]), h.total));
+    }
+    let [
+        (low_dark, _, total),
+        (low_plain, high_plain, _),
+        (_, high_bright, _),
+    ] = clipped[..]
+    else {
+        unreachable!()
+    };
+    assert!(
+        high_bright > high_plain && high_bright > total / 1000,
+        "{clipped:?}"
+    );
+    assert!(low_dark > low_plain && low_dark > total / 1000, "{clipped:?}");
 }

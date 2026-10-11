@@ -157,7 +157,7 @@ struct EditorViewTests {
         )
 
         func height(at textSize: DynamicTypeSize) -> CGFloat {
-            let card = AdjustCard(viewModel: model, group: .constant(.light))
+            let card = AdjustCard(viewModel: model, group: .constant(.light), clipping: .constant([]))
                 .dynamicTypeSize(textSize)
 
             return UIHostingController(rootView: card)
