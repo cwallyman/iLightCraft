@@ -22,6 +22,7 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
         var failNextOpen    : EngineError?
         var failNextValues  : EngineError?
         var failNextSet     : EngineError?
+        var failNextPreview : EngineError?
         var openedPhotos    : UInt64   = 0
         var storedValues    : [DevelopAdjustmentKind: Double] = [:]
     }
@@ -53,6 +54,12 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
     var failNextSet: EngineError? {
         get { state.withLock { $0.failNextSet } }
         set { state.withLock { $0.failNextSet = newValue } }
+    }
+
+    /// The error the next requestPreview throws, once, like a render refused while the app is away.
+    var failNextPreview: EngineError? {
+        get { state.withLock { $0.failNextPreview } }
+        set { state.withLock { $0.failNextPreview = newValue } }
     }
 
     /// The values currentValues reports on top of the kind defaults, like a photo reopened with saved settings.
@@ -120,11 +127,23 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
     }
 
     func requestPreview(maxPixels: Int, draft: Bool) throws(EngineError) -> UInt64 {
-        state.withLock {
+        let (failure, generation) = state.withLock {
             $0.calls.append("preview \(maxPixels) \(draft ? "draft" : "full")")
-            $0.previewCounter += 1
-            return $0.previewCounter
+
+            let failure = $0.failNextPreview
+            $0.failNextPreview = nil
+
+            if failure == nil {
+                $0.previewCounter += 1
+            }
+            return (failure, $0.previewCounter)
         }
+
+        if let failure {
+            throw failure
+        }
+
+        return generation
     }
 
     func suspend() throws(EngineError) {

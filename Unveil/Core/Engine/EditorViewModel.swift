@@ -35,7 +35,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
     // Plain bookkeeping the view never reads, so it stays out of observation.
     @ObservationIgnored
-    private var pending: Task<Void, Never>?
+    private var pending: Task<Bool, Never>?
 
     @ObservationIgnored
     private var wanted: [DevelopAdjustmentKind: Double] = [:]
@@ -68,7 +68,12 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     ///
     /// It is the `OpenToFirstFrame` signpost's start; the interval ends when the canvas presents the
     /// preview asked for here, or at once as `failed` when no preview was asked for.
-    func open(pickedURL: URL) async {
+    ///
+    /// It returns true once the new photo is open in both the model and the engine. A first preview
+    /// refused after that does not undo the open: the editor shows the photo's alert, or nothing
+    /// for `.suspended`, since `refreshPreview` draws the photo when the engine resumes.
+    @discardableResult
+    func open(pickedURL: URL) async -> Bool {
         let signpost = Signposts.beginOpen()
         let copy: (url: URL, isNew: Bool)
 
@@ -77,10 +82,10 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         } catch {
             Signposts.openRequestedPreview(signpost, generation: nil)
             errorMessage = Self.message(for: error)
-            return
+            return false
         }
 
-        await enqueue { [engine, previewPixels] in
+        return await enqueue { [engine, previewPixels] in
             var previewGeneration: UInt64?
             defer { Signposts.openRequestedPreview(signpost, generation: previewGeneration) }
 
@@ -101,7 +106,13 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             self.sent      = self.values
             self.wanted    = [:]
 
-            previewGeneration = try engine.requestPreview(maxPixels: previewPixels, draft: false)
+            do throws(EngineError) {
+                previewGeneration = try engine.requestPreview(maxPixels: previewPixels, draft: false)
+            } catch .suspended {
+                // The app left mid-open: refreshPreview redraws on resume, so there is nothing to say.
+            } catch {
+                self.errorMessage = error.message
+            }
         }
     }
 
@@ -162,15 +173,18 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     // MARK: - Chain
 
     /// enqueue appends `step` to the chain and waits for it. The task is created before the first
-    /// suspension, so steps run in the order the callers reached this point.
-    private func enqueue(_ step: @escaping @MainActor () async throws -> Void) async {
+    /// suspension, so steps run in the order the callers reached this point. It returns whether
+    /// the step finished without throwing.
+    @discardableResult
+    private func enqueue(_ step: @escaping @MainActor () async throws -> Void) async -> Bool {
         let previous = pending
 
         let task = Task {
-            await previous?.value
+            _ = await previous?.value
 
             do {
                 try await step()
+                return true
             } catch EngineError.suspended {
                 // Expected when the app resigns active mid-drag: refreshPreview redraws on resume.
             } catch let error as EngineError {
@@ -178,10 +192,12 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             } catch {
                 errorMessage = error.localizedDescription
             }
+
+            return false
         }
 
         pending = task
-        await task.value
+        return await task.value
     }
 
     // MARK: - Helpers

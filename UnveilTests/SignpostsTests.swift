@@ -69,6 +69,8 @@ struct SignpostsTests {
             "-UnveilEngineDir", "fresh",
             "-UnveilExitAfterSweep",
             "-UnveilPanel", "color",
+            "-UnveilHomePhotos",
+            "-UnveilHomeExpanded",
         ])
 
         #expect(options.openFileName == "DSCF0267.RAF")
@@ -77,6 +79,8 @@ struct SignpostsTests {
         #expect(options.sweepSeconds == 30)
         #expect(options.isFreshEngineDirectory)
         #expect(options.exitsAfterSweep)
+        #expect(options.startsHomeOnPhotos)
+        #expect(options.startsHomeExpanded)
     }
 
     @Test
@@ -89,6 +93,8 @@ struct SignpostsTests {
         #expect(options.isFreshEngineDirectory == false)
         #expect(options.exitsAfterSweep == false)
         #expect(options.openPanel == nil)
+        #expect(options.startsHomeOnPhotos == false)
+        #expect(options.startsHomeExpanded == false)
     }
 
     @Test

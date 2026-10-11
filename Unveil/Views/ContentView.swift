@@ -6,8 +6,8 @@
 import Metal
 import SwiftUI
 
-/// ContentView is the scene's root. It composes the editor after launch and initial layout,
-/// keeping that workspace in State so body updates never create another engine or canvas.
+/// ContentView is the scene's root. It composes the workspace (home and editor) after launch and
+/// initial layout, keeping it in State so body updates never create another engine or canvas.
 struct ContentView: View {
 
     let appDelegate: AppDelegate
@@ -27,10 +27,11 @@ struct ContentView: View {
             
             Group {
                 if let workspace {
-                    EditorView(
-                        session     : workspace.session,
-                        canvas      : workspace.canvas,
-                        diagnostics : workspace.diagnostics
+                    WorkspaceView(
+                        session       : workspace.session,
+                        canvas        : workspace.canvas,
+                        diagnostics   : workspace.diagnostics,
+                        launchOptions : workspace.launchOptions
                     )
                 
                 } else if let startupError {

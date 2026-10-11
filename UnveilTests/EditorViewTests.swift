@@ -72,14 +72,13 @@ struct EditorViewTests {
         fixture.host.dismiss(animated: false)
     }
 
-    /// openingPhotoRemovesEmptyState keeps the canvas attached even before an import. Opening
-    /// a photo removes the touch-blocking placeholder instead of replacing the Metal view.
+    /// openingPhotoKeepsCanvas keeps the canvas attached even before an import (the home, not
+    /// the editor, now covers that state). Opening a photo never replaces the Metal view.
     @Test(arguments: [false, true])
-    func openingPhotoRemovesEmptyState(isCompact: Bool) async throws {
+    func openingPhotoKeepsCanvas(isCompact: Bool) async throws {
         let fixture = try Fixture(isCompact: isCompact)
         defer { fixture.window.isHidden = true }
         try await waitUntil(seconds: 3) { !fixture.canvas.bounds.isEmpty }
-        #expect(!fixture.canvasReceivesCenterTouch)
 
         fixture.session.showPanel(.light)
         #expect(!fixture.session.isInspectorPresented)

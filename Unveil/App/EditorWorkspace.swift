@@ -8,12 +8,14 @@ import UIKit
 
 /// EditorWorkspace composes one scene's editor and native canvas. It also refreshes the preview
 /// after activation; the task runs after EngineLifecycleObserver's synchronous resume callback.
+/// It parses the launch options once, for the launch runner and the home's starting state.
 @MainActor
 final class EditorWorkspace {
 
-    let session    : EditorSession<EngineManager, PhotoImporter, PhotoLibraryLoader>
-    let canvas     : CanvasView
-    let diagnostics: EditorDiagnostics<EngineManager, PhotoImporter>
+    let session      : EditorSession<EngineManager, PhotoImporter, PhotoLibraryLoader>
+    let canvas       : CanvasView
+    let diagnostics  : EditorDiagnostics<EngineManager, PhotoImporter>
+    let launchOptions: MeasurementLaunchOptions
 
     private let launchRunner = EditorLaunchRunner()
 
@@ -33,9 +35,10 @@ final class EditorWorkspace {
         let session = EditorSession(viewModel: viewModel, libraryLoader: PhotoLibraryLoader())
         let canvas  = CanvasView(frames: engine.frames, device: device)
 
-        self.session = session
-        self.canvas  = canvas
-        diagnostics  = EditorDiagnostics(
+        self.session  = session
+        self.canvas   = canvas
+        launchOptions = MeasurementLaunchOptions(arguments: ProcessInfo.processInfo.arguments)
+        diagnostics   = EditorDiagnostics(
             engine            : engine,
             viewModel         : viewModel,
             possibleTearCount : { [weak canvas] in canvas?.possibleTearCount ?? 0 },
@@ -51,9 +54,9 @@ final class EditorWorkspace {
         }
 
         launchRunner.start(
-            engine    : engine,
-            viewModel : viewModel,
-            showPanel : { [weak session] group in session?.showPanel(group) }
+            engine  : engine,
+            session : session,
+            options : launchOptions
         )
     }
 

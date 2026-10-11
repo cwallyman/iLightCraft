@@ -3,23 +3,34 @@
 //  Unveil
 //
 
+import Photos
 import PhotosUI
 import SwiftUI
 
-/// PhotoLibraryPicker is the system picker adapter. Keeping the item provider preserves the
-/// loader's preference for RAW and its owned staging file, without requesting library access.
+/// PhotoLibraryPicker embeds the system Photos picker inline, without its Cancel and Add chrome.
+/// Keeping the item provider preserves the loader's preference for RAW and its owned staging
+/// file, and the picker runs out of process, so no library permission is ever requested.
+///
+/// Continuous selection delivers a pick on tap. The shared library only adds asset identifiers
+/// to the results (no access), which lets the adapter deselect the pick at once, so the same
+/// photo can be picked again later with a single tap.
 struct PhotoLibraryPicker: UIViewControllerRepresentable {
 
-    let onSelection: (NSItemProvider?) -> Void
+    let onSelection: (NSItemProvider) -> Void
+    let onSwipeUp  : () -> Void
 
     func makeUIViewController(context: Context) -> PHPickerViewController {
-        var configuration = PHPickerConfiguration()
+        var configuration = PHPickerConfiguration(photoLibrary: .shared())
         configuration.filter                           = .images
         configuration.selectionLimit                   = 1
+        configuration.selection                        = .continuous
         configuration.preferredAssetRepresentationMode = .current
+        configuration.disabledCapabilities             = [.selectionActions, .stagingArea]
+        configuration.edgesWithoutContentMargins       = .all
 
         let picker = PHPickerViewController(configuration: configuration)
         picker.delegate = context.coordinator
+        context.coordinator.swipeObserver.attach(to: picker.view)
         return picker
     }
 
@@ -27,26 +38,35 @@ struct PhotoLibraryPicker: UIViewControllerRepresentable {
         _ picker: PHPickerViewController,
         context : Context
     ) {
-        context.coordinator.onSelection = onSelection
+        context.coordinator.onSelection             = onSelection
+        context.coordinator.swipeObserver.onSwipeUp = onSwipeUp
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onSelection: onSelection)
+        Coordinator(onSelection: onSelection, onSwipeUp: onSwipeUp)
     }
 
     final class Coordinator: NSObject, PHPickerViewControllerDelegate {
 
-        var onSelection: (NSItemProvider?) -> Void
+        var onSelection  : (NSItemProvider) -> Void
+        let swipeObserver: PanelSwipeObserver
 
-        init(onSelection: @escaping (NSItemProvider?) -> Void) {
+        init(
+            onSelection: @escaping (NSItemProvider) -> Void,
+            onSwipeUp  : @escaping () -> Void
+        ) {
             self.onSelection = onSelection
+            swipeObserver    = PanelSwipeObserver(onSwipeUp: onSwipeUp)
         }
 
         func picker(
             _ picker                : PHPickerViewController,
             didFinishPicking results: [PHPickerResult]
         ) {
-            onSelection(results.first?.itemProvider)
+            guard let result = results.first else { return }
+
+            picker.deselectAssets(withIdentifiers: results.compactMap(\.assetIdentifier))
+            onSelection(result.itemProvider)
         }
     }
 }

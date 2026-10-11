@@ -13,19 +13,18 @@ final class EditorLaunchRunner {
     private var hasStarted: Bool = false
 
     func start(
-        engine   : EngineManager,
-        viewModel: EditorViewModel<EngineManager, PhotoImporter>,
-        showPanel: @escaping @MainActor (AdjustmentGroup) -> Void
+        engine : EngineManager,
+        session: EditorSession<EngineManager, PhotoImporter, PhotoLibraryLoader>,
+        options: MeasurementLaunchOptions
     ) {
         guard !hasStarted else { return }
 
         hasStarted = true
         runLaunchCommand(engine: engine)
         runMeasurement(
-            options   : MeasurementLaunchOptions(arguments: ProcessInfo.processInfo.arguments),
-            viewModel : viewModel,
-            engine    : engine,
-            showPanel : showPanel
+            options : options,
+            session : session,
+            engine  : engine
         )
     }
 
@@ -59,8 +58,9 @@ final class EditorLaunchRunner {
     }
 
     /// runMeasurement opens the photo named by `-UnveilOpen` and runs the sweep of `-UnveilSweep`
-    /// (see MeasurementLaunchOptions), so T15's runs need no taps. Without `-UnveilOpen` it does
-    /// nothing, and a normal launch is unchanged.
+    /// (see MeasurementLaunchOptions), so T15's runs need no taps. The open goes through the
+    /// session, like a pick on the home, so a good open presents the editor. Without
+    /// `-UnveilOpen` it does nothing, and a normal launch is unchanged.
     ///
     /// Before the open it waits for an `app.gpu` read on the engine's serial command queue, which
     /// lands behind the launch read (the first one creates the GPU device): so `OpenToFirstFrame`
@@ -70,12 +70,13 @@ final class EditorLaunchRunner {
     /// its full time, and `exit(1)` if the photo never showed a full frame. Like `-UnveilRun golden`,
     /// the exit is allowed only in this agent-driven mode, where nobody is editing.
     private func runMeasurement(
-        options  : MeasurementLaunchOptions,
-        viewModel: EditorViewModel<EngineManager, PhotoImporter>,
-        engine   : EngineManager,
-        showPanel: @escaping @MainActor (AdjustmentGroup) -> Void
+        options: MeasurementLaunchOptions,
+        session: EditorSession<EngineManager, PhotoImporter, PhotoLibraryLoader>,
+        engine : EngineManager
     ) {
         guard let fileName = options.openFileName else { return }
+
+        let viewModel = session.viewModel
 
         Task {
             while UIApplication.shared.applicationState != .active {
@@ -86,7 +87,7 @@ final class EditorLaunchRunner {
             _ = try? await engine.diagnostic("app.gpu", params: [String: String]())
 
             print("measure: opening \(fileName)")
-            await viewModel.open(pickedURL: URL.documentsDirectory.appending(path: "raw/\(fileName)"))
+            await session.open(pickedURL: URL.documentsDirectory.appending(path: "raw/\(fileName)"))
 
             guard await Self.waitForFullFrame(in: engine.frames) else {
                 print("measure: no full frame for \(fileName): \(viewModel.errorMessage ?? "timed out")")
@@ -97,7 +98,7 @@ final class EditorLaunchRunner {
             print("measure: first full frame")
 
             if let panel = options.openPanel {
-                showPanel(panel)
+                session.showPanel(panel)
             }
 
             guard let seconds = options.sweepSeconds else { return }
