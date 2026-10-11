@@ -32,7 +32,7 @@ import UIKit
 /// bytesPerRow:)`), one cached per buffer and rebuilt only when the frame's geometry changes, so
 /// steady drawing allocates no pixel memory. They are `rgba8Unorm`, the drawable is `bgra8Unorm`
 /// and the layer's colorspace is sRGB: the engine's bytes are already display-encoded and travel
-/// to the screen untouched (see CanvasShaderSource for the shader side).
+/// to the screen untouched (see Canvas.metal for the shader side).
 ///
 /// The sink double-buffers, so a GPU pass that samples buffer A while the engine publishes twice
 /// would read A as it is rewritten (a torn frame, visual only, gone on the next frame). Two rules
@@ -40,6 +40,9 @@ import UIKit
 /// finds one in flight retries on the next tick), and the completed handler counts the passes
 /// that may have torn, in `possibleTearCount`, so T13 can decide whether a third buffer is needed.
 final class CanvasView: UIView {
+
+    nonisolated static let vertexFunctionName   = "canvasVertex"
+    nonisolated static let fragmentFunctionName = "canvasFragment"
 
     private static let drawablePixelFormat = MTLPixelFormat.bgra8Unorm
     private static let logger              = Logger(subsystem: "com.eliorodr2104.unveil", category: "CanvasView")
@@ -154,17 +157,17 @@ final class CanvasView: UIView {
 
     /// init(frames:device:) builds the pipeline and wires the sink's wake-up to this view.
     ///
-    /// The shaders compile here, from source, once per view. If they do not build, the error is
-    /// logged and the canvas only clears to black: the editor stays usable, and CanvasTextureTests
-    /// fails on the same error. A device that cannot make a command queue is out of resources at
-    /// launch, with nothing to degrade to.
+    /// The pipeline is built here from the app's default library (Canvas.metal), once per view. If
+    /// it does not build, the error is logged and the canvas only clears to black: the editor
+    /// stays usable, and CanvasTextureTests fails on the same error. A device that cannot make a
+    /// command queue is out of resources at launch, with nothing to degrade to.
     init(frames: FrameSink, device: some MTLDevice) {
         guard let commandQueue = device.makeCommandQueue() else {
             fatalError("CanvasView: the device cannot make a command queue")
         }
 
         do {
-            pipeline = try CanvasShaderSource.makePipelineState(
+            pipeline = try Self.makePipelineState(
                 device      : device,
                 pixelFormat : Self.drawablePixelFormat
             )
@@ -183,6 +186,40 @@ final class CanvasView: UIView {
         configureGestures()
         configureAccessibility()
         listenForFrames()
+    }
+
+    /// makePipelineState(device:pixelFormat:) looks the two canvas functions up in the
+    /// default library and returns the render pipeline that draws into a drawable of `pixelFormat`.
+    /// It throws CanvasShaderError when the library or a named function is missing.
+    /// The whole build is the `ShaderCompile` signpost: it runs on main when the canvas is made.
+    nonisolated static func makePipelineState(
+        device     : some MTLDevice,
+        pixelFormat: MTLPixelFormat
+    ) throws -> any MTLRenderPipelineState {
+        let signpost = Signposts.signposter.beginInterval(
+            "ShaderCompile",
+            id: Signposts.signposter.makeSignpostID()
+        )
+        defer { Signposts.signposter.endInterval("ShaderCompile", signpost) }
+
+        guard let library = device.makeDefaultLibrary() else {
+            throw CanvasShaderError.missingLibrary
+        }
+
+        guard let vertexFunction = library.makeFunction(name: vertexFunctionName) else {
+            throw CanvasShaderError.missingFunction(vertexFunctionName)
+        }
+
+        guard let fragmentFunction = library.makeFunction(name: fragmentFunctionName) else {
+            throw CanvasShaderError.missingFunction(fragmentFunctionName)
+        }
+
+        let descriptor = MTLRenderPipelineDescriptor()
+        descriptor.vertexFunction                  = vertexFunction
+        descriptor.fragmentFunction                = fragmentFunction
+        descriptor.colorAttachments[0].pixelFormat = pixelFormat
+
+        return try device.makeRenderPipelineState(descriptor: descriptor)
     }
 
     @available(*, unavailable)

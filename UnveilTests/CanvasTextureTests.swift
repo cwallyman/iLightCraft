@@ -7,9 +7,9 @@ import Metal
 import Testing
 @testable import Unveil
 
-/// CanvasTextureTests checks the two things the canvas takes on faith at runtime: that its shader
-/// source compiles on this device (there is no build-time Metal compiler), and that a published
-/// sink buffer wraps into a zero-copy texture, which is unverified on the simulator.
+/// CanvasTextureTests checks the two things the canvas takes on faith at runtime: that the default
+/// library carries both canvas shaders, and that a published sink buffer wraps into a zero-copy
+/// texture, which is unverified on the simulator.
 struct CanvasTextureTests {
 
     let device: any MTLDevice
@@ -19,16 +19,16 @@ struct CanvasTextureTests {
     }
 
     @Test
-    func theShaderSourceCompilesWithBothFunctions() throws {
-        let library = try device.makeLibrary(source: CanvasShaderSource.text, options: nil)
+    func theDefaultLibraryHasBothCanvasFunctions() throws {
+        let library = try #require(device.makeDefaultLibrary())
 
-        #expect(library.makeFunction(name: CanvasShaderSource.vertexFunctionName) != nil)
-        #expect(library.makeFunction(name: CanvasShaderSource.fragmentFunctionName) != nil)
+        #expect(library.makeFunction(name: CanvasView.vertexFunctionName) != nil)
+        #expect(library.makeFunction(name: CanvasView.fragmentFunctionName) != nil)
     }
 
     @Test
     func theCanvasPipelineBuildsForTheDrawableFormat() throws {
-        let pipeline = try CanvasShaderSource.makePipelineState(
+        let pipeline = try CanvasView.makePipelineState(
             device      : device,
             pixelFormat : .bgra8Unorm
         )
