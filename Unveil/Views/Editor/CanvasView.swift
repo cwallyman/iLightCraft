@@ -150,6 +150,11 @@ final class CanvasView: UIView {
     /// at the last photo change): a window at or below it is never drawn again.
     private var windowFloor: UInt64 = 0
 
+    /// previewFloor is the newest generation already published when this canvas was made: a scene
+    /// that connects later must not show a frame from before it (another scene's, or the one left
+    /// by a photo it never opened), so the first frame drawn is one asked for after.
+    private let previewFloor: UInt64
+
     /// canvasTransform is the gesture state (UIView already owns `transform`). Any real change to
     /// it asks for one redraw.
     private var canvasTransform = CanvasTransform() {
@@ -192,6 +197,7 @@ final class CanvasView: UIView {
         let isHopPending            = Atomic<Bool>(false)
         let isCommandBufferInFlight = Atomic<Bool>(false)
         let possibleTears           = Atomic<Int>(0)
+        let droppedFrames           = Mutex(DroppedFrameRetries())
 
         /// commandBufferCompleted(sampled:newest:) runs on Metal's completion thread when a pass ends,
         /// with the newest generation the pass sampled and the newest one published by then.
@@ -228,7 +234,7 @@ final class CanvasView: UIView {
     /// init(frames:device:) builds the pipeline and wires the sink's wake-up to this view.
     ///
     /// The pipeline is built here from the app's default library (Canvas.metal), once per view. If
-    /// it does not build, the error is logged and the canvas only clears to black: the editor
+    /// it does not build, the error is logged and the canvas only clears to the surround: the editor
     /// stays usable, and CanvasTextureTests fails on the same error. A device that cannot make a
     /// command queue is out of resources at launch, with nothing to degrade to.
     init(frames: FrameSink, device: some MTLDevice) {
@@ -248,8 +254,11 @@ final class CanvasView: UIView {
 
         self.frames       = frames
         self.commandQueue = commandQueue
+        self.previewFloor = Self.newestGeneration(frames.published())
 
         super.init(frame: .zero)
+
+        windowFloor = previewFloor
 
         configureLayer(device: device)
         configureRenderPass()
@@ -458,7 +467,7 @@ final class CanvasView: UIView {
         }
 
         let published = frames.published()
-        let frame     = published.frame
+        let frame     = published.frame.flatMap { isCurrent($0) ? $0 : nil }
 
         // The encoder copies the descriptor, so the drawable is not kept past this pass.
         renderPass.colorAttachments[0].texture = drawable.texture
@@ -518,7 +527,11 @@ final class CanvasView: UIView {
         if let sampledFrame {
             drawable.addPresentedHandler(Self.presentedHandler(
                 generation       : sampledFrame.generation,
-                windowGeneration : sampledWindow?.generation
+                windowGeneration : sampledWindow?.generation,
+                crossThread      : crossThread,
+                drawAgain        : { [weak self] in
+                    DispatchQueue.main.async { self?.setNeedsRedraw() }
+                }
             ))
         }
         #endif
@@ -590,6 +603,11 @@ final class CanvasView: UIView {
         return (min: quad.min + shift, max: quad.max + shift)
     }
 
+    /// isCurrent tells whether a published preview is one this canvas may draw (see `previewFloor`).
+    func isCurrent(_ preview: ReadyFrame) -> Bool {
+        preview.generation > previewFloor
+    }
+
     /// isShowable tells whether a published window still belongs on screen: newer than the floor
     /// and of the frame the canvas would ask for now (see the type doc). Internal for the tests.
     func isShowable(_ window: ReadyFrame) -> Bool {
@@ -608,15 +626,28 @@ final class CanvasView: UIView {
     /// window drawn over it, once the drawable has left the display pipeline. It is built here,
     /// nonisolated, because Metal calls it on its own thread.
     ///
-    /// A presented time of 0 is reported as `dropped`, not skipped: on the iPad the first frame of
-    /// an open with an otherwise idle canvas reports 0, and skipping it left the open's interval
-    /// waiting for a frame that never comes (seen in a device trace, M3.4).
+    /// A presented time of 0 means the frame was not shown, not that the measurement is wrong: a
+    /// probe on the iPad (C1) saw every drawable drawn while the editor was still fading in report 0,
+    /// and the first frame after an open can land there. The signposts stay open and `drawAgain`
+    /// asks for the same frame on the next tick, until a drawable is presented (`DroppedFrameRetries`
+    /// bounds it for a canvas that stays hidden, then the interval ends as `dropped`).
     private nonisolated static func presentedHandler(
         generation      : UInt64,
-        windowGeneration: UInt64?
+        windowGeneration: UInt64?,
+        crossThread     : CrossThreadState,
+        drawAgain       : @escaping @Sendable () -> Void
     ) -> @Sendable (any MTLDrawable) -> Void {
         { drawable in
             let isDropped = drawable.presentedTime == 0
+
+            let isDrawnAgain = crossThread.droppedFrames.withLock { retries in
+                retries.shouldDrawAgain(isDropped: isDropped, at: .now)
+            }
+
+            if isDrawnAgain {
+                drawAgain()
+                return
+            }
 
             Signposts.framePresented(generation: generation, isDropped: isDropped)
 
@@ -1025,7 +1056,7 @@ final class CanvasView: UIView {
 
     private func configureLayer(device: some MTLDevice) {
         isOpaque        = true
-        backgroundColor = .black
+        backgroundColor = EditorSurround.uiColor
 
         metalLayer.device          = device
         metalLayer.pixelFormat     = Self.drawablePixelFormat
@@ -1038,7 +1069,7 @@ final class CanvasView: UIView {
         let attachment = renderPass.colorAttachments[0]
         attachment?.loadAction  = .clear
         attachment?.storeAction = .store
-        attachment?.clearColor  = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        attachment?.clearColor  = EditorSurround.metalClearColor
     }
 
     private func configureGestures() {

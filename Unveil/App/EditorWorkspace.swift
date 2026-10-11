@@ -42,7 +42,7 @@ final class EditorWorkspace {
             engine            : engine,
             viewModel         : viewModel,
             possibleTearCount : { [weak canvas] in canvas?.possibleTearCount ?? 0 },
-            present           : { [weak session] in session?.alert = $0 }
+            present           : { [weak session] in session?.show($0) }
         )
 
         becomeActiveToken = NotificationCenter.default.addObserver(

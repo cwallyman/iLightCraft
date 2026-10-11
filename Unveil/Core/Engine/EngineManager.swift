@@ -373,9 +373,24 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
     /// reaches the sink through `ctx`, unretained because the manager owns the sink and deinit keeps
     /// it alive until the session is freed.
     private static let receiveFrame: uv_frame_cb = { context, frame in
-        guard let context, let frame, let rgba = frame.pointee.rgba else { return }
+        guard let context, let frame else { return }
 
-        let info   = frame.pointee
+        let info = frame.pointee
+        let sink = Unmanaged<FrameSink>.fromOpaque(context).takeUnretainedValue()
+
+        // A failed render has no pixels: its message goes to the sink, and the frames stay.
+        guard info.status == UV_OK.rawValue, let rgba = info.rgba else {
+            let message = info.error.map { String(cString: $0) } ?? "the render failed"
+
+            Signposts.frameFailed(generation: info.generation)
+            sink.receiveFailure(FrameFailure(
+                generation : info.generation,
+                isWindow   : info.window,
+                message    : message
+            ))
+            return
+        }
+
         let window = info.window ? FrameWindow(
             frameWidth  : Int(info.frame_width),
             frameHeight : Int(info.frame_height),
@@ -385,7 +400,7 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
             height      : Int(info.height)
         ) : nil
 
-        Unmanaged<FrameSink>.fromOpaque(context).takeUnretainedValue().receive(
+        sink.receive(
             rgba          : UnsafeRawPointer(rgba),
             width         : Int(info.width),
             height        : Int(info.height),

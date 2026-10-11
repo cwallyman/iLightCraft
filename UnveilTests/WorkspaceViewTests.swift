@@ -31,7 +31,7 @@ struct WorkspaceViewTests {
             engine            : engine,
             viewModel         : model,
             possibleTearCount : { 0 },
-            present           : { [weak session] in session?.alert = $0 }
+            present           : { [weak session] in session?.show($0) }
         )
         let host = UIHostingController(rootView: WorkspaceView(
             session       : session,

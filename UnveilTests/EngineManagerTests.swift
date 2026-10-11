@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import Synchronization
 import Testing
 import UIKit
 @testable import Unveil
@@ -74,6 +75,29 @@ struct EngineManagerTests {
         #expect(published.frame?.generation == preview && published.frame?.window == nil)
         #expect(published.frame?.nativeWidth == 96 && published.frame?.nativeHeight == 64)
         #expect(published.window?.nativeWidth == 96 && published.window?.nativeHeight == 64)
+    }
+
+    /// A render whose source is gone comes back through the C callback as a failure with the
+    /// engine's message, for the request's generation, and publishes no frame.
+    @Test
+    func aRenderWhoseSourceIsGoneIsReportedNotSilent() async throws {
+        let manager = try makeManager(maxPixels: 256)
+        let file    = try fixtureURL()
+        _ = try await manager.openPhoto(at: file)
+        try FileManager.default.removeItem(at: file)
+
+        let failures = Mutex<[FrameFailure]>([])
+        manager.frames.onFailure = { failure in failures.withLock { $0.append(failure) } }
+
+        let generation = try manager.requestPreview(maxPixels: 256, draft: false)
+
+        try await waitUntil(seconds: 30) { !failures.withLock { $0 }.isEmpty }
+
+        let failure = try #require(failures.withLock { $0 }.first)
+        #expect(failure.generation == generation)
+        #expect(!failure.isWindow)
+        #expect(!failure.message.isEmpty)
+        #expect(manager.frames.latest() == nil)
     }
 
     @Test

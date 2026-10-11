@@ -1,6 +1,6 @@
 mod common;
 use common::*;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use unveil_ffi::*;
 
@@ -116,4 +116,87 @@ fn a_result_for_a_photo_no_longer_active_is_dropped() {
     let (generation, _, w, h, _, _) = got[0];
     assert_eq!(generation, g);
     assert!(h > w, "the frame must be the tall photo: {w}x{h}");
+}
+
+/// Failure is what the callback saw of a failed render: its generation, status and message.
+type Failure = (u64, i32, String);
+
+#[derive(Default)]
+struct Failures(Mutex<Vec<Failure>>);
+
+extern "C" fn record_failure(ctx: *mut std::ffi::c_void, frame: *const UVFrame) {
+    // SAFETY: the engine passes a frame valid for the duration of the callback.
+    let f = unsafe { &*frame };
+    // SAFETY: ctx is the Failures the test keeps alive in an Arc for the whole session.
+    let failures = unsafe { &*(ctx as *const Failures) };
+    let message = if f.error.is_null() {
+        String::new()
+    } else {
+        // SAFETY: a failed frame's error is a NUL-terminated string valid during the callback.
+        unsafe { std::ffi::CStr::from_ptr(f.error) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    assert!(
+        f.status == 0 || f.rgba.is_null(),
+        "a failed frame carries no pixels"
+    );
+    failures.0.lock().unwrap().push((f.generation, f.status, message));
+}
+
+#[test]
+fn a_render_that_cannot_load_its_source_is_reported() {
+    let failures = Arc::new(Failures::default());
+    let s = TestSession::new();
+    let png = gradient_png(s.dir.path(), "gone.png", 3000, 2000);
+    import_png(&s, &png);
+    std::fs::remove_file(&png).unwrap();
+    // SAFETY: s.raw is live; failures outlives the session (declared before it).
+    let g = unsafe {
+        uv_request_preview(
+            s.raw,
+            512,
+            false,
+            Some(record_failure),
+            Arc::as_ptr(&failures) as *mut _,
+        )
+    };
+    assert!(g >= 1, "{}", last_error());
+    for _ in 0..300 {
+        if !failures.0.lock().unwrap().is_empty() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let got = failures.0.lock().unwrap().clone();
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!((got[0].0, got[0].1), (g, UVStatus::UV_ERR_ENGINE as i32));
+    assert!(!got[0].2.is_empty());
+}
+
+#[test]
+fn only_the_newest_failure_is_reported() {
+    let failures = Arc::new(Failures::default());
+    let s = TestSession::new();
+    let png = gradient_png(s.dir.path(), "gone.png", 3000, 2000);
+    import_png(&s, &png);
+    std::fs::remove_file(&png).unwrap();
+    let mut last = 0;
+    for _ in 0..5 {
+        // SAFETY: as above.
+        last = unsafe {
+            uv_request_preview(
+                s.raw,
+                512,
+                false,
+                Some(record_failure),
+                Arc::as_ptr(&failures) as *mut _,
+            )
+        };
+    }
+    std::thread::sleep(Duration::from_secs(3));
+    let got = failures.0.lock().unwrap().clone();
+    assert!(!got.is_empty(), "{got:?}");
+    assert!(got.windows(2).all(|w| w[0].0 < w[1].0), "{got:?}");
+    assert_eq!(got.last().unwrap().0, last, "{got:?}");
 }

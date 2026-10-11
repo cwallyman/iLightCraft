@@ -1,9 +1,9 @@
-// uv.h: C ABI of the Unveil engine bridge. Version 2.
+// uv.h: C ABI of the Unveil engine bridge. Version 3.
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
 
-#define UV_ABI_VERSION 2
+#define UV_ABI_VERSION 3
 
 typedef enum UVStatus {
     UV_OK                    =  0,
@@ -24,6 +24,11 @@ typedef struct UVSession UVSession;
 /// `fallback` marks the whole frame answering a window that could not render alone: it replaces
 /// the window shown. native_width x native_height is the whole frame at the photo's own resolution
 /// (cropped and straightened, as a full-size export): the frame at 100 %.
+/// `status` is UV_OK for a frame. A render that failed (its source cannot be loaded, the engine
+/// errors or panics) is delivered as a frame with `status` set (UV_ERR_ENGINE or UV_ERR_PANIC),
+/// `error` its message (valid only during the call), `rgba` NULL and the sizes 0; `generation`,
+/// `draft` and `window` say which request failed. Only the newest request's outcome is delivered,
+/// frame or failure, under the same generation rules.
 typedef struct UVFrame {
     const uint8_t *rgba;
     uint32_t       width;
@@ -39,6 +44,8 @@ typedef struct UVFrame {
     uint32_t       y;
     uint32_t       native_width;
     uint32_t       native_height;
+    int32_t        status;
+    const char    *error;
 } UVFrame;
 
 /// Called on the engine thread; `frame` and its pixels are valid only during the call.

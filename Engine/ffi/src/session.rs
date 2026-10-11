@@ -37,6 +37,9 @@ unsafe extern "C" {
 /// sits at (x, y) of a `frame_width × frame_height` frame. `fallback` marks the whole frame that
 /// answers a window the engine could not render alone. `native_width × native_height` is the
 /// whole frame at the photo's own resolution (cropped and straightened): what 100 % means.
+/// `status` is UV_OK for a frame. A render that failed is delivered as a frame with `status` set,
+/// `error` pointing to its message (valid only during the call), `rgba` NULL and the sizes 0;
+/// `generation`, `draft` and `window` still say which request failed.
 #[repr(C)]
 #[derive(Debug)]
 pub struct UVFrame {
@@ -54,6 +57,8 @@ pub struct UVFrame {
     pub y: u32,
     pub native_width: u32,
     pub native_height: u32,
+    pub status: i32,
+    pub error: *const c_char,
 }
 
 /// uv_frame_cb of uv.h. Called on the engine thread; `frame` is valid only during the call.
@@ -119,9 +124,39 @@ impl FrameCallback {
             y: at.y,
             native_width: delivery.native.0,
             native_height: delivery.native.1,
+            status: UVStatus::UV_OK as i32,
+            error: std::ptr::null(),
         };
         // SAFETY: frame and the pixels it points to (owned by the RenderResult) outlive the call,
         // which is all uv_frame_cb promises; ctx is valid per the request's contract.
+        unsafe { (self.f)(self.ctx, &frame) };
+    }
+
+    /// call_failure tells the callback that a render failed: no pixels, `status` and `message`
+    /// instead, for the request's generation. Like call, it runs on the engine thread only.
+    fn call_failure(&self, generation: u64, draft: bool, delivery: Delivery, failure: Failure) {
+        // A message with a NUL cannot cross as a C string: blank it out rather than lose it.
+        let message = CString::new(failure.message.replace('\0', " ")).unwrap_or_default();
+        let frame = UVFrame {
+            rgba: std::ptr::null(),
+            width: 0,
+            height: 0,
+            stride: 0,
+            generation,
+            draft,
+            window: delivery.placement.is_some(),
+            fallback: delivery.fallback,
+            frame_width: 0,
+            frame_height: 0,
+            x: 0,
+            y: 0,
+            native_width: delivery.native.0,
+            native_height: delivery.native.1,
+            status: failure.status as i32,
+            error: message.as_ptr(),
+        };
+        // SAFETY: frame and message outlive the call, which is all uv_frame_cb promises; ctx is
+        // valid per the request's contract.
         unsafe { (self.f)(self.ctx, &frame) };
     }
 }
@@ -586,23 +621,32 @@ impl Engine {
         Some(self.stages.attach(job))
     }
 
-    /// finish caches what the render decoded, delivers the frame if it is still the newest for
-    /// the active photo, then starts the pending request, if any.
+    /// finish caches what the render decoded, delivers the frame, or its failure, if it is still
+    /// the newest for the active photo, then starts the pending request, if any.
     fn finish(&mut self, done: RenderDone) {
-        if let Some(result) = &done.result {
-            caught("accept", || self.session.accept(result));
-            match &result.rendered {
-                Ok(rendered) => {
-                    let active = self.session.active().map(|p| p.0);
-                    if self
-                        .scheduler
-                        .should_deliver(done.generation, done.photo.0, active)
-                    {
-                        done.callback
-                            .call(rendered, done.generation, done.draft, done.delivery);
-                    }
+        let outcome = match &done.result {
+            Some(result) => {
+                caught("accept", || self.session.accept(result));
+                result.rendered.as_ref().map_err(|e| {
+                    log::warn!("unveil: preview {} failed: {e}", done.generation);
+                    Failure::new(UVStatus::UV_ERR_ENGINE, e.as_str())
+                })
+            }
+            None => Err(Failure::new(UVStatus::UV_ERR_PANIC, "the render panicked")),
+        };
+        let active = self.session.active().map(|p| p.0);
+        if self
+            .scheduler
+            .should_deliver(done.generation, done.photo.0, active)
+        {
+            match outcome {
+                Ok(rendered) => done
+                    .callback
+                    .call(rendered, done.generation, done.draft, done.delivery),
+                Err(failure) => {
+                    done.callback
+                        .call_failure(done.generation, done.draft, done.delivery, failure)
                 }
-                Err(e) => log::warn!("unveil: preview {} failed: {e}", done.generation),
             }
         }
         if let Some(next) = self.scheduler.finished(done.generation) {
