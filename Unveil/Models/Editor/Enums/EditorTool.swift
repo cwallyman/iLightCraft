@@ -5,7 +5,7 @@
 
 /// EditorTool names the tools of the trailing rail. Move is the canvas gestures alone and the
 /// default; Adjust also shows the adjust card. The raw value names it in accessibility identifiers.
-nonisolated enum EditorTool: String, Sendable {
+nonisolated enum EditorTool: String, Sendable, CaseIterable {
 
     case move
     case adjust
@@ -19,15 +19,8 @@ nonisolated enum EditorTool: String, Sendable {
     
     var systemImage: String {
         switch self {
-            case .move  : "hand.raised"
-            case .adjust: "Adjust"
+            case .move  : "pointer.arrow"
+            case .adjust: "slider.horizontal.3"
         }
     }
 }
-
-/*
- button("Move", systemImage: "hand.raised", tool: .move)
-
- button("Adjust", systemImage: "slider.horizontal.3", tool: .adjust)
-     .disabled(!isPhotoOpen)
- */

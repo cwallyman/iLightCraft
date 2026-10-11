@@ -15,32 +15,46 @@ struct ToolRail: View {
 
     var body: some View {
         VStack(spacing: 4) {
+            
+            ForEach(EditorTool.allCases, id: \.title) { item in
+                
+                button(
+                    item.title,
+                    systemImage : item.systemImage,
+                    tool        : item
+                )
+                
+            }
 
-            button("Move", systemImage: "hand.raised", tool: .move)
-
-            button("Adjust", systemImage: "slider.horizontal.3", tool: .adjust)
-                .disabled(!isPhotoOpen)
         }
+        .padding(3)
         .glassEffect(.regular, in: .capsule)
     }
 
     private func button(
-        _ title    : LocalizedStringKey,
+        _ title    : String,
         systemImage: String,
         tool       : EditorTool
     ) -> some View {
-        Toggle(isOn: Binding(
-            get: { self.tool == tool },
-            set: { onSelect($0 ? tool : .move) }
-        )) {
-            // The frame and shape sit on the label, so the whole 44 pt circle is drawn and hit-tested.
+        
+        Toggle(
+            isOn: Binding(
+                get: { self.tool == tool },
+                set: { onSelect($0 ? tool : .move) }
+            )
+        ) {
+            // A 32 pt label with the small control size keeps the rail compact; the frame and shape
+            // sit on the label, so the whole circle is hit-tested.
             Label(title, systemImage: systemImage)
                 .labelStyle(.iconOnly)
-                .frame(width: 44, height: 44)
+                .font(.system(size: 15, weight: .medium))
+                .frame(width: 32, height: 32)
                 .contentShape(.circle)
         }
         .toggleStyle(.button)
         .buttonBorderShape(.circle)
+        .controlSize(.small)
         .accessibilityIdentifier("tool-\(tool.rawValue)")
+        .tint(.primary)
     }
 }

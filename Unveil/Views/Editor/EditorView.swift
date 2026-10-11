@@ -99,6 +99,7 @@ struct EditorView<
         ToolbarItem(placement: .topBarLeading) {
             Menu {
                 Button("Info", systemImage: "info.circle") { isInfoShown = true }
+            
             } label: {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(session.viewModel.photoTitle)
@@ -111,6 +112,7 @@ struct EditorView<
             }
             .accessibilityIdentifier("title-menu")
         }
+        .sharedBackgroundVisibility(.hidden)
 
         ToolbarSpacer(.fixed, placement: .topBarLeading)
 
