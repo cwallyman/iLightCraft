@@ -13,6 +13,8 @@
 /// - `-UnveilExitAfterSweep`: end the process when the sweep ends (0 if it ran its full time);
 /// - `-UnveilPanel <name>`: after the first full frame, open that adjustment panel ("Light",
 ///   "Color"...: the group title, any case), so a screenshot of a panel needs no tap;
+/// - `-UnveilZoom <percent>`: after the first full frame, zoom to that percentage of the photo's real
+///   pixels (clamped to the zoom range), so a screenshot of a zoom level needs no pinch;
 /// - `-UnveilHomePhotos`: start the home's panel on Photos instead of Files;
 /// - `-UnveilHomeExpanded`: start the home's panel at full height, so its screenshot needs no drag.
 ///
@@ -26,6 +28,7 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
     let isFreshEngineDirectory: Bool
     let exitsAfterSweep       : Bool
     let openPanel             : AdjustmentGroup?
+    let zoomPercent           : Double?
     let startsHomeOnPhotos    : Bool
     let startsHomeExpanded    : Bool
 
@@ -35,7 +38,7 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
             return arguments[index + 1]
         }
 
-        func seconds(after flag: String) -> Double? {
+        func nonNegativeNumber(after flag: String) -> Double? {
             guard let number = value(after: flag).flatMap(Double.init),
                   number.isFinite,
                   number >= 0
@@ -46,14 +49,19 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
             return number
         }
 
+        func positiveNumber(after flag: String) -> Double? {
+            nonNegativeNumber(after: flag).flatMap { $0 > 0 ? $0 : nil }
+        }
+
         openFileName           = value(after: "-UnveilOpen")
-        delaySeconds           = seconds(after: "-UnveilDelay") ?? 0
-        sweepSeconds           = seconds(after: "-UnveilSweep").flatMap { $0 > 0 ? $0 : nil }
+        delaySeconds           = nonNegativeNumber(after: "-UnveilDelay") ?? 0
+        sweepSeconds           = positiveNumber(after: "-UnveilSweep")
         isFreshEngineDirectory = value(after: "-UnveilEngineDir") == "fresh"
         exitsAfterSweep        = arguments.contains("-UnveilExitAfterSweep")
         openPanel              = value(after: "-UnveilPanel").flatMap { name in
             AdjustmentGroup.allCases.first { $0.title.lowercased() == name.lowercased() }
         }
+        zoomPercent            = positiveNumber(after: "-UnveilZoom")
         startsHomeOnPhotos     = arguments.contains("-UnveilHomePhotos")
         startsHomeExpanded     = arguments.contains("-UnveilHomeExpanded")
     }

@@ -17,5 +17,8 @@ struct UnveilApp: App {
         WindowGroup {
             ContentView(appDelegate: appDelegate)
         }
+        .commands {
+            ZoomCommands()
+        }
     }
 }

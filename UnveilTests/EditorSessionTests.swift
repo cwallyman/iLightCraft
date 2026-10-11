@@ -112,8 +112,13 @@ struct EditorSessionTests {
         await session.open(pickedURL: URL(filePath: "/tmp/photo.RAF"))
         #expect(session.isEditorPresented)
         #expect(model.isPhotoOpen)
+        #expect(session.canZoom)
 
+        // The home keeps the photo open, but the zoom commands go away with the editor.
         session.goHome()
+        #expect(model.isPhotoOpen)
+        #expect(!session.canZoom)
+
         let task = Task { await session.importLibraryPhoto(from: NSItemProvider()) }
         try await waitUntil(seconds: 3) { loader.loadCount == 1 }
         loader.complete(.success(URL(filePath: "/tmp/library.RAF")))

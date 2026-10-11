@@ -23,7 +23,7 @@ final class EditorSession<
 
     var alert         : EditorAlert?
     var selectedGroup : AdjustmentGroup = .light
-    var zoomPercent   : Int = 100
+    var zoomPercent   : Double = 100
 
     private(set) var tool: EditorTool = .move
 
@@ -60,6 +60,10 @@ final class EditorSession<
 
     /// isCardOpen is true while the Adjust tool is selected: the adjust card follows it.
     var isCardOpen: Bool { tool == .adjust }
+
+    /// canZoom is true while the editor is on screen with a photo: the scene's zoom commands and
+    /// their keyboard shortcuts follow it. The home keeps the photo open, so the photo alone is not enough.
+    var canZoom: Bool { isEditorPresented && viewModel.isPhotoOpen }
 
     /// select changes the tool. Adjust needs an open photo; Move (and closing the card) never does.
     func select(_ tool: EditorTool) {
