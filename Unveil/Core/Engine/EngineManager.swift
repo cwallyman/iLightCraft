@@ -410,7 +410,29 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
             window        : window,
             replacesWindow: info.fallback,
             nativeWidth   : Int(info.native_width),
-            nativeHeight  : Int(info.native_height)
+            nativeHeight  : Int(info.native_height),
+            histogram     : info.histogram.map { EngineManager.histogram(of: $0.pointee, frame: info) }
+        )
+    }
+
+    /// histogram(of:frame:) copies a frame's UVHistogram, valid only during the callback, into
+    /// arrays. Its fixed C arrays reach Swift as tuples of UInt32.
+    private static func histogram(of raw: UVHistogram, frame: UVFrame) -> FrameHistogram {
+        // A homogeneous tuple is laid out as a C array, its memory already bound to UInt32.
+        func bins<Tuple>(_ tuple: Tuple) -> [UInt32] {
+            withUnsafeBytes(of: tuple) { Array($0.assumingMemoryBound(to: UInt32.self)) }
+        }
+
+        return FrameHistogram(
+            red         : bins(raw.r),
+            green       : bins(raw.g),
+            blue        : bins(raw.b),
+            luma        : bins(raw.luma),
+            total       : Int(raw.total),
+            clippedLow  : bins(raw.clipped_low).map(Int.init),
+            clippedHigh : bins(raw.clipped_high).map(Int.init),
+            generation  : frame.generation,
+            isDraft     : frame.draft
         )
     }
 

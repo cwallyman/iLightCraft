@@ -27,6 +27,10 @@ final class EditorSession<
     var selectedGroup : AdjustmentGroup = .light
     var zoomPercent   : Double = 100
 
+    /// clipping is the ends the histogram's corner toggles turned on. It outlives page changes and
+    /// closing the card; the canvas shows it only while the toggles are on screen (`clippingOverlay`).
+    var clipping: ClippingOverlay = []
+
     private(set) var tool: EditorTool = .move
 
     private(set) var isEditorPresented: Bool = false
@@ -82,6 +86,9 @@ final class EditorSession<
 
     /// isCardOpen is true while the Adjust tool is selected: the adjust card follows it.
     var isCardOpen: Bool { tool == .adjust }
+
+    /// clippingOverlay is what the canvas marks: the ends toggled on, while the card is open.
+    var clippingOverlay: ClippingOverlay { isCardOpen ? clipping : [] }
 
     /// canZoom is true while the editor is on screen with a photo: the scene's zoom commands and
     /// their keyboard shortcuts follow it. The home keeps the photo open, so the photo alone is not enough.

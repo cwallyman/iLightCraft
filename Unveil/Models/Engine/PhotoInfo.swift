@@ -17,6 +17,9 @@ nonisolated struct PhotoInfo: Decodable, Sendable {
     let previewOnly    : String?
     let hasEmbeddedLens: Bool
 
+    /// capture is the exposure the file records (ISO, shutter, aperture, focal length), if any.
+    var capture        : PhotoCapture? = nil
+
     enum CodingKeys: String, CodingKey {
 
         case width
@@ -26,6 +29,7 @@ nonisolated struct PhotoInfo: Decodable, Sendable {
         case asShotWB     = "as_shot_wb"
         case previewOnly  = "preview_only"
         case embeddedLens = "embedded_lens"
+        case capture      = "meta"
     }
 
     /// rawDetail is what `DevelopSettings::for_raw` (Engine/crates/develop/src/lib.rs:24) sets on
@@ -105,5 +109,7 @@ extension PhotoInfo {
         previewOnly     = try container.decodeIfPresent(String.self, forKey: .previewOnly)
         // decodeNil throws for a missing key, so both absent and null read as no lens.
         hasEmbeddedLens = (try? container.decodeNil(forKey: .embeddedLens)) == false
+        // Metadata is only shown: a meta the editor cannot read leaves the summary out, not the photo.
+        capture         = try? container.decodeIfPresent(PhotoCapture.self, forKey: .capture)
     }
 }

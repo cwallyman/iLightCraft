@@ -19,6 +19,10 @@
 ///   so a zoomed sweep moves the visible window as a finger would;
 /// - `-UnveilZoomCycle`: instead of a sweep, zoom between fit and 100 % three times while the memory
 ///   CSV is written, printing how long each zoom takes to its first window (EditorLaunchRunner);
+/// - `-UnveilExposure <ev>`: after the first full frame, set the exposure to that value (it may be
+///   negative), committed like a released slider, so a screenshot of a clipping photo needs no drag;
+/// - `-UnveilClipping`: after the first full frame, turn on both clipping overlays (they show with
+///   the card, so pair it with `-UnveilPanel`);
 /// - `-UnveilHomePhotos`: start the home's panel on Photos instead of Files;
 /// - `-UnveilHomeExpanded`: start the home's panel at full height, so its screenshot needs no drag.
 ///
@@ -35,6 +39,8 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
     let zoomPercent           : Double?
     let pansDuringSweep       : Bool
     let cyclesZoom            : Bool
+    let exposure              : Double?
+    let showsClipping         : Bool
     let startsHomeOnPhotos    : Bool
     let startsHomeExpanded    : Bool
 
@@ -70,6 +76,8 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
         zoomPercent            = positiveNumber(after: "-UnveilZoom")
         pansDuringSweep        = arguments.contains("-UnveilPanSweep")
         cyclesZoom             = arguments.contains("-UnveilZoomCycle")
+        exposure               = value(after: "-UnveilExposure").flatMap(Double.init).flatMap { $0.isFinite ? $0 : nil }
+        showsClipping          = arguments.contains("-UnveilClipping")
         startsHomeOnPhotos     = arguments.contains("-UnveilHomePhotos")
         startsHomeExpanded     = arguments.contains("-UnveilHomeExpanded")
     }

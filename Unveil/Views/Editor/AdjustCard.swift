@@ -5,8 +5,9 @@
 
 import SwiftUI
 
-/// AdjustCard is the floating glass card left of the tool rail: a carousel of one page per
-/// AdjustmentGroup, and at the bottom a strip that names the pages.
+/// AdjustCard is the floating glass card left of the tool rail: the photo's histogram with its
+/// clipping toggles, a carousel of one page per AdjustmentGroup, and at the bottom a strip that
+/// names the pages. The histogram stays put while the pages slide under it.
 ///
 /// The card is as tall as its tallest page (Light), up to the space it is offered, so it hugs
 /// its content and does not change height mid-slide. The strip sits in its own darker capsule,
@@ -27,6 +28,10 @@ struct AdjustCard<Engine: EngineDriving, Importer: PhotoImporting>: View {
     @Binding
     var group: AdjustmentGroup
 
+    /// clipping is the session's clipping overlay, toggled from the histogram's corners.
+    @Binding
+    var clipping: ClippingOverlay
+
     private let width       : CGFloat = 340
     private let cornerRadius: CGFloat = 28
 
@@ -41,6 +46,10 @@ struct AdjustCard<Engine: EngineDriving, Importer: PhotoImporting>: View {
 
     var body: some View {
         VStack(spacing: 0) {
+
+            HistogramView(viewModel: viewModel, clipping: $clipping)
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
 
             pages
 

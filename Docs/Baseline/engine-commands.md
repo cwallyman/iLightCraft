@@ -100,6 +100,16 @@ XMP-imported settings) and the decoded source's size, either of which can move i
   outcome newer than the last delivered one, for the still active photo, is reported, so a failure never follows a newer
   frame or failure. The app keeps the last good frame, shows the message without blocking, and treats a failed window as
   no window (the fit preview stays).
+- **Histogram (ABI 4).** `UVFrame` gains `histogram`, a `const UVHistogram *` valid during the call: for every whole frame
+  (preview or fallback, draft or full) the engine's own `Rendered.histogram` (`Histogram::of_srgb8`, computed with every
+  render), 256 `uint32_t` bins each for `r`, `g`, `b` and `luma` (`(54 R + 183 G + 19 B) >> 8`) over at most about 1 MP
+  sampled on a grid (`total` is the pixels sampled), plus `clipped_low[3]` and `clipped_high[3]`, the sampled pixels at 0
+  and 255 in R, G, B. It is NULL for a window (its histogram would cover only the window, and the app's describes the
+  whole photo) and for a failure. Copying it costs about 4 KB per frame on the engine thread. The app shows it at the top
+  of the adjust card, updated on drafts at fit; zoomed in, drafts render only the window, so the histogram holds until
+  the next whole frame (the full preview on release). A clipping indicator lights above 0.1 % of the pixels at an end in
+  one channel, tinted by the clipped channels (white when all three, or luminance, reach the end); the canvas overlay
+  itself tests every displayed pixel (any channel at 0 or 255) in `Canvas.metal`.
 - **Accuracy** (`Engine/ffi/tests/window.rs`). On a PNG the window is bytewise equal to the same pixels of the whole frame
   rendered at that size. On the five test RAWs at 100 % the reported frame size equals the whole-frame render's, and inside
   a 32 px margin the window matches its crop to mean ΔE2000 0.0000 to 0.0007, p99 0.000 (max 0 to 1.19); the outer 32 px

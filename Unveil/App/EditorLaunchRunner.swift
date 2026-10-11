@@ -108,6 +108,15 @@ final class EditorLaunchRunner {
                 canvas.zoom(toPercent: percent)
             }
 
+            if let exposure = options.exposure {
+                await viewModel.drag(.exposure, to: exposure)
+                await viewModel.endDrag(.exposure)
+            }
+
+            if options.showsClipping {
+                session.clipping = [.shadows, .highlights]
+            }
+
             if options.cyclesZoom {
                 await Self.cycleZoom(canvas, engine: engine)
                 if options.exitsAfterSweep { exit(0) }

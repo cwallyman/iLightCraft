@@ -6,13 +6,14 @@
 import SwiftUI
 
 /// EditorCanvas embeds the scene's single Metal view. SwiftUI updates only the photo identity and
-/// size and the tap, zoom and window callbacks; textures, gestures and frame delivery remain owned
-/// by CanvasView.
+/// size, the clipping overlay and the tap, zoom and window callbacks; textures, gestures and frame
+/// delivery remain owned by CanvasView.
 struct EditorCanvas: UIViewRepresentable {
 
     let canvas        : CanvasView
     let photo         : PhotoID?
     let photoSize     : CGSize
+    let clipping      : ClippingOverlay
     let onSingleTap   : () -> Void
     let onTouchDown   : (() -> Void)?
     let onZoomChange  : (Double) -> Void
@@ -30,6 +31,8 @@ struct EditorCanvas: UIViewRepresentable {
         view.onTouchDown  = onTouchDown
         view.onZoomChange = onZoomChange
         view.photoSize    = photoSize
+
+        view.clippingOverlay = clipping
 
         view.onVisibleWindowChange = onWindowChange
 

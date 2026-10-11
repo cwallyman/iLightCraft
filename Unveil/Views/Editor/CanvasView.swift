@@ -119,6 +119,15 @@ final class CanvasView: UIView {
         }
     }
 
+    /// clippingOverlay marks the clipped pixels of the preview and the window (Canvas.metal).
+    var clippingOverlay: ClippingOverlay = [] {
+        didSet {
+            if clippingOverlay != oldValue {
+                setNeedsRedraw()
+            }
+        }
+    }
+
     private var reportedPercent: String?
 
     private lazy var haptics = TickHaptics(view: self)
@@ -180,12 +189,13 @@ final class CanvasView: UIView {
     }
 
     /// CanvasStyle mirrors Canvas.metal's struct of the same name: how one quad is sampled. Its
-    /// layout (8 + 4 + 4 bytes, no padding) matches the shader's.
+    /// layout (8 + 4 + 4 + 4 bytes, padded to 24 for the float2's alignment) matches the shader's.
     private struct CanvasStyle {
 
         var gridSize   : SIMD2<Float>
         var gridOpacity: Float
         var nearest    : UInt32
+        var clipping   : UInt32
     }
 
     /// CrossThreadState is what the engine thread and Metal's completion thread touch: only atomics,
@@ -573,7 +583,8 @@ final class CanvasView: UIView {
         return CanvasStyle(
             gridSize    : frame ?? .one,
             gridOpacity : percent >= Self.gridPercent && frame != nil ? Self.gridOpacity : 0,
-            nearest     : 0
+            nearest     : 0,
+            clipping    : clippingOverlay.rawValue
         )
     }
 
@@ -584,7 +595,8 @@ final class CanvasView: UIView {
         CanvasStyle(
             gridSize    : SIMD2<Float>(Float(placement.width), Float(placement.height)),
             gridOpacity : percent >= Self.gridPercent ? Self.gridOpacity : 0,
-            nearest     : percent >= 100 * (1 - FrameWindow.realPixelsTolerance) ? 1 : 0
+            nearest     : percent >= 100 * (1 - FrameWindow.realPixelsTolerance) ? 1 : 0,
+            clipping    : clippingOverlay.rawValue
         )
     }
 
