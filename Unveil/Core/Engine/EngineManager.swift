@@ -110,6 +110,17 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
         }
     }
 
+    /// DevelopReading is the part of `develop.get` the editor reads: the white balance mode.
+    private struct DevelopReading: Decodable {
+
+        let wb: WhiteBalance
+
+        struct WhiteBalance: Decodable {
+
+            let mode: String
+        }
+    }
+
     private struct DevelopSetRequest: Encodable {
 
         let control: String
@@ -274,6 +285,13 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
             }
 
             return summary.edited
+        }
+    }
+
+    func isWhiteBalanceAsShot() async throws(EngineError) -> Bool {
+        try await onQueue { () throws(EngineError) -> Bool in
+            let result = try self.execute("develop.get", [String: String]())
+            return try self.decode(DevelopReading.self, from: result).wb.mode == "asShot"
         }
     }
 

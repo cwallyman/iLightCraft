@@ -38,6 +38,14 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// A drag does not read it: the status catches up when the slider is released.
     private(set) var isEdited = false
 
+    /// undoStack and redoStack are the snapshots from before each committed edit, newest last. Undo
+    /// takes one off the first, redo off the second; both are per open photo and in memory.
+    private(set) var undoStack: [EditSnapshot] = []
+    private(set) var redoStack: [EditSnapshot] = []
+
+    var canUndo: Bool { !undoStack.isEmpty }
+    var canRedo: Bool { !redoStack.isEmpty }
+
     /// photoSize is the open photo's size in real pixels, `.zero` when unknown. The zoom pill
     /// measures against it, not against the preview.
     private(set) var photoSize: CGSize = .zero
@@ -50,6 +58,9 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// `PhotoInfo.cameraDefaultsMerge`).
     @ObservationIgnored
     private var cameraDefaults = DevelopMergeSettings.none
+
+    /// maxUndoSteps caps the undo stack: past it the oldest step is dropped.
+    static var maxUndoSteps: Int { 100 }
 
     private let engine          : Engine
     private let importer        : Importer
@@ -65,6 +76,16 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
     @ObservationIgnored
     private var sent: [DevelopAdjustmentKind: Double] = [:]
+
+    /// sentAsShot is whether the engine's white balance mode is As Shot: read at open and at a
+    /// reread, false after any set of temperature or tint, true after a white balance reset.
+    @ObservationIgnored
+    private var sentAsShot = true
+
+    /// committed is what the engine held at the last commit, undo or redo: the snapshot the next
+    /// committed edit pushes on the undo stack.
+    @ObservationIgnored
+    private var committed = EditSnapshot(values: [:], isWhiteBalanceAsShot: true)
 
     @ObservationIgnored
     private var waitingDrags: Set<DevelopAdjustmentKind> = []
@@ -145,12 +166,14 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             let current  : [DevelopAdjustmentKind: Double]
             let info     : PhotoInfo
             let edited   : Bool
+            let asShot   : Bool
 
             do {
                 photo   = try await engine.openPhoto(at: copy.url)
                 current = try await engine.currentValues()
                 info    = try await engine.photoInfo(of: photo)
                 edited  = try await engine.isEdited(photo)
+                asShot  = try await engine.isWhiteBalanceAsShot()
             } catch {
                 await Self.rollBack(engine: engine, to: previous, discarding: copy)
                 throw error
@@ -160,6 +183,10 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             self.values          = Self.defaultValues.merging(current) { _, engineValue in engineValue }
             self.sent            = self.values
             self.wanted          = [:]
+            self.sentAsShot      = asShot
+            self.committed       = self.current
+            self.undoStack       = []
+            self.redoStack       = []
             self.isEdited        = edited
             self.photoSize       = info.size
             self.developDefaults = info.developDefaults
@@ -231,6 +258,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
             try await engine.set(kind, to: newest)
             self.sent[kind] = newest
+            self.noteSet(of: kind)
 
             _ = try engine.requestPreview(maxPixels: previewPixels, draft: true)
         }
@@ -244,7 +272,10 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             if let newest = self.wanted[kind], self.sent[kind] != newest {
                 try await engine.set(kind, to: newest)
                 self.sent[kind] = newest
+                self.noteSet(of: kind)
             }
+
+            self.commitEdit()
 
             _ = try engine.requestPreview(maxPixels: previewPixels, draft: false)
             try await self.reloadEdited()
@@ -274,6 +305,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             }
 
             try await self.reloadValues()
+            self.commitEdit()
             _ = try engine.requestPreview(maxPixels: previewPixels, draft: false)
 
             if let resetError {
@@ -301,9 +333,21 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         await enqueue { [engine, previewPixels] in
             try await engine.resetWhiteBalance()
             try await self.reloadValues()
+            self.commitEdit()
 
             _ = try engine.requestPreview(maxPixels: previewPixels, draft: false)
         }
+    }
+
+    /// undo goes back to the snapshot before the last committed edit, as `apply` does, and keeps
+    /// the state it left on the redo stack. A waiting stepper burst is committed first.
+    func undo() async {
+        await step(from: \.undoStack, to: \.redoStack)
+    }
+
+    /// redo reapplies the last undone edit. A new edit clears what is left to redo.
+    func redo() async {
+        await step(from: \.redoStack, to: \.undoStack)
     }
 
     /// refreshPreview asks for one full preview of the open photo, behind any queued work. The app
@@ -356,7 +400,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// commitPendingNudge commits a stepper burst now instead of when its timer fires. The
     /// `endDrag` link enters the chain before this returns, ahead of whatever the caller queues.
     /// Every action that reaches the engine (a new edit, open, Reset All, a white balance reset,
-    /// and undo and redo when they come) calls it first, so the burst always ends as its own edit.
+    /// undo and redo) calls it first, so the burst always ends as its own edit.
     private func commitPendingNudge() {
         guard let pending = nudgeSettle else { return }
 
@@ -366,13 +410,112 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         Task.immediate { await self.endDrag(pending.kind) }
     }
 
-    /// reloadValues reads the engine's values and edited flag after a change the model did not
-    /// make value by value. Called from inside a chain link only.
-    private func reloadValues() async throws(EngineError) {
-        let current = try await engine.currentValues()
+    /// current is the snapshot of what the engine holds now, as far as the model has sent or read.
+    private var current: EditSnapshot {
+        EditSnapshot(values: sent, isWhiteBalanceAsShot: sentAsShot)
+    }
 
-        values = Self.defaultValues.merging(current) { _, engineValue in engineValue }
-        sent   = values
+    /// noteSet records that a `set` of `kind` landed. The engine's `develop.set` of temperature or
+    /// tint always switches the white balance mode to Custom, so no query is needed.
+    private func noteSet(of kind: DevelopAdjustmentKind) {
+        if kind.isWhiteBalance {
+            sentAsShot = false
+        }
+    }
+
+    /// commitEdit records the snapshot from before an edit once the engine has its result, and only
+    /// if something changed. A new edit clears redo and the stack keeps `maxUndoSteps`. Called from
+    /// inside a chain link only.
+    private func commitEdit() {
+        guard current != committed else { return }
+
+        undoStack.append(committed)
+        undoStack = Array(undoStack.suffix(Self.maxUndoSteps))
+        redoStack = []
+        committed = current
+    }
+
+    /// step applies the newest snapshot of `source` and, only once the engine has it, moves it to
+    /// `target` as the state it left. A failure leaves both stacks as they were: the values are
+    /// reread from the engine and the error is shown, and a retry finishes what was left undone.
+    private func step(
+        from source: ReferenceWritableKeyPath<EditorViewModel, [EditSnapshot]>,
+        to target  : ReferenceWritableKeyPath<EditorViewModel, [EditSnapshot]>
+    ) async {
+        commitPendingNudge()
+
+        await enqueue { [engine, previewPixels] in
+            guard let snapshot = self[keyPath: source].last else { return }
+
+            // The burst's commit and every earlier drag link have run: what is left wanted is stale.
+            self.wanted = [:]
+
+            let before = self.current
+
+            do throws(EngineError) {
+                try await self.apply(snapshot, using: engine)
+            } catch {
+                try? await self.reloadValues()
+                self.values    = self.sent
+                self.committed = self.current
+                throw error
+            }
+
+            self[keyPath: source].removeLast()
+            self[keyPath: target].append(before)
+
+            _ = try engine.requestPreview(maxPixels: previewPixels, draft: false)
+            try await self.reloadEdited()
+        }
+    }
+
+    /// apply sends `set` only for the controls that differ from what the engine has. A snapshot at
+    /// As Shot goes back with `develop.wb`, which restores the mode and the as-shot numbers; one at
+    /// Custom sets temperature even when equal while the engine is As Shot, since the set flips the
+    /// mode. It updates `sent` after each call, so a failure leaves it true. Called from a chain link.
+    private func apply(
+        _ snapshot  : EditSnapshot,
+        using engine: Engine
+    ) async throws(EngineError) {
+        let target = snapshot.values
+
+        if snapshot.isWhiteBalanceAsShot {
+            let numbersDiffer = [DevelopAdjustmentKind.temperature, .tint].contains { sent[$0] != target[$0] }
+
+            if !sentAsShot || numbersDiffer {
+                try await engine.resetWhiteBalance()
+
+                sent[.temperature] = target[.temperature]
+                sent[.tint]        = target[.tint]
+                sentAsShot         = true
+            }
+        }
+
+        for kind in DevelopAdjustmentKind.allCases {
+            guard let value = target[kind] else { continue }
+            guard !(kind.isWhiteBalance && snapshot.isWhiteBalanceAsShot) else { continue }
+
+            let flipsMode = kind == .temperature && sentAsShot
+
+            guard sent[kind] != value || flipsMode else { continue }
+
+            try await engine.set(kind, to: value)
+            sent[kind] = value
+            noteSet(of: kind)
+        }
+
+        values    = sent
+        committed = current
+    }
+
+    /// reloadValues reads the engine's values, white balance mode and edited flag after a change
+    /// the model did not make value by value. Called from inside a chain link only.
+    private func reloadValues() async throws(EngineError) {
+        let engineValues = try await engine.currentValues()
+
+        values     = Self.defaultValues.merging(engineValues) { _, engineValue in engineValue }
+        sent       = values
+        sentAsShot = try await engine.isWhiteBalanceAsShot()
 
         try await reloadEdited()
     }

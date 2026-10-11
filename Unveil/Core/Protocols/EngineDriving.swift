@@ -32,6 +32,10 @@ nonisolated protocol EngineDriving: AnyObject, Sendable {
     /// The engine's own "edited" flag for `photo`: its settings differ from what import gave it.
     func isEdited(_ photo: PhotoID) async throws(EngineError) -> Bool
 
+    /// Whether the active photo's white balance mode is As Shot (`develop.get`'s `wb.mode`), as
+    /// opposed to any other mode: Custom numbers can equal the as-shot pair, so values do not tell.
+    func isWhiteBalanceAsShot() async throws(EngineError) -> Bool
+
     /// What the library records of the photo: its pixel size and what decides its develop defaults.
     func photoInfo(of photo: PhotoID) async throws(EngineError) -> PhotoInfo
 

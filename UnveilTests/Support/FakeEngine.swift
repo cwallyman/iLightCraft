@@ -23,6 +23,10 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
         var failNextOpen       : EngineError?
         var failNextValues     : EngineError?
         var failNextSet        : EngineError?
+        var setsBeforeFailure  : Int       = 0
+        var asShotQueries      : Int       = 0
+        var isAsShot           : Bool      = true
+        var asShotPair         : [DevelopAdjustmentKind: Double] = [:]
         var failNextPreview    : EngineError?
         var failNextMerge      : EngineError?
         var openedPhotos       : UInt64    = 0
@@ -62,6 +66,22 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
         set { state.withLock { $0.failNextSet = newValue } }
     }
 
+    /// How many sets succeed before `failNextSet` fires, to fail an operation halfway.
+    var setsBeforeFailure: Int {
+        get { state.withLock { $0.setsBeforeFailure } }
+        set { state.withLock { $0.setsBeforeFailure = newValue } }
+    }
+
+    /// How many times isWhiteBalanceAsShot() was called. It is not in `calls`, a query changes nothing.
+    var asShotQueries: Int { state.withLock { $0.asShotQueries } }
+
+    /// The white balance mode isWhiteBalanceAsShot() reports. A set of temperature or tint makes it
+    /// Custom, like the engine; a white balance reset or a develop reset makes it As Shot again.
+    var isAsShot: Bool {
+        get { state.withLock { $0.isAsShot } }
+        set { state.withLock { $0.isAsShot = newValue } }
+    }
+
     /// The error the next requestPreview throws, once, like a render refused while the app is away.
     var failNextPreview: EngineError? {
         get { state.withLock { $0.failNextPreview } }
@@ -96,6 +116,13 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
         set { state.withLock { $0.photoInfo = newValue } }
     }
 
+    func isWhiteBalanceAsShot() async throws(EngineError) -> Bool {
+        state.withLock {
+            $0.asShotQueries += 1
+            return $0.isAsShot
+        }
+    }
+
     func isEdited(_ photo: PhotoID) async throws(EngineError) -> Bool {
         state.withLock {
             $0.editedReads += 1
@@ -120,6 +147,7 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
         let failure = state.withLock {
             $0.calls.append("reset \(photo.rawValue)")
             $0.storedValues = [:]
+            $0.isAsShot     = true
 
             guard !settings.isEmpty else { return EngineError?.none }
 
@@ -139,9 +167,17 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
         }
     }
 
-    /// resetWhiteBalance keeps the stored temperature and tint: the fake treats them as the As Shot ones.
+    /// resetWhiteBalance puts back the temperature and tint a set replaced (the As Shot pair) and
+    /// the As Shot mode.
     func resetWhiteBalance() async throws(EngineError) {
-        state.withLock { $0.calls.append("wb asShot") }
+        state.withLock {
+            $0.calls.append("wb asShot")
+            $0.isAsShot = true
+
+            for (kind, value) in $0.asShotPair {
+                $0.storedValues[kind] = value
+            }
+        }
     }
 
     func currentValues() async throws(EngineError) -> [DevelopAdjustmentKind: Double] {
@@ -186,14 +222,30 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
     }
 
     /// Yields once after recording, like a real `set` that is still queued when the caller moves on:
-    /// a view model that does not chain its calls shows up as a reordered `calls`.
+    /// a view model that does not chain its calls shows up as a reordered `calls`. A set that lands
+    /// is stored for currentValues, and one of temperature or tint makes the mode Custom.
     func set(_ adjustment: DevelopAdjustmentKind, to value: Double) async throws(EngineError) {
-        let failure = state.withLock {
-            $0.calls.append("set \(adjustment.rawValue) \(value)")
+        let failure = state.withLock { locked -> EngineError? in
+            locked.calls.append("set \(adjustment.rawValue) \(value)")
 
-            let failure = $0.failNextSet
-            $0.failNextSet = nil
-            return failure
+            if locked.setsBeforeFailure > 0 {
+                locked.setsBeforeFailure -= 1
+            } else if let failure = locked.failNextSet {
+                locked.failNextSet = nil
+                return failure
+            }
+
+            if adjustment.isWhiteBalance {
+                if locked.isAsShot {
+                    for kind in [DevelopAdjustmentKind.temperature, .tint] where locked.asShotPair[kind] == nil {
+                        locked.asShotPair[kind] = locked.storedValues[kind] ?? kind.defaultValue
+                    }
+                }
+                locked.isAsShot = false
+            }
+
+            locked.storedValues[adjustment] = value
+            return nil
         }
 
         if let failure {

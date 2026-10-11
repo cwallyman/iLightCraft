@@ -128,11 +128,17 @@ struct EditorView<
         }
 
         ToolbarItemGroup(placement: .topBarTrailing) {
-            Button("Undo", systemImage: "arrow.uturn.backward") { }
-                .disabled(true)
+            Button("Undo", systemImage: "arrow.uturn.backward") {
+                Task { await session.viewModel.undo() }
+            }
+            .keyboardShortcut("z", modifiers: .command)
+            .disabled(!session.viewModel.canUndo)
 
-            Button("Redo", systemImage: "arrow.uturn.forward") { }
-                .disabled(true)
+            Button("Redo", systemImage: "arrow.uturn.forward") {
+                Task { await session.viewModel.redo() }
+            }
+            .keyboardShortcut("z", modifiers: [.command, .shift])
+            .disabled(!session.viewModel.canRedo)
         }
 
         ToolbarSpacer(.fixed, placement: .topBarTrailing)
