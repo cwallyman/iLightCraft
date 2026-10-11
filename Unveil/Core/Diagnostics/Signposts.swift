@@ -16,7 +16,7 @@ import Synchronization
 ///   `presented` for its own frame, `dropped` for its own frame with no presented time, and
 ///   `overtaken` when a newer frame was shown instead.
 /// - `Command` (the command name), `ImportCopy` and `ShaderCompile` are begun and ended in place by
-///   EngineManager, EditorViewModel and CanvasShaderSource through `signposter`.
+///   EngineManager, EditorViewModel and CanvasView through `signposter`.
 ///
 /// "Presented" means the canvas's drawable left the display pipeline (`addPresentedHandler`, on a
 /// Metal thread), not that the engine delivered the pixels: what the user sees is what is measured.

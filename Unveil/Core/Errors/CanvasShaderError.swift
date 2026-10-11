@@ -7,6 +7,9 @@
 /// compiler error already reports.
 nonisolated enum CanvasShaderError: Error, Equatable {
 
-    /// The compiled library has no function with this name: the source and its names drifted apart.
+    /// The app bundle has no default Metal library: Canvas.metal was not compiled into it.
+    case missingLibrary
+
+    /// The compiled library has no function with this name: the shader and its names drifted apart.
     case missingFunction(String)
 }
