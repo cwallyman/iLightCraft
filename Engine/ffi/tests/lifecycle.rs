@@ -21,13 +21,22 @@ fn suspended_session_refuses_previews_and_resume_restores_them() {
     // SAFETY: s.raw is live.
     assert_eq!(unsafe { uv_suspend(s.raw) }, 0, "{}", last_error());
     // SAFETY: s.raw is live; ctx is never used: the request fails before queueing.
-    let g = unsafe { uv_request_preview(s.raw, 256, false, None, std::ptr::null_mut()) };
+    let g = unsafe { uv_request_preview(s.raw, 256, false, false, None, std::ptr::null_mut()) };
     assert_eq!(g, 0);
     assert!(last_error().contains("suspended"), "{}", last_error());
     // SAFETY: s.raw is live.
     assert_eq!(unsafe { uv_resume(s.raw) }, 0);
     // SAFETY: s.raw is live; frames is declared before s, so it outlives the session.
-    let g = unsafe { uv_request_preview(s.raw, 256, false, Some(record), Arc::as_ptr(&frames) as *mut _) };
+    let g = unsafe {
+        uv_request_preview(
+            s.raw,
+            256,
+            false,
+            false,
+            Some(record),
+            Arc::as_ptr(&frames) as *mut _,
+        )
+    };
     assert!(g > 0, "{}", last_error());
     assert_eq!(wait_for(&frames, 1)[0].0, g);
 }
@@ -39,7 +48,16 @@ fn suspend_waits_for_the_render_in_flight() {
     let s = TestSession::new();
     import_png(&s, &gradient_png(s.dir.path(), "big.png", 3000, 2000));
     // SAFETY: s.raw is live; frames is declared before s, so it outlives the session.
-    let g = unsafe { uv_request_preview(s.raw, 2048, false, Some(record), Arc::as_ptr(&frames) as *mut _) };
+    let g = unsafe {
+        uv_request_preview(
+            s.raw,
+            2048,
+            false,
+            false,
+            Some(record),
+            Arc::as_ptr(&frames) as *mut _,
+        )
+    };
     assert!(g > 0, "{}", last_error());
     // The engine thread handles messages in order: once this returns, the render has started.
     exec_ok(&s, "library.info", "{}");
@@ -108,7 +126,7 @@ fn preview(s: &TestSession, pixels: &Arc<Pixels>, exposure: f64, draft: bool) ->
     );
     let ctx = Arc::as_ptr(pixels) as *mut _;
     // SAFETY: s.raw is live; pixels is declared before s, so it outlives the session.
-    let g = unsafe { uv_request_preview(s.raw, 2048, draft, Some(keep_pixels), ctx) };
+    let g = unsafe { uv_request_preview(s.raw, 2048, draft, false, Some(keep_pixels), ctx) };
     assert!(g > 0, "{}", last_error());
     let guard = pixels.frame.lock().unwrap();
     let (guard, _) = pixels

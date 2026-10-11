@@ -325,8 +325,9 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
 
     /// requestPreview asks for a render of the active photo whose long edge fits `maxPixels`, which
     /// must fit the sink as well, and returns its generation at once. The frame lands in `frames` on
-    /// the engine thread; it may never come if a newer request overtakes it.
-    func requestPreview(maxPixels: Int, draft: Bool) throws(EngineError) -> UInt64 {
+    /// the engine thread; it may never come if a newer request overtakes it. `before` asks for the
+    /// photo's unedited look.
+    func requestPreview(maxPixels: Int, draft: Bool, before: Bool) throws(EngineError) -> UInt64 {
         guard maxPixels > 0, maxPixels <= self.maxPixels else {
             throw .invalidArgument("maxPixels must be in 1...\(self.maxPixels), got \(maxPixels)")
         }
@@ -335,6 +336,7 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
             session,
             UInt32(maxPixels),
             draft,
+            before,
             Self.receiveFrame,
             Unmanaged.passUnretained(frames).toOpaque()
         )
@@ -345,7 +347,7 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
     /// requestWindow asks for one window of the zoomed frame (see FrameWindow) and returns its
     /// generation at once. The window must fit the sink; the frame lands in `frames` as its window.
     /// The frame is asked for by its long edge (a square of `frameLong`, see FrameWindow).
-    func requestWindow(_ window: FrameWindow, draft: Bool) throws(EngineError) -> UInt64 {
+    func requestWindow(_ window: FrameWindow, draft: Bool, before: Bool) throws(EngineError) -> UInt64 {
         guard window.width  > 0, window.width  <= maxPixels,
               window.height > 0, window.height <= maxPixels,
               window.frameWidth > 0, window.frameHeight > 0
@@ -362,6 +364,7 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
             UInt32(window.width),
             UInt32(window.height),
             draft,
+            before,
             Self.receiveFrame,
             Unmanaged.passUnretained(frames).toOpaque()
         )

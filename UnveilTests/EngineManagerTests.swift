@@ -40,7 +40,11 @@ struct EngineManagerTests {
         _ = try await manager.openPhoto(at: fixtureURL())
         try await manager.set(.exposure, to: 0.5)
 
-        let generation = try manager.requestPreview(maxPixels: 512, draft: false)
+        let generation = try manager.requestPreview(
+            maxPixels : 512,
+            draft     : false,
+            before    : false
+        )
 
         // A newer generation may overtake this one, so any frame at or above it counts.
         try await waitUntil(seconds: 30) { (manager.frames.latest()?.generation ?? 0) >= generation }
@@ -54,7 +58,11 @@ struct EngineManagerTests {
         let manager = try makeManager(maxPixels: 512)
         _ = try await manager.openPhoto(at: fixtureURL())
 
-        let preview = try manager.requestPreview(maxPixels: 96, draft: false)
+        let preview = try manager.requestPreview(
+            maxPixels : 96,
+            draft     : false,
+            before    : false
+        )
         try await waitUntil(seconds: 30) { (manager.frames.latest()?.generation ?? 0) >= preview }
 
         let asked = FrameWindow(
@@ -65,7 +73,11 @@ struct EngineManagerTests {
             width       : 120,
             height      : 80
         )
-        let generation = try manager.requestWindow(asked, draft: false)
+        let generation = try manager.requestWindow(
+            asked,
+            draft  : false,
+            before : false
+        )
 
         try await waitUntil(seconds: 30) { (manager.frames.published().window?.generation ?? 0) >= generation }
 
@@ -89,7 +101,11 @@ struct EngineManagerTests {
         let failures = Mutex<[FrameFailure]>([])
         manager.frames.onFailure = { failure in failures.withLock { $0.append(failure) } }
 
-        let generation = try manager.requestPreview(maxPixels: 256, draft: false)
+        let generation = try manager.requestPreview(
+            maxPixels : 256,
+            draft     : false,
+            before    : false
+        )
 
         try await waitUntil(seconds: 30) { !failures.withLock { $0 }.isEmpty }
 
@@ -113,7 +129,11 @@ struct EngineManagerTests {
         try bytes.write(to: moved)
 
         let second     = try await manager.openPhoto(at: moved)
-        let generation = try manager.requestPreview(maxPixels: 256, draft: false)
+        let generation = try manager.requestPreview(
+            maxPixels : 256,
+            draft     : false,
+            before    : false
+        )
 
         #expect(second == first)
         try await waitUntil(seconds: 30) { (manager.frames.latest()?.generation ?? 0) >= generation }
@@ -127,7 +147,11 @@ struct EngineManagerTests {
 
         let first      = try await manager.openPhoto(at: file)
         let second     = try await manager.openPhoto(at: file)
-        let generation = try manager.requestPreview(maxPixels: 256, draft: false)
+        let generation = try manager.requestPreview(
+            maxPixels : 256,
+            draft     : false,
+            before    : false
+        )
 
         #expect(second == first)
         try await waitUntil(seconds: 30) { (manager.frames.latest()?.generation ?? 0) >= generation }
@@ -197,7 +221,11 @@ struct EngineManagerTests {
         try manager.suspend()
 
         #expect(throws: EngineError.suspended("the session is suspended")) {
-            _ = try manager.requestPreview(maxPixels: 256, draft: false)
+            _ = try manager.requestPreview(
+                maxPixels : 256,
+                draft     : false,
+                before    : false
+            )
         }
         try manager.resume()
     }

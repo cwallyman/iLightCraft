@@ -13,8 +13,8 @@ import SwiftUI
 /// copy of the rows: a `ViewThatFits` with and without a scroll view would keep two, and the
 /// hidden one re-evaluated every row on every drag tick. The scroll view is disabled while a
 /// slider drags: precision bands ask the finger to move vertically, and that must never scroll
-/// the page. The sliders stay disabled until a photo is open: there is nothing for the engine to
-/// apply them to.
+/// the page. The sliders stay disabled until a photo is open (there is nothing for the engine to
+/// apply them to) and while the canvas shows the unedited look, so no edit lands unseen.
 ///
 /// Each row is `.equatable()`, and the panel hands it its value as a plain number, so a drag
 /// re-evaluates the panels (cheap) and the dragged row only, not every row on every page.
@@ -48,7 +48,7 @@ struct AdjustmentPanel<Engine: EngineDriving, Importer: PhotoImporting>: View {
                 .scrollBounceBehavior(.basedOnSize)
             }
         }
-        .disabled(!viewModel.isPhotoOpen)
+        .disabled(!viewModel.isPhotoOpen || viewModel.isShowingBefore)
     }
 
     private var rows: some View {

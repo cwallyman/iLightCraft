@@ -162,7 +162,11 @@ nonisolated struct GoldenExporter<Engine: EngineDriving & EngineDiagnosing>: Sen
             try await engine.set(adjustment.kind, to: adjustment.value)
         }
 
-        let generation = try engine.requestPreview(maxPixels: Self.previewPixels, draft: false)
+        let generation = try engine.requestPreview(
+            maxPixels : Self.previewPixels,
+            draft     : false,
+            before    : false
+        )
         let (frame, pixels) = try await waitForFullFrame(atOrAbove: generation)
 
         try PNGWriter.write(

@@ -117,6 +117,10 @@ final class EditorLaunchRunner {
                 session.clipping = [.shadows, .highlights]
             }
 
+            if options.showsBefore {
+                await viewModel.setShowingBefore(true)
+            }
+
             if options.cyclesZoom {
                 await Self.cycleZoom(canvas, engine: engine)
                 if options.exitsAfterSweep { exit(0) }

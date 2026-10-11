@@ -45,6 +45,11 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// zoomed in, drafts render only the window, so it holds until the next whole frame (the release).
     private(set) var histogram: FrameHistogram?
 
+    /// isShowingBefore is true while the canvas shows the photo's unedited look (a press and hold, or
+    /// the backslash toggle). Every frame asked for in the meantime is a before frame, the edited one
+    /// stays on screen until the first arrives, and the sliders and edit commands are off.
+    private(set) var isShowingBefore = false
+
     /// captureSummary is the open photo's exposure as recorded ("ISO 200 · 1/250 s · f/2.8 · 35 mm"),
     /// nil when the file records none.
     private(set) var captureSummary: String?
@@ -256,6 +261,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             self.cameraDefaults  = info.cameraDefaultsMerge
             self.captureSummary  = info.capture?.summary
             self.histogram       = nil
+            self.isShowingBefore = false
 
             self.photoTitle = title ?? pickedURL.deletingPathExtension().lastPathComponent
             self.photoType  = UTType(filenameExtension: pickedURL.pathExtension)?.localizedDescription
@@ -429,6 +435,21 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         }
     }
 
+    /// setShowingBefore switches the canvas between the unedited look and the edit. The flag flips
+    /// at once, so the capsule and the disabled sliders follow the finger, and one full preview (and
+    /// the window, when zoomed) is asked for behind any queued edit, in the look the flag has when
+    /// it runs. A stepper burst still waiting for its timer is committed first.
+    func setShowingBefore(_ isShowing: Bool) async {
+        guard isShowing != isShowingBefore, isPhotoOpen || !isShowing else { return }
+
+        commitPendingNudge()
+        isShowingBefore = isShowing
+
+        await enqueue {
+            try self.requestFrames(draft: false)
+        }
+    }
+
     /// showWindow records which window of the zoomed frame the canvas shows over the preview (nil:
     /// the preview is enough, and edits render only the preview again) and asks for it, behind any
     /// queued edit, so the window carries the newest settings. The canvas calls it as the view moves:
@@ -465,7 +486,11 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         }
 
         await enqueue { [engine] in
-            _ = try engine.requestWindow(window, draft: draft)
+            _ = try engine.requestWindow(
+                window,
+                draft  : draft,
+                before : self.isShowingBefore
+            )
         }
     }
 
@@ -539,7 +564,11 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// requestPreview asks for a whole-frame preview and clears the render banner: the new request
     /// reports its own failure if it has one.
     private func requestPreview(draft: Bool) throws(EngineError) -> UInt64 {
-        let generation = try engine.requestPreview(maxPixels: previewPixels, draft: draft)
+        let generation = try engine.requestPreview(
+            maxPixels : previewPixels,
+            draft     : draft,
+            before    : isShowingBefore
+        )
 
         newestPreviewGeneration = generation
         renderErrorMessage      = nil
@@ -575,7 +604,11 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             _ = try requestPreview(draft: false)
         }
 
-        _ = try engine.requestWindow(window, draft: draft)
+        _ = try engine.requestWindow(
+            window,
+            draft  : draft,
+            before : isShowingBefore
+        )
     }
 
     /// current is the snapshot of what the engine holds now, as far as the model has sent or read.

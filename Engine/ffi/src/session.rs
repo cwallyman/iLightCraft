@@ -209,11 +209,13 @@ impl FrameCallback {
 }
 
 /// PreviewRequest is one uv_request_preview or uv_request_window. Its job is built only when it
-/// starts, so a request that waited behind a render picks up the settings of the moment.
+/// starts, so a request that waited behind a render picks up the settings of the moment. `before`
+/// asks for the photo's unedited look (its crop kept) instead of the edited one.
 pub(crate) struct PreviewRequest {
     generation: u64,
     kind: RequestKind,
     draft: bool,
+    before: bool,
     callback: FrameCallback,
 }
 
@@ -355,6 +357,7 @@ impl UVSession {
         &self,
         kind: RequestKind,
         draft: bool,
+        before: bool,
         callback: Option<UvFrameCb>,
         ctx: *mut c_void,
     ) -> Result<u64, Failure> {
@@ -383,6 +386,7 @@ impl UVSession {
             generation,
             kind,
             draft,
+            before,
             callback: FrameCallback { f, ctx },
         };
         self.tx.send(Msg::Preview(request)).map_err(|_| stopped())?;
@@ -621,7 +625,9 @@ impl Engine {
         let active = self.session.active()?;
         let frame = photo_frame(&self.session, active)?;
         let (mut job, placement, fallback) = match request.kind {
-            RequestKind::Fit { max_pixels } => (self.fit_job(active, max_pixels)?, None, false),
+            RequestKind::Fit { max_pixels } => {
+                (self.fit_job(active, max_pixels, request.before)?, None, false)
+            }
             RequestKind::Window {
                 full_w,
                 full_h,
@@ -629,14 +635,22 @@ impl Engine {
             } => {
                 let (full_w, full_h) = (full_w as usize, full_h as usize);
                 let region = caught("region_job", || {
-                    self.session.region_job(active, full_w, full_h, window, true)
+                    if request.before {
+                        self.session
+                            .region_job_before(active, full_w, full_h, window, true)
+                    } else {
+                        self.session.region_job(active, full_w, full_h, window, true)
+                    }
                 })?;
                 match region {
                     Some(job) => {
                         let placement = placement_of(&frame, full_w, full_h, window);
                         (self.window_stages.attach(job), Some(placement), false)
                     }
-                    None => (self.fit_job(active, window.w.max(window.h) as u32)?, None, true),
+                    None => {
+                        let long_edge = window.w.max(window.h) as u32;
+                        (self.fit_job(active, long_edge, request.before)?, None, true)
+                    }
                 }
             }
         };
@@ -660,10 +674,14 @@ impl Engine {
     }
 
     /// fit_job is the whole-frame preview of `active` fitted in `max_pixels`, with the preview stages.
-    fn fit_job(&mut self, active: PhotoId, max_pixels: u32) -> Option<RenderJob> {
+    /// `before` renders the unedited look. Stages are keyed by the inputs they depend on, so the looks
+    /// share what they have in common and never read a stage of the other's settings; an edit to
+    /// white balance, noise reduction, spots or optics makes them replace each other's linear stage,
+    /// so the first frame after a toggle recomputes it.
+    fn fit_job(&mut self, active: PhotoId, max_pixels: u32, before: bool) -> Option<RenderJob> {
         let max = max_pixels as usize;
         let job = caught("render_job", || {
-            self.session.render_job(active, max, max, false, true)
+            self.session.render_job(active, max, max, before, true)
         })??;
         Some(self.stages.attach(job))
     }
@@ -859,6 +877,8 @@ pub unsafe extern "C" fn uv_string_free(string: *mut c_char) {
 
 /// uv_request_preview asks for a preview of the active photo fitting max_pixels on its long
 /// edge, at draft quality when `draft`, and returns its generation (the first is 1) at once.
+/// With `before` the frame is the photo's unedited look (its crop kept), as a render of its
+/// import settings (what develop.reset gives), and its histogram is that look's.
 /// The frame reaches `callback` later, on the engine thread, unless a newer request overtakes
 /// it or the active photo changes first. On failure it returns 0 with uv_last_error set: "no
 /// active photo" (UV_ERR_ENGINE) comes before a NULL callback (UV_ERR_INVALID_ARGUMENT).
@@ -873,13 +893,14 @@ pub unsafe extern "C" fn uv_request_preview(
     session: *mut UVSession,
     max_pixels: u32,
     draft: bool,
+    before: bool,
     callback: Option<UvFrameCb>,
     ctx: *mut c_void,
 ) -> u64 {
     guard(|| {
         // SAFETY: a live session per the contract; it is only borrowed for this call.
         let session = unsafe { session.as_ref() }.ok_or_else(|| Failure::invalid("session is NULL"))?;
-        session.request(RequestKind::Fit { max_pixels }, draft, callback, ctx)
+        session.request(RequestKind::Fit { max_pixels }, draft, before, callback, ctx)
     })
 }
 
@@ -888,7 +909,8 @@ pub unsafe extern "C" fn uv_request_preview(
 /// quality when `draft`, and returns its generation at once. The window is (x, y, w, h) in frame
 /// pixels, clamped inside the frame; spatial stages read their neighbours, so ask for a margin.
 /// The frame reaches `callback` with `window` true, the frame's size and the window's origin, so
-/// the caller can place it over the whole-frame preview.
+/// the caller can place it over the whole-frame preview. With `before` the window is of the
+/// unedited look, like uv_request_preview's.
 ///
 /// Requests share uv_request_preview's generations and the newest wins, with one refinement for
 /// the preview a window is drawn over: a window never replaces a pending preview (the preview
@@ -911,6 +933,7 @@ pub unsafe extern "C" fn uv_request_window(
     w: u32,
     h: u32,
     draft: bool,
+    before: bool,
     callback: Option<UvFrameCb>,
     ctx: *mut c_void,
 ) -> u64 {
@@ -928,7 +951,7 @@ pub unsafe extern "C" fn uv_request_window(
             full_h,
             window,
         };
-        session.request(kind, draft, callback, ctx)
+        session.request(kind, draft, before, callback, ctx)
     })
 }
 

@@ -57,7 +57,7 @@ reading: `photos` (count), `persistent`, `lastError`. Excerpt after the sequence
 ## Previews and zoom windows (ABI 2)
 
 Frames are not commands: they come from `uv_request_preview` (the whole frame fitted in `max_pixels`) and, since
-ABI 2, `uv_request_window(session, full_w, full_h, x, y, w, h, draft, cb, ctx)`: the `(x, y, w, h)` pixels of the
+ABI 2, `uv_request_window(session, full_w, full_h, x, y, w, h, draft, before, cb, ctx)`: the `(x, y, w, h)` pixels of the
 frame fitted in `full_w x full_h`, for a canvas zoomed past the preview's own resolution. Both return a generation at
 once and deliver later, on the engine thread, through `uv_frame_cb(ctx, const UVFrame *)`.
 
@@ -110,6 +110,15 @@ XMP-imported settings) and the decoded source's size, either of which can move i
   the next whole frame (the full preview on release). A clipping indicator lights above 0.1 % of the pixels at an end in
   one channel, tinted by the clipped channels (white when all three, or luminance, reach the end); the canvas overlay
   itself tests every displayed pixel (any channel at 0 or 255) in `Canvas.metal`.
+- **Before (ABI 5).** `uv_request_preview` and `uv_request_window` gain `before` (after `draft`): the frame is the photo's
+  unedited look, its crop and orientation kept, as a render of its import settings (what `develop.reset` gives), so a
+  before frame equals the edited render after a reset. A window asked with `before` is of that look too. A before request
+  is an ordinary request: it shares the generation counter, the scheduling and the stage cache, and the newest generation
+  wins whichever look it asks for. Stages are keyed by the inputs they depend on, so the looks share what they have in
+  common and never read a stage of the other's settings; an edit to white balance, noise reduction, spots or optics
+  makes them replace each other's linear stage, so the first frame after a toggle recomputes it. Its
+  histogram is the before frame's own (the engine computes it with every render); the app shows the histogram of the
+  frame on screen. The first before frame costs one render: the app keeps the edited frame on screen until it arrives.
 - **Accuracy** (`Engine/ffi/tests/window.rs`). On a PNG the window is bytewise equal to the same pixels of the whole frame
   rendered at that size. On the five test RAWs at 100 % the reported frame size equals the whole-frame render's, and inside
   a 32 px margin the window matches its crop to mean ΔE2000 0.0000 to 0.0007, p99 0.000 (max 0 to 1.19); the outer 32 px
