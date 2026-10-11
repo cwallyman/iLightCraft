@@ -10,9 +10,13 @@
 /// - `-UnveilDelay <s>`: wait that long first (default 0), so xctrace can attach before the open;
 /// - `-UnveilSweep <s>`: after the first full frame, run StressSweep for that many seconds;
 /// - `-UnveilEngineDir fresh`: open the engine on a new, empty library, so the open is cold;
-/// - `-UnveilExitAfterSweep`: end the process when the sweep ends (0 if it ran its full time).
+/// - `-UnveilExitAfterSweep`: end the process when the sweep ends (0 if it ran its full time);
+/// - `-UnveilPanel <name>`: after the first full frame, open that adjustment panel ("Light",
+///   "Color"...: the group title, any case), so a screenshot of a panel needs no tap;
+/// - `-UnveilHomePhotos`: start the home's panel on Photos instead of Files;
+/// - `-UnveilHomeExpanded`: start the home's panel at full height, so its screenshot needs no drag.
 ///
-/// They are parsed by hand, not through UserDefaults, because the last one is a flag with no value.
+/// They are parsed by hand, not through UserDefaults, because several are flags with no value.
 /// A number that does not parse, or is negative, or not finite, counts as absent.
 nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
 
@@ -21,6 +25,9 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
     let sweepSeconds          : Double?
     let isFreshEngineDirectory: Bool
     let exitsAfterSweep       : Bool
+    let openPanel             : AdjustmentGroup?
+    let startsHomeOnPhotos    : Bool
+    let startsHomeExpanded    : Bool
 
     init(arguments: [String]) {
         func value(after flag: String) -> String? {
@@ -44,5 +51,10 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
         sweepSeconds           = seconds(after: "-UnveilSweep").flatMap { $0 > 0 ? $0 : nil }
         isFreshEngineDirectory = value(after: "-UnveilEngineDir") == "fresh"
         exitsAfterSweep        = arguments.contains("-UnveilExitAfterSweep")
+        openPanel              = value(after: "-UnveilPanel").flatMap { name in
+            AdjustmentGroup.allCases.first { $0.title.lowercased() == name.lowercased() }
+        }
+        startsHomeOnPhotos     = arguments.contains("-UnveilHomePhotos")
+        startsHomeExpanded     = arguments.contains("-UnveilHomeExpanded")
     }
 }

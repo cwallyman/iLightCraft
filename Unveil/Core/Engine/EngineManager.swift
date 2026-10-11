@@ -3,6 +3,7 @@
 //  Unveil
 //
 
+import CoreGraphics
 import Foundation
 import Metal
 import os
@@ -81,6 +82,45 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
         let path: String
     }
 
+    private struct DevelopMergeRequest: Encodable {
+
+        let settings: DevelopMergeSettings
+    }
+
+    /// CatalogQueryRequest is `catalog.query` narrowed to one photo with `filter.only`.
+    private struct CatalogQueryRequest: Encodable {
+
+        let filter: Filter
+        let limit = 1
+
+        struct Filter: Encodable {
+
+            let only: [UInt64]
+        }
+    }
+
+    /// CatalogQueryResult is the part of `catalog.query`'s photo summaries the editor reads.
+    private struct CatalogQueryResult: Decodable {
+
+        let photos: [Summary]
+
+        struct Summary: Decodable {
+
+            let edited: Bool
+        }
+    }
+
+    /// DevelopReading is the part of `develop.get` the editor reads: the white balance mode.
+    private struct DevelopReading: Decodable {
+
+        let wb: WhiteBalance
+
+        struct WhiteBalance: Decodable {
+
+            let mode: String
+        }
+    }
+
     private struct DevelopSetRequest: Encodable {
 
         let control: String
@@ -93,6 +133,21 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
 
         let id   : String
         let value: Double?
+    }
+
+    private struct IDsRequest: Encodable {
+
+        let ids: [UInt64]
+    }
+
+    private struct IDRequest: Encodable {
+
+        let id: UInt64
+    }
+
+    private struct WhiteBalanceRequest: Encodable {
+
+        let mode: String
     }
 
     /// init(dataDirectory:maxPixels:) opens the engine's library in `dataDirectory`, creating the
@@ -198,7 +253,7 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
         }
     }
 
-    /// currentValues reads the active photo's controls with `develop.controls` and keeps the ten
+    /// currentValues reads the active photo's controls with `develop.controls` and keeps the ones
     /// the editor shows. The command lists every control with its id, which is also our raw value,
     /// so no mapping table is needed.
     func currentValues() async throws(EngineError) -> [DevelopAdjustmentKind: Double] {
@@ -214,6 +269,57 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
             }
 
             return values
+        }
+    }
+
+    /// isEdited reads the `edited` flag of the photo's summary (`Photo::is_edited`). `catalog.query`
+    /// is the only command that reports it; `photo.inspect`'s `edited` is the last edit's time.
+    func isEdited(_ photo: PhotoID) async throws(EngineError) -> Bool {
+        try await onQueue { () throws(EngineError) -> Bool in
+            let request = CatalogQueryRequest(filter: .init(only: [photo.rawValue]))
+            let json    = try self.execute("catalog.query", request)
+
+            guard let summary = try self.decode(CatalogQueryResult.self, from: json).photos.first
+            else {
+                throw .engine("photo \(photo.rawValue) is not in the library")
+            }
+
+            return summary.edited
+        }
+    }
+
+    func isWhiteBalanceAsShot() async throws(EngineError) -> Bool {
+        try await onQueue { () throws(EngineError) -> Bool in
+            let result = try self.execute("develop.get", [String: String]())
+            return try self.decode(DevelopReading.self, from: result).wb.mode == "asShot"
+        }
+    }
+
+    func photoInfo(of photo: PhotoID) async throws(EngineError) -> PhotoInfo {
+        try await onQueue { () throws(EngineError) -> PhotoInfo in
+            let result = try self.execute("photo.inspect", IDRequest(id: photo.rawValue))
+            return try self.decode(PhotoInfo.self, from: result)
+        }
+    }
+
+    /// resetDevelop names the photo in `ids`: without it the engine resets the whole selection.
+    /// Both commands run in one queue block, so nothing lands between them.
+    func resetDevelop(
+        _ photo            : PhotoID,
+        restoring settings : DevelopMergeSettings
+    ) async throws(EngineError) {
+        try await onQueue { () throws(EngineError) in
+            _ = try self.execute("develop.reset", IDsRequest(ids: [photo.rawValue]))
+
+            guard !settings.isEmpty else { return }
+
+            _ = try self.execute("develop.merge", DevelopMergeRequest(settings: settings))
+        }
+    }
+
+    func resetWhiteBalance() async throws(EngineError) {
+        try await onQueue { () throws(EngineError) in
+            _ = try self.execute("develop.wb", WhiteBalanceRequest(mode: "asShot"))
         }
     }
 

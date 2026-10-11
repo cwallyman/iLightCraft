@@ -1,6 +1,8 @@
 Unveil
 Copyright 2026 the Unveil authors. Licensed under the Apache License, Version 2.0 (LICENSE).
 
+The home screen's photo cards are renders of CC0 RAW files from https://raw.pixls.us (Docs/Baseline/raw-set.md).
+
 Engine/ contains LightCraft (https://github.com/storytold/lightcraft), commit c435d143,
 used under the Apache License 2.0. Its NOTICE follows.
 

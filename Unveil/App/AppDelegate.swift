@@ -5,13 +5,12 @@
 
 import UIKit
 
-/// AppDelegate is the process entry point and the composition root of the services.
+/// AppDelegate adapts process service startup to the SwiftUI app lifecycle.
 ///
 /// It opens the one engine session at launch and keeps it, with the memory monitor and the
 /// lifecycle observer, for the life of the process. The library is file-locked, so a second session
-/// would fail: SceneDelegate takes these instances from here instead of making its own. If the
+/// would fail: ContentView takes the engine from here instead of making its own. If the
 /// engine does not open, `engineError` says why and the scene shows it instead of the editor.
-@main
 final class AppDelegate: UIResponder, UIApplicationDelegate {
 
     /// The engine opens its previews at most this many pixels on the long edge (spec: 2560).
