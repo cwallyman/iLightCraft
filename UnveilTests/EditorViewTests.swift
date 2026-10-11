@@ -81,6 +81,47 @@ struct EditorViewTests {
         #expect(fixture.session.isCardOpen)
     }
 
+    /// A second error raised while the first alert is on screen is presented once the first is dismissed.
+    @Test
+    func aSecondAlertIsPresentedAfterTheFirstIsDismissed() async throws {
+        let fixture = try Fixture()
+        defer { fixture.window.isHidden = true }
+        await fixture.model.open(pickedURL: URL(filePath: "/tmp/photo.RAF"))
+        try await waitUntil(seconds: 3) { fixture.canvasReceivesCenterTouch }
+
+        fixture.session.show(EditorAlert(title: "Diagnostics", message: "first"))
+        try await waitUntil(seconds: 3) { findAlert(in: fixture.host)?.message == "first" }
+        fixture.session.show(EditorAlert(title: "Diagnostics", message: "second"))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(findAlert(in: fixture.host)?.message == "first")
+
+        // UIKit takes the alert down as it does on a tap on OK, and SwiftUI reports the dismissal.
+        findAlert(in: fixture.host)?.presentingViewController?.dismiss(animated: true)
+        try await waitUntil(seconds: 5) { findAlert(in: fixture.host)?.message == "second" }
+        #expect(fixture.session.presentedAlert?.message == "second")
+    }
+
+    /// An editing error raised while a session alert is up takes priority in `presentedAlert` but
+    /// waits behind the alert on screen, and is presented once that one is dismissed.
+    @Test
+    func anEditingErrorRaisedUnderASessionAlertIsPresentedAfterIt() async throws {
+        let fixture = try Fixture()
+        defer { fixture.window.isHidden = true }
+        await fixture.model.open(pickedURL: URL(filePath: "/tmp/photo.RAF"))
+        try await waitUntil(seconds: 3) { fixture.canvasReceivesCenterTouch }
+
+        fixture.session.show(EditorAlert(title: "Diagnostics", message: "session"))
+        try await waitUntil(seconds: 3) { findAlert(in: fixture.host)?.message == "session" }
+        fixture.engine.failNextOpen = .engine("editing")
+        await fixture.model.open(pickedURL: URL(filePath: "/tmp/other.RAF"))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(findAlert(in: fixture.host)?.message == "session")
+
+        findAlert(in: fixture.host)?.presentingViewController?.dismiss(animated: true)
+        try await waitUntil(seconds: 5) { findAlert(in: fixture.host)?.message == "editing" }
+        #expect(fixture.session.alert == nil)
+    }
+
     /// aDragReevaluatesOnlyItsOwnRow counts slider body runs while the model takes drag values:
     /// only the dragged control's row runs again, although all five pages stay alive.
     @Test
@@ -213,7 +254,7 @@ struct EditorViewTests {
                 engine            : engine,
                 viewModel         : model,
                 possibleTearCount : { [weak canvas] in canvas?.possibleTearCount ?? 0 },
-                present           : { [weak session] in session?.alert = $0 }
+                present           : { [weak session] in session?.show($0) }
             )
             let root = hostsWorkspace
                 ? AnyView(WorkspaceView(

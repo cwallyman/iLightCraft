@@ -50,6 +50,21 @@ struct CanvasWindowTests {
         #expect(!fixture.canvas.isShowable(late))
     }
 
+    /// A canvas made after frames were published (another scene's, or a photo it never opened)
+    /// draws none of them: the first frame it shows is one asked for after it exists.
+    @Test
+    func aFrameFromBeforeTheCanvasWasMadeIsNeverDrawn() async throws {
+        let fixture = try Fixture(publishingBefore: 7)
+        defer { fixture.window.isHidden = true }
+
+        let stale = try #require(fixture.sink.latest())
+        #expect(!fixture.canvas.isCurrent(stale))
+
+        fixture.deliver(generation: 8)
+        let fresh = try #require(fixture.sink.latest())
+        #expect(fixture.canvas.isCurrent(fresh))
+    }
+
     /// At 100 % the window quad is moved by less than a pixel onto the drawable's pixel grid, with
     /// its size unchanged, so each pixel samples one texel.
     @Test
@@ -76,7 +91,7 @@ struct CanvasWindowTests {
         /// lastReport is the newest window the canvas asked for (nil: the preview is enough).
         private(set) var lastReport: (window: FrameWindow?, isDraft: Bool)?
 
-        init() throws {
+        init(publishingBefore generation: UInt64? = nil) throws {
             let device = try #require(MTLCreateSystemDefaultDevice())
             let scene  = try #require(
                 UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
@@ -84,6 +99,11 @@ struct CanvasWindowTests {
             let root   = UIViewController()
 
             sink   = FrameSink(device: device, maxPixels: 64)
+
+            if let generation {
+                Self.deliver(generation: generation, window: nil, to: sink)
+            }
+
             canvas = CanvasView(frames: sink, device: device)
             window = UIWindow(windowScene: scene)
 
@@ -100,6 +120,10 @@ struct CanvasWindowTests {
 
         /// deliver publishes a 64 x 43 preview, or a window at `window`'s place, as the engine would.
         func deliver(generation: UInt64, window: FrameWindow? = nil) {
+            Self.deliver(generation: generation, window: window, to: sink)
+        }
+
+        private static func deliver(generation: UInt64, window: FrameWindow?, to sink: FrameSink) {
             let width  = window?.width ?? 64
             let height = window?.height ?? 43
             let pixels = [UInt8](repeating: UInt8(generation), count: width * height * 4)

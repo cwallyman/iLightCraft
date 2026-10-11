@@ -432,11 +432,12 @@ struct EditorViewModelTests {
     @Test
     func aStepperBurstSendsDraftsThenExactlyOneFullPreview() async throws {
         let engine = FakeEngine()
+        let settle = ManualSettle()
         let model  = EditorViewModel(
-            engine           : engine,
-            importer         : FakeImporter(),
-            previewPixels    : 1024,
-            nudgeSettleDelay : .milliseconds(150)
+            engine        : engine,
+            importer      : FakeImporter(),
+            previewPixels : 1024,
+            settleNudge   : { await settle.wait() }
         )
         await model.open(pickedURL: URL(filePath: "/tmp/x.JPG"))
         let afterOpen = engine.calls.count
@@ -451,6 +452,7 @@ struct EditorViewModelTests {
         #expect(burst.contains("set light.exposure 0.05"))
         #expect(burst.allSatisfy { $0.hasPrefix("set ") || $0 == "preview 1024 draft" })
 
+        settle.fire()
         try await waitUntil(seconds: 3) { engine.calls.last == "preview 1024 full" }
         try await Task.sleep(for: .milliseconds(400))
 
@@ -466,10 +468,10 @@ struct EditorViewModelTests {
     func anotherControlOrADragCommitsTheBurstFirst() async throws {
         let engine = FakeEngine()
         let model  = EditorViewModel(
-            engine           : engine,
-            importer         : FakeImporter(),
-            previewPixels    : 1024,
-            nudgeSettleDelay : .seconds(10)
+            engine        : engine,
+            importer      : FakeImporter(),
+            previewPixels : 1024,
+            settleNudge   : { await ManualSettle().wait() }
         )
 
         await model.nudge(.contrast, by: 1)
@@ -496,10 +498,10 @@ struct EditorViewModelTests {
     func aStepperPressSnapsToTheStepAndStopsAtTheRange() async {
         let engine = FakeEngine()
         let model  = EditorViewModel(
-            engine           : engine,
-            importer         : FakeImporter(),
-            previewPixels    : 1024,
-            nudgeSettleDelay : .seconds(10)
+            engine        : engine,
+            importer      : FakeImporter(),
+            previewPixels : 1024,
+            settleNudge   : { await ManualSettle().wait() }
         )
 
         await model.drag(.exposure, to: 4.995)
@@ -514,11 +516,12 @@ struct EditorViewModelTests {
     @Test
     func resetAllCommitsAWaitingBurstFirst() async throws {
         let engine = FakeEngine()
+        let settle = ManualSettle()
         let model  = EditorViewModel(
-            engine           : engine,
-            importer         : FakeImporter(),
-            previewPixels    : 1024,
-            nudgeSettleDelay : .milliseconds(150)
+            engine        : engine,
+            importer      : FakeImporter(),
+            previewPixels : 1024,
+            settleNudge   : { await settle.wait() }
         )
         engine.edited = true
         await model.open(pickedURL: URL(filePath: "/tmp/x.JPG"))
@@ -526,7 +529,9 @@ struct EditorViewModelTests {
 
         await model.nudge(.exposure, by: 0.01)
         await model.resetAll()
-        try await Task.sleep(for: .milliseconds(400))
+        // The burst's timer, cancelled by the flush, ends now and must add nothing.
+        settle.fire()
+        try await Task.sleep(for: .milliseconds(200))
 
         #expect(Array(engine.calls[before...]) == [
             "set light.exposure 0.01", "preview 1024 draft",
@@ -539,18 +544,21 @@ struct EditorViewModelTests {
     @Test
     func aWhiteBalanceResetCommitsAWaitingBurstFirst() async throws {
         let engine = FakeEngine()
+        let settle = ManualSettle()
         let model  = EditorViewModel(
-            engine           : engine,
-            importer         : FakeImporter(),
-            previewPixels    : 1024,
-            nudgeSettleDelay : .milliseconds(150)
+            engine        : engine,
+            importer      : FakeImporter(),
+            previewPixels : 1024,
+            settleNudge   : { await settle.wait() }
         )
         await model.open(pickedURL: URL(filePath: "/tmp/x.ARW"))
         let before = engine.calls.count
 
         await model.nudge(.tint, by: 1)
         await model.reset(.temperature)
-        try await Task.sleep(for: .milliseconds(400))
+        // The burst's timer, cancelled by the flush, ends now and must add nothing.
+        settle.fire()
+        try await Task.sleep(for: .milliseconds(200))
 
         #expect(Array(engine.calls[before...]) == [
             "set wb.tint 1.0", "preview 1024 draft",
@@ -564,11 +572,12 @@ struct EditorViewModelTests {
     @Test
     func anOpenCommitsAWaitingBurstFirst() async throws {
         let engine = FakeEngine()
+        let settle = ManualSettle()
         let model  = EditorViewModel(
-            engine           : engine,
-            importer         : FakeImporter(),
-            previewPixels    : 1024,
-            nudgeSettleDelay : .milliseconds(150)
+            engine        : engine,
+            importer      : FakeImporter(),
+            previewPixels : 1024,
+            settleNudge   : { await settle.wait() }
         )
         await model.open(pickedURL: URL(filePath: "/tmp/first.JPG"))
         let before = engine.calls.count
@@ -576,7 +585,9 @@ struct EditorViewModelTests {
 
         await model.nudge(.contrast, by: 1)
         await model.open(pickedURL: URL(filePath: "/tmp/second.JPG"))
-        try await Task.sleep(for: .milliseconds(400))
+        // The burst's timer, cancelled by the flush, ends now and must add nothing.
+        settle.fire()
+        try await Task.sleep(for: .milliseconds(200))
 
         #expect(Array(engine.calls[before...]) == [
             "set light.contrast 1.0", "preview 1024 draft",

@@ -71,6 +71,17 @@ struct EditorView<
                 .padding(16)
                 .animation(cardAnimation, value: session.tool)
             }
+            .overlay(alignment: .bottom) {
+                if let message = session.viewModel.renderErrorMessage {
+                    RenderErrorBanner(
+                        message   : message,
+                        onDismiss : session.viewModel.dismissRenderError
+                    )
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(cardAnimation, value: session.viewModel.renderErrorMessage)
+            .background(EditorSurround.color.ignoresSafeArea())
             .background { zoomInAliases }
             .toolbar { toolbar }
             .sheet(isPresented: $isInfoShown) {
@@ -85,7 +96,7 @@ struct EditorView<
         .focusedSceneValue(\.zoomCanvas, session.canZoom ? canvas : nil)
         .modifier(EditorAlertPresenter(
             alert     : session.presentedAlert,
-            onDismiss : session.dismissAlert
+            onDismiss : session.dismiss
         ))
     }
 

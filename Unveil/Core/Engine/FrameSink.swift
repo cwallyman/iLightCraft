@@ -50,9 +50,13 @@ nonisolated final class FrameSink: @unchecked Sendable {
 
     private struct State {
 
-        var latestFrame : ReadyFrame?             = nil
-        var latestWindow: ReadyFrame?             = nil
-        var onFrame     : (@Sendable () -> Void)? = nil
+        var latestFrame : ReadyFrame?                         = nil
+        var latestWindow: ReadyFrame?                         = nil
+        var onFrame     : (@Sendable () -> Void)?             = nil
+        var onFailure   : (@Sendable (FrameFailure) -> Void)? = nil
+
+        /// floor is the newest generation discarded by `invalidate`: nothing at or below it returns.
+        var floor: UInt64 = 0
 
         /// freeBufferIndex is the buffer neither published frame is in, the next one to write.
         var freeBufferIndex: Int {
@@ -62,7 +66,7 @@ nonisolated final class FrameSink: @unchecked Sendable {
         }
 
         var newestGeneration: UInt64 {
-            max(latestFrame?.generation ?? 0, latestWindow?.generation ?? 0)
+            max(latestFrame?.generation ?? 0, latestWindow?.generation ?? 0, floor)
         }
     }
 
@@ -70,6 +74,13 @@ nonisolated final class FrameSink: @unchecked Sendable {
     var onFrame: (@Sendable () -> Void)? {
         get { state.withLock { $0.onFrame } }
         set { state.withLock { $0.onFrame = newValue } }
+    }
+
+    /// onFailure hears of a render that failed and is still the newest outcome, on the engine
+    /// thread. The published frames stay as they are: the canvas keeps its last good frame.
+    var onFailure: (@Sendable (FrameFailure) -> Void)? {
+        get { state.withLock { $0.onFailure } }
+        set { state.withLock { $0.onFailure = newValue } }
     }
 
     /// init(device:maxPixels:) allocates the three buffers for the largest frame, a square of
@@ -191,6 +202,47 @@ nonisolated final class FrameSink: @unchecked Sendable {
             } else {
                 current.latestWindow = frame
             }
+
+            return current.onFrame
+        }
+
+        wake?()
+    }
+
+    /// receiveFailure reports a render the engine could not finish. Like a frame, it is dropped when
+    /// a newer generation was already published, and it publishes nothing: the last good preview
+    /// stays. A failed window also takes the previous window down, since it was rendered with older
+    /// settings than the preview under it, and wakes the canvas to draw the fit preview alone.
+    func receiveFailure(_ failure: FrameFailure) {
+        let isNewest = state.withLock { current -> Bool in
+            guard failure.generation > current.newestGeneration else { return false }
+
+            if failure.isWindow {
+                current.latestWindow = nil
+            }
+
+            return true
+        }
+
+        guard isNewest else { return }
+
+        let (wake, hear) = state.withLock { ($0.onFrame, $0.onFailure) }
+
+        if failure.isWindow {
+            wake?()
+        }
+
+        hear?(failure)
+    }
+
+    /// invalidate unpublishes both frames, for a new photo whose first frame is still rendering:
+    /// the old photo's frame must not show in its place. Anything at or below the newest generation
+    /// so far is refused afterwards, and the canvas is woken to draw the empty surround.
+    func invalidate() {
+        let wake = state.withLock { current -> (@Sendable () -> Void)? in
+            current.floor        = current.newestGeneration
+            current.latestFrame  = nil
+            current.latestWindow = nil
 
             return current.onFrame
         }

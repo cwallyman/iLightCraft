@@ -93,6 +93,13 @@ XMP-imported settings) and the decoded source's size, either of which can move i
   drops the window it showed (older, maybe of older settings). The same fallback asked again (same settings, size and
   quality: a pan within the spot's reach) is not rendered and never delivered.
 - **Errors.** As `uv_request_preview`, then a frame or window size of 0 (`UV_ERR_INVALID_ARGUMENT`, "size is 0").
+- **Failed renders (ABI 3).** `UVFrame` gains `status` (`UV_OK` for a frame) and `error`. A render that fails (its source
+  cannot be loaded, the engine errors: `UV_ERR_ENGINE`; the render thread panics: `UV_ERR_PANIC`) is delivered through the
+  same callback as a frame with `status` set, `error` its message (valid during the call only), `rgba` NULL, the sizes 0,
+  and `generation`, `draft`, `window`, `fallback` of the failed request. It follows the frames' generation rules: only an
+  outcome newer than the last delivered one, for the still active photo, is reported, so a failure never follows a newer
+  frame or failure. The app keeps the last good frame, shows the message without blocking, and treats a failed window as
+  no window (the fit preview stays).
 - **Accuracy** (`Engine/ffi/tests/window.rs`). On a PNG the window is bytewise equal to the same pixels of the whole frame
   rendered at that size. On the five test RAWs at 100 % the reported frame size equals the whole-frame render's, and inside
   a 32 px margin the window matches its crop to mean ΔE2000 0.0000 to 0.0007, p99 0.000 (max 0 to 1.19); the outer 32 px

@@ -14,8 +14,8 @@ import Synchronization
 /// - `SliderToFrame` (`draft` or `full`, `window-draft` or `window-full` for a zoom window): from
 ///   `EngineManager.requestPreview` or `requestWindow`, the only places a render is asked for, to
 ///   the presented frame at or above its generation. It ends with
-///   `presented` for its own frame, `dropped` for its own frame with no presented time, and
-///   `overtaken` when a newer frame was shown instead.
+///   `presented` for its own frame, `dropped` for its own frame with no presented time,
+///   `overtaken` when a newer frame was shown instead, and `failed` when the engine reported an error.
 /// - `Command` (the command name), `ImportCopy` and `ShaderCompile` are begun and ended in place by
 ///   EngineManager, EditorViewModel and CanvasView through `signposter`.
 ///
@@ -73,6 +73,14 @@ nonisolated enum Signposts {
         }
 
         wait(.openToFirstFrame(state), for: generation)
+    }
+
+    /// frameFailed ends every interval waiting for `generation` or less as `failed`: the engine
+    /// answered that render with an error, so no frame will ever be presented for it. Any thread.
+    static func frameFailed(generation: UInt64) {
+        for entry in waiting.withLock({ $0.presented(generation) }) {
+            end(entry.token, outcome: "failed")
+        }
     }
 
     /// framePresented ends every interval waiting for `generation` or less. Any thread.

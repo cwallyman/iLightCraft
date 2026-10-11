@@ -259,4 +259,45 @@ struct EditorSessionTests {
 
         #expect(model.photoTitle == title)
     }
+
+    /// A second alert raised while the first is up is kept, shown after the first is dismissed,
+    /// and an identical one waiting is not queued twice.
+    @Test
+    func aSecondAlertWaitsBehindTheFirst() {
+        let model = EditorViewModel(
+            engine        : FakeEngine(),
+            importer      : FakeImporter(),
+            previewPixels : 64
+        )
+        let session = EditorSession(viewModel: model, libraryLoader: ControlledPhotoLibraryLoader())
+
+        session.show(EditorAlert(title: "Diagnostics", message: "one"))
+        session.show(EditorAlert(title: "Diagnostics", message: "two"))
+        session.show(EditorAlert(title: "Diagnostics", message: "one"))
+        #expect(session.presentedAlert?.message == "one")
+
+        session.dismissAlert()
+        #expect(session.presentedAlert?.message == "two")
+
+        session.dismissAlert()
+        #expect(session.presentedAlert == nil)
+    }
+
+    /// An editing error that arrives while a diagnostic alert is up does not take its place: the
+    /// user dismisses the alert they saw, and the error is shown next, not lost.
+    @Test
+    func dismissingTheAlertTheUserSawKeepsTheErrorThatArrivedLater() async {
+        let engine = FakeEngine()
+        let model  = EditorViewModel(engine: engine, importer: FakeImporter(), previewPixels: 64)
+        let session = EditorSession(viewModel: model, libraryLoader: ControlledPhotoLibraryLoader())
+        let seen    = EditorAlert(title: "Diagnostics", message: "one")
+
+        session.show(seen)
+        engine.failNextOpen = .engine("Open failed")
+        await session.open(pickedURL: URL(filePath: "/tmp/photo.RAF"))
+
+        session.dismiss(seen)
+        #expect(session.presentedAlert?.message == "Open failed")
+        #expect(session.alert == nil)
+    }
 }

@@ -30,5 +30,5 @@ Addressing is not available to personal teams). Engine backend at launch: `Apple
 
 - iOS moves the app's data container on reinstall. A photo opened before a reinstall kept a path into the old
   container, and reopening it never delivered a frame. Fixed in `07fee5d` (relink on duplicate or restored).
-- A render whose source cannot be loaded produces neither a frame nor an error across the C ABI. Open item,
-  outside v0: add an error path to the frame callback.
+- A render whose source cannot be loaded produced neither a frame nor an error across the C ABI. Fixed in ABI 3: the
+  frame callback delivers a failed `UVFrame` (`status`, `error`), see `engine-commands.md`.

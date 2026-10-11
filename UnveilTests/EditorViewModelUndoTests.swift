@@ -10,15 +10,18 @@ import Testing
 @MainActor
 struct EditorViewModelUndoTests {
 
+    /// openModel opens a photo in a model whose stepper bursts commit only when `settle` fires
+    /// (or an action flushes them), never on a wall-clock delay.
     private func openModel(
-        stored: [DevelopAdjustmentKind: Double] = [:]
+        stored: [DevelopAdjustmentKind: Double] = [:],
+        settle: ManualSettle = ManualSettle()
     ) async -> (EditorViewModel<FakeEngine, FakeImporter>, FakeEngine) {
         let engine = FakeEngine()
         let model  = EditorViewModel(
-            engine           : engine,
-            importer         : FakeImporter(),
-            previewPixels    : 1024,
-            nudgeSettleDelay : .milliseconds(100)
+            engine        : engine,
+            importer      : FakeImporter(),
+            previewPixels : 1024,
+            settleNudge   : { await settle.wait() }
         )
         engine.storedValues = stored
         await model.open(pickedURL: URL(filePath: "/tmp/x.JPG"))
@@ -75,11 +78,13 @@ struct EditorViewModelUndoTests {
 
     @Test
     func aStepperBurstIsOneStep() async throws {
-        let (model, engine) = await openModel()
+        let settle          = ManualSettle()
+        let (model, engine) = await openModel(settle: settle)
 
         for _ in 1 ... 5 {
             await model.nudge(.exposure, by: 0.01)
         }
+        settle.fire()
         try await waitUntil(seconds: 3) { engine.calls.last == "preview 1024 full" }
 
         #expect(model.undoStack.count == 1)
@@ -202,10 +207,12 @@ struct EditorViewModelUndoTests {
 
     @Test
     func aBurstBackToTheAsShotNumberWhileTheEngineIsCustomIsRecorded() async throws {
-        let (model, engine) = await openModel()
+        let settle          = ManualSettle()
+        let (model, engine) = await openModel(settle: settle)
 
         await model.nudge(.temperature, by: 50)
         await model.nudge(.temperature, by: -50)
+        settle.fire()
         try await waitUntil(seconds: 3) { engine.calls.last == "preview 1024 full" }
 
         #expect(model.canUndo)

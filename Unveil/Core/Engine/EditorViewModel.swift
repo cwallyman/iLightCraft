@@ -29,7 +29,14 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
     private(set) var values      : [DevelopAdjustmentKind: Double]
     private(set) var openPhoto   : PhotoID?
-    private(set) var errorMessage: String?
+
+    /// errorMessages are the errors raised and not yet acknowledged, oldest first: a second error
+    /// while the first is on screen waits behind it. `errorMessage` is the one to show now.
+    private(set) var errorMessages: [String] = []
+
+    /// renderErrorMessage is the last failed preview of the open photo, for a non-blocking banner:
+    /// the canvas keeps its last good frame and editing goes on. A new preview request clears it.
+    private(set) var renderErrorMessage: String?
     private(set) var photoTitle  : String = "Photo"
     private(set) var photoType   : String?
 
@@ -42,6 +49,8 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// takes one off the first, redo off the second; both are per open photo and in memory.
     private(set) var undoStack: [EditSnapshot] = []
     private(set) var redoStack: [EditSnapshot] = []
+
+    var errorMessage: String? { errorMessages.first }
 
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
@@ -65,12 +74,17 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     private let engine            : Engine
     private let importer          : Importer
     private let previewPixels     : Int
-    private let nudgeSettleDelay  : Duration
+    private let settleNudge       : @Sendable () async throws -> Void
     private let windowReleaseDelay: Duration
 
     // Plain bookkeeping the view never reads, so it stays out of observation.
     @ObservationIgnored
     private var pending: Task<Bool, Never>?
+
+    /// newestPreviewGeneration is the generation of the newest whole-frame preview asked for: a
+    /// failure of an older one says nothing about what the canvas shows now.
+    @ObservationIgnored
+    private var newestPreviewGeneration: UInt64 = 0
 
     @ObservationIgnored
     private var wanted: [DevelopAdjustmentKind: Double] = [:]
@@ -115,23 +129,30 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         developDefaults[kind] ?? kind.defaultValue
     }
 
-    /// `nudgeSettleDelay` is how long after the last stepper press the burst is committed, and
+    /// `settleNudge` is the wait after the last stepper press before the burst is committed (0.3 s;
+    /// tests pass a wait they end themselves, so a burst never splits under load), and
     /// `windowReleaseDelay` how long the canvas must want no window before the engine frees the
-    /// windows' memory; tests shorten both.
+    /// windows' memory; tests shorten it.
     init(
         engine            : Engine,
         importer          : Importer,
         previewPixels     : Int,
-        nudgeSettleDelay  : Duration = .milliseconds(300),
+        settleNudge       : @escaping @Sendable () async throws -> Void = {
+            try await Task.sleep(for: .milliseconds(300))
+        },
         windowReleaseDelay: Duration = .seconds(2)
     ) {
         self.engine             = engine
         self.importer           = importer
         self.previewPixels      = previewPixels
-        self.nudgeSettleDelay   = nudgeSettleDelay
+        self.settleNudge        = settleNudge
         self.windowReleaseDelay = windowReleaseDelay
         self.values             = Self.defaultValues
         self.developDefaults    = Self.defaultValues
+
+        engine.frames.onFailure = { [weak self] failure in
+            Task { @MainActor in self?.show(failure) }
+        }
     }
 
     /// open copies the picked file off the main actor, opens it in the engine, loads the controls'
@@ -141,7 +162,8 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// An open that fails, even halfway (the import worked, the select or the values read did not),
     /// leaves both sides on the previous state: the model keeps its photo and values, and the engine
     /// is told to select that photo again, which also undoes a select that timed out but still runs,
-    /// because the engine takes commands in order. A copy made for this open is deleted. With no
+    /// because the engine takes commands in order. A copy made for this open is deleted only if the
+    /// engine never returned a photo for it: after that its record points at the copy. With no
     /// previous photo the model stays closed, so nothing acts on whatever the engine has selected.
     ///
     /// A successful open also sets `photoTitle` (the picked file's name without its extension, or
@@ -167,7 +189,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             copy = try await Self.importCopy(of: pickedURL, using: importer)
         } catch {
             Signposts.openRequestedPreview(signpost, generation: nil)
-            errorMessage = Self.message(for: error)
+            report(Self.message(for: error))
             return false
         }
 
@@ -182,14 +204,22 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             let edited   : Bool
             let asShot   : Bool
 
+            // The copy is deleted only if no photo came back: once the engine has an id its record
+            // points at the copy (a new import, or an existing photo relinked to it).
             do {
-                photo   = try await engine.openPhoto(at: copy.url)
+                photo = try await engine.openPhoto(at: copy.url)
+            } catch {
+                await Self.rollBack(engine: engine, to: previous, discarding: copy.isNew ? copy.url : nil)
+                throw error
+            }
+
+            do {
                 current = try await engine.currentValues()
                 info    = try await engine.photoInfo(of: photo)
                 edited  = try await engine.isEdited(photo)
                 asShot  = try await engine.isWhiteBalanceAsShot()
             } catch {
-                await Self.rollBack(engine: engine, to: previous, discarding: copy)
+                await Self.rollBack(engine: engine, to: previous, discarding: nil)
                 throw error
             }
 
@@ -210,12 +240,15 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             self.photoTitle = title ?? pickedURL.deletingPathExtension().lastPathComponent
             self.photoType  = UTType(filenameExtension: pickedURL.pathExtension)?.localizedDescription
 
+            // The previous photo's frame must not show while this one renders.
+            engine.frames.invalidate()
+
             do throws(EngineError) {
-                previewGeneration = try engine.requestPreview(maxPixels: previewPixels, draft: false)
+                previewGeneration = try self.requestPreview(draft: false)
             } catch .suspended {
                 // The app left mid-open: refreshPreview redraws on resume, so there is nothing to say.
             } catch {
-                self.errorMessage = error.message
+                self.report(error.message)
             }
         }
     }
@@ -229,7 +262,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
     /// nudge moves `kind` by `delta` from a stepper press, snapped to the step and the range. Every
     /// press of a burst (a hold repeats it) sends a draft through `drag`; the burst is committed
-    /// once, `nudgeSettleDelay` after the last press, by one `endDrag`: the burst's commit point.
+    /// once, `settleNudge` after the last press, by one `endDrag`: the burst's commit point.
     /// A press on another control first commits the burst in progress.
     func nudge(_ kind: DevelopAdjustmentKind, by delta: Double) async {
         if let pending = nudgeSettle, pending.kind != kind {
@@ -238,9 +271,9 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
         nudgeSettle?.timer.cancel()
 
-        let timer = Task { [weak self, nudgeSettleDelay] in
+        let timer = Task { [weak self, settleNudge] in
             do {
-                try await Task.sleep(for: nudgeSettleDelay)
+                try await settleNudge()
             } catch {
                 return
             }
@@ -416,8 +449,15 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         }
     }
 
+    /// dismissError acknowledges the error on screen; the next one queued, if any, takes its place.
     func dismissError() {
-        errorMessage = nil
+        guard !errorMessages.isEmpty else { return }
+
+        errorMessages.removeFirst()
+    }
+
+    func dismissRenderError() {
+        renderErrorMessage = nil
     }
 
     // MARK: - Chain
@@ -438,9 +478,9 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             } catch EngineError.suspended {
                 // Expected when the app resigns active mid-drag: refreshPreview redraws on resume.
             } catch let error as EngineError {
-                errorMessage = error.message
+                report(error.message)
             } catch {
-                errorMessage = error.localizedDescription
+                report(error.localizedDescription)
             }
 
             return false
@@ -451,6 +491,33 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     }
 
     // MARK: - Helpers
+
+    /// report queues an error for the alert, unless the same message is already waiting.
+    private func report(_ message: String) {
+        if !errorMessages.contains(message) {
+            errorMessages.append(message)
+        }
+    }
+
+    /// show handles a failed render the engine reported. A window is ignored: the preview under
+    /// it is still on screen, and the next window asks again. A preview that a newer request
+    /// already replaced says nothing about what is shown now.
+    private func show(_ failure: FrameFailure) {
+        guard !failure.isWindow, failure.generation >= newestPreviewGeneration else { return }
+
+        renderErrorMessage = failure.message
+    }
+
+    /// requestPreview asks for a whole-frame preview and clears the render banner: the new request
+    /// reports its own failure if it has one.
+    private func requestPreview(draft: Bool) throws(EngineError) -> UInt64 {
+        let generation = try engine.requestPreview(maxPixels: previewPixels, draft: draft)
+
+        newestPreviewGeneration = generation
+        renderErrorMessage      = nil
+
+        return generation
+    }
 
     /// commitPendingNudge commits a stepper burst now instead of when its timer fires. The
     /// `endDrag` link enters the chain before this returns, ahead of whatever the caller queues.
@@ -472,12 +539,12 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// preview, see `requestWindow`). Called from inside a chain link only.
     private func requestFrames(draft: Bool) throws(EngineError) {
         guard let window = visibleWindow else {
-            _ = try engine.requestPreview(maxPixels: previewPixels, draft: draft)
+            _ = try requestPreview(draft: draft)
             return
         }
 
         if !draft {
-            _ = try engine.requestPreview(maxPixels: previewPixels, draft: false)
+            _ = try requestPreview(draft: false)
         }
 
         _ = try engine.requestWindow(window, draft: draft)
@@ -601,12 +668,13 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         isEdited = try await engine.isEdited(openPhoto)
     }
 
-    /// rollBack puts the engine back on `previous` and deletes `copy` if this open made it. Its own
-    /// failures are only logged: the open's error is the one the user sees.
+    /// rollBack puts the engine back on `previous` and deletes the file at `copy`, when given (a
+    /// copy this open made for a photo the engine never opened). Its own failures are only logged:
+    /// the open's error is the one the user sees.
     private static func rollBack(
         engine          : Engine,
         to previous     : PhotoID?,
-        discarding copy : (url: URL, isNew: Bool)
+        discarding copy : URL?
     ) async {
         let logger = Logger(subsystem: "com.eliorodr2104.unveil", category: "EditorViewModel")
 
@@ -618,9 +686,9 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             }
         }
 
-        if copy.isNew {
+        if let copy {
             do {
-                try FileManager.default.removeItem(at: copy.url)
+                try FileManager.default.removeItem(at: copy)
             } catch {
                 logger.error("Deleting a failed import failed: \(error.localizedDescription, privacy: .public)")
             }

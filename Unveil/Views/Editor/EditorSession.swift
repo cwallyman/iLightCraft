@@ -21,7 +21,9 @@ final class EditorSession<
 
     let viewModel: EditorViewModel<Engine, Importer>
 
-    var alert         : EditorAlert?
+    /// alerts are the diagnostic and import alerts not yet acknowledged, oldest first.
+    private(set) var alerts: [EditorAlert] = []
+
     var selectedGroup : AdjustmentGroup = .light
     var zoomPercent   : Double = 100
 
@@ -40,23 +42,43 @@ final class EditorSession<
         self.libraryLoader = libraryLoader
     }
 
+    var alert: EditorAlert? { alerts.first }
+
+    /// show queues an alert behind the one on screen, unless an identical one already waits.
+    func show(_ alert: EditorAlert) {
+        if !alerts.contains(alert) {
+            alerts.append(alert)
+        }
+    }
+
     /// presentedAlert gives editing failures priority, retaining diagnostic results until the
     /// user acknowledges the failure. The view model remains the source of editing errors.
     var presentedAlert: EditorAlert? {
         if let message = viewModel.errorMessage {
-            return EditorAlert(title: "Photo Error", message: message)
+            return EditorAlert(title: Self.editingErrorTitle, message: message)
         }
 
         return alert
     }
 
+    /// dismissAlert acknowledges the alert on screen; the next one queued takes its place.
     func dismissAlert() {
-        if viewModel.errorMessage != nil {
+        guard let presentedAlert else { return }
+
+        dismiss(presentedAlert)
+    }
+
+    /// dismiss acknowledges `alert`, the one the user saw, wherever it is queued: it may no longer
+    /// be the first (a priority error arrived since), and an alert already gone is a no-op.
+    func dismiss(_ alert: EditorAlert) {
+        if alert.title == Self.editingErrorTitle, viewModel.errorMessage == alert.message {
             viewModel.dismissError()
-        } else {
-            alert = nil
+        } else if let index = alerts.firstIndex(of: alert) {
+            alerts.remove(at: index)
         }
     }
+
+    private static var editingErrorTitle: String { "Photo Error" }
 
     /// isCardOpen is true while the Adjust tool is selected: the adjust card follows it.
     var isCardOpen: Bool { tool == .adjust }
@@ -113,7 +135,7 @@ final class EditorSession<
                 logger.error("Deleting the picker file failed: \(error.message, privacy: .public)")
             }
         } catch {
-            alert = EditorAlert(title: "Unable to Open Photo", message: error.message)
+            show(EditorAlert(title: "Unable to Open Photo", message: error.message))
         }
     }
 
