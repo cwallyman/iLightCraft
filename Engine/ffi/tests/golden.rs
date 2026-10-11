@@ -30,15 +30,17 @@ struct Latest {
 
 /// keep is the preview callback. It runs on the engine thread, ignores drafts, and copies the
 /// RGBA rows (stride may exceed width * 4) into a tight RGB8 frame, replacing whatever the slot held.
-extern "C" fn keep(
-    ctx: *mut std::ffi::c_void,
-    rgba: *const u8,
-    w: u32,
-    h: u32,
-    stride: u32,
-    g: u64,
-    draft: bool,
-) {
+extern "C" fn keep(ctx: *mut std::ffi::c_void, frame: *const UVFrame) {
+    // SAFETY: the engine passes a frame valid for the duration of the callback.
+    let UVFrame {
+        rgba,
+        width: w,
+        height: h,
+        stride,
+        generation: g,
+        draft,
+        ..
+    } = *unsafe { &*frame };
     if draft {
         return;
     }

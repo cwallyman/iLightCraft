@@ -108,14 +108,98 @@ final class EditorLaunchRunner {
                 canvas.zoom(toPercent: percent)
             }
 
+            if options.cyclesZoom {
+                await Self.cycleZoom(canvas, engine: engine)
+                if options.exitsAfterSweep { exit(0) }
+                return
+            }
+
             guard let seconds = options.sweepSeconds else { return }
 
             let sweep = StressSweep(viewModel: viewModel, duration: seconds) { isComplete, _ in
+                canvas.isMeasurementPanning = false
                 if options.exitsAfterSweep { exit(isComplete ? 0 : 1) }
             }
 
             sweep.start()
+
+            if options.pansDuringSweep {
+                // A pan stops a running spring: let the zoom animation land first.
+                try? await Task.sleep(for: .seconds(1))
+                await Self.pan(canvas, for: seconds - 1)
+            }
         }
+    }
+
+    /// pan moves the canvas along its measurement circle about every 16 ms for `seconds`, the pan
+    /// half of a `-UnveilPanSweep` run, then lets it rest so the window is rendered at full quality.
+    private static func pan(_ canvas: CanvasView, for seconds: Double) async {
+        let start = ContinuousClock.now
+
+        canvas.isMeasurementPanning = true
+
+        while canvas.isMeasurementPanning, start.duration(to: .now) < .seconds(seconds) {
+            let elapsed = start.duration(to: .now) / .seconds(1)
+            canvas.measurementPan(at: elapsed)
+
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+
+        canvas.isMeasurementPanning = false
+    }
+
+    /// cycleZoom is the `-UnveilZoomCycle` run, with FootprintSampler writing the memory CSV: 20 s at
+    /// fit, then three times 100 % and back to fit. The first zoom is cold, the second follows 20 s
+    /// at fit (the window memory was released 2 s in), the third only 1 s (nothing released). It
+    /// prints when each phase starts, how long each zoom took from its start (spring included) to
+    /// its first window and first full window, and the engine's `library.memory` after each hold.
+    private static func cycleZoom(_ canvas: CanvasView, engine: EngineManager) async {
+        let sampler = FootprintSampler()
+        let start   = ContinuousClock.now
+        let frames  = engine.frames
+
+        func report(_ phase: String) async {
+            let memory = (try? await engine.diagnostic("library.memory", params: [String: String]())) ?? "?"
+            print("cycle: \(phase) memory \(memory)")
+        }
+
+        UIApplication.shared.isIdleTimerDisabled = true
+        sampler.start()
+        print("cycle: fit at \(start.duration(to: .now))")
+        try? await Task.sleep(for: .seconds(20))
+        await report("fit")
+
+        for (round, zoomedHold, fitHold) in [(1, 20, 20), (2, 10, 1), (3, 10, 20)] {
+            let before = frames.published().window?.generation ?? 0
+            let zoomed = ContinuousClock.now
+            var first  : Duration?
+
+            print("cycle: zoom \(round) at \(start.duration(to: zoomed))")
+            canvas.zoom(toPercent: 100)
+
+            while zoomed.duration(to: .now) < .seconds(30) {
+                if let window = frames.published().window, window.generation > before {
+                    first = first ?? zoomed.duration(to: .now)
+                    if !window.isDraft { break }
+                }
+
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+
+            let full = zoomed.duration(to: .now)
+            print("cycle: zoom \(round) first window after \(first ?? full), first full window after \(full)")
+            try? await Task.sleep(for: .seconds(zoomedHold))
+            await report("zoom \(round)")
+
+            print("cycle: fit \(round) at \(start.duration(to: .now))")
+            canvas.zoomToFit()
+            try? await Task.sleep(for: .seconds(fitHold))
+            await report("fit \(round)")
+        }
+
+        await sampler.stop()
+        UIApplication.shared.isIdleTimerDisabled = false
+        print("cycle: done at \(start.duration(to: .now))")
     }
 
     /// waitForFullFrame polls the sink every 20 ms, for at most 60 s, until it holds a full frame.

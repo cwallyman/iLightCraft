@@ -77,15 +77,15 @@ struct Pixels {
     cv: Condvar,
 }
 
-extern "C" fn keep_pixels(
-    ctx: *mut std::ffi::c_void,
-    rgba: *const u8,
-    _w: u32,
-    h: u32,
-    stride: u32,
-    g: u64,
-    _draft: bool,
-) {
+extern "C" fn keep_pixels(ctx: *mut std::ffi::c_void, frame: *const UVFrame) {
+    // SAFETY: the engine passes a frame valid for the duration of the callback.
+    let UVFrame {
+        rgba,
+        height: h,
+        stride,
+        generation: g,
+        ..
+    } = *unsafe { &*frame };
     // SAFETY: ctx is the Pixels the test keeps alive in an Arc for the whole session.
     let pixels = unsafe { &*(ctx as *const Pixels) };
     // SAFETY: the engine promises stride * h readable bytes for the duration of the callback.

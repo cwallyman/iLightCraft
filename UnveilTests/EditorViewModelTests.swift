@@ -585,4 +585,102 @@ struct EditorViewModelTests {
         ])
         #expect(engine.editedReads == reads + 2)
     }
+
+    /// zoomWindow is a window of the RAF's 100 % frame, as the canvas sends it.
+    private static let zoomWindow = FrameWindow(
+        frameWidth  : 6240,
+        frameHeight : 4159,
+        x           : 1908,
+        y           : 1227,
+        width       : 2424,
+        height      : 1705
+    )
+
+    /// While the canvas shows a window, a drag renders only that window (drafts), and the release
+    /// brings the preview up to date before the window over it.
+    @Test
+    func aZoomedDragRendersTheWindowAndTheReleaseThePreviewThenTheWindow() async {
+        let engine = FakeEngine()
+        let model  = EditorViewModel(engine: engine, importer: FakeImporter(), previewPixels: 1024)
+        await model.open(pickedURL: URL(filePath: "/tmp/x.RAF"))
+
+        await model.showWindow(Self.zoomWindow, draft: false)
+        let before = engine.calls.count
+
+        model.beginDrag(.exposure)
+        await model.drag(.exposure, to: 0.7)
+        await model.endDrag(.exposure)
+
+        #expect(Array(engine.calls[before...]) == [
+            "set light.exposure 0.7",
+            "window 1908,1227 2424x1705 of 6240x4159 draft",
+            "preview 1024 full",
+            "window 1908,1227 2424x1705 of 6240x4159 full"
+        ])
+    }
+
+    /// showWindow asks for the window at the quality the canvas wants; nil asks for nothing and
+    /// puts edits back on the preview alone.
+    @Test
+    func showWindowAsksForTheWindowAndNilGoesBackToThePreview() async {
+        let engine = FakeEngine()
+        let model  = EditorViewModel(engine: engine, importer: FakeImporter(), previewPixels: 1024)
+        await model.open(pickedURL: URL(filePath: "/tmp/x.RAF"))
+        let before = engine.calls.count
+
+        await model.showWindow(Self.zoomWindow, draft: true)
+        await model.showWindow(nil, draft: false)
+        await model.drag(.exposure, to: 0.3)
+
+        #expect(Array(engine.calls[before...]) == [
+            "window 1908,1227 2424x1705 of 6240x4159 draft",
+            "set light.exposure 0.3",
+            "preview 1024 draft"
+        ])
+    }
+
+    /// No window is asked for before a photo is open, and opening another photo forgets the window
+    /// of the previous one until the canvas sends a new one.
+    @Test
+    func anOpenForgetsTheWindowOfThePreviousPhoto() async {
+        let engine = FakeEngine()
+        let model  = EditorViewModel(engine: engine, importer: FakeImporter(), previewPixels: 1024)
+
+        await model.showWindow(Self.zoomWindow, draft: false)
+        #expect(engine.calls.isEmpty)
+
+        await model.open(pickedURL: URL(filePath: "/tmp/x.RAF"))
+        await model.showWindow(Self.zoomWindow, draft: false)
+        await model.open(pickedURL: URL(filePath: "/tmp/y.RAF"))
+        let before = engine.calls.count
+
+        await model.drag(.exposure, to: 0.3)
+
+        #expect(Array(engine.calls[before...]) == ["set light.exposure 0.3", "preview 1024 draft"])
+    }
+
+    /// Once the canvas has wanted no window for the release delay, the engine frees the windows'
+    /// memory, once; a window shown again before that cancels the release.
+    @Test
+    func windowMemoryIsReleasedOnlyAfterNoWindowForTheDelay() async throws {
+        let engine = FakeEngine()
+        let model  = EditorViewModel(
+            engine             : engine,
+            importer           : FakeImporter(),
+            previewPixels      : 1024,
+            windowReleaseDelay : .milliseconds(100)
+        )
+        await model.open(pickedURL: URL(filePath: "/tmp/x.RAF"))
+
+        await model.showWindow(Self.zoomWindow, draft: false)
+        await model.showWindow(nil, draft: false)
+        await model.showWindow(Self.zoomWindow, draft: true)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!engine.calls.contains("release windows"))
+
+        await model.showWindow(nil, draft: false)
+        try await waitUntil(seconds: 3) { engine.calls.last == "release windows" }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(engine.calls.filter { $0 == "release windows" }.count == 1)
+    }
 }

@@ -9,7 +9,7 @@ using namespace metal;
 // The vertex shader draws the image as a four-vertex triangle strip with no vertex buffer.
 // The quad's NDC corners arrive as one float4 (min.xy, max.xy) set with setVertexBytes.
 
-// The fragment shader samples the frame with bilinear filtering and returns it unchanged:
+// The fragment shader samples the frame and returns it unchanged, apart from the pixel grid:
 // the engine's pixels are already display-encoded sRGB, so no transfer function is needed.
 
 struct CanvasVertex {
@@ -31,12 +31,34 @@ vertex CanvasVertex canvasVertex(
     return out;
 }
 
+// CanvasStyle is how one quad is sampled (CanvasView.CanvasStyle): grid lines every image pixel
+// of gridSize (none at gridOpacity 0); nearest 1 for real pixels from 99.8 %, else bilinear.
+struct CanvasStyle {
+    float2 gridSize;
+    float  gridOpacity;
+    uint   nearest;
+};
+
 fragment float4 canvasFragment(
-    CanvasVertex      in    [[stage_in]],
-    texture2d<float>  image [[texture(0)]]
+    CanvasVertex         in    [[stage_in]],
+    texture2d<float>     image [[texture(0)]],
+    constant CanvasStyle &style [[buffer(0)]]
 ) {
     // The rgba8Unorm texture reads the bytes raw and the bgra8Unorm drawable stores them raw
     // (Metal reorders the channels on store), so the swizzle is free.
     constexpr sampler bilinear(filter::linear, address::clamp_to_edge);
-    return image.sample(bilinear, in.textureCoordinate);
+    constexpr sampler nearest(filter::nearest, address::clamp_to_edge);
+
+    float4 color = style.nearest != 0 ? image.sample(nearest, in.textureCoordinate)
+                                      : image.sample(bilinear, in.textureCoordinate);
+
+    // Distance to the nearest image pixel boundary, in screen pixels (fwidth is the change
+    // of image pixels per screen pixel): a line one screen pixel wide, whatever the zoom.
+    float2 pixel    = in.textureCoordinate * style.gridSize;
+    float2 distance = abs(fract(pixel + 0.5) - 0.5) / max(fwidth(pixel), 1e-6);
+    float  line     = 1.0 - saturate(min(distance.x, distance.y));
+
+    // Neutral: a step toward mid grey, visible on light and dark pixels alike.
+    color.rgb = mix(color.rgb, float3(0.5), line * style.gridOpacity);
+    return color;
 }

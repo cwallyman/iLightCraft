@@ -29,6 +29,10 @@ nonisolated struct ZoomScale: Equatable, Sendable {
     /// counting as below it, so Zoom In from there goes to the next step and not to the same one.
     private static let stepTolerance = 0.002
 
+    /// realPixelsSnap is how far from the real 100 %, as a fraction of it, a zoom may come to rest
+    /// and still be snapped onto it (see `restingZoom(for:)`).
+    static let realPixelsSnap = 0.005
+
     /// rearmBand is how far, as a fraction of the landmark's zoom, the zoom must move away from a
     /// landmark that just ticked before that landmark can tick again (see `landmarkTick`).
     static let rearmBand = 0.02
@@ -79,6 +83,16 @@ nonisolated struct ZoomScale: Equatable, Sendable {
     /// zoom(forPercent:) is the zoom that shows `percent`, clamped to `range`.
     func zoom(forPercent percent: Double) -> Double {
         clamped(percent / percentAtFit)
+    }
+
+    /// restingZoom(for:) is where a zoom that comes to rest settles: exactly the real 100 % when
+    /// it is within `realPixelsSnap` of it, else `zoom` itself. At 100 % the canvas shows the photo's
+    /// own pixels with nearest sampling, one texel per screen pixel, and a pinch that stops a hair
+    /// off (99.7 %) would double or skip a column every few hundred pixels.
+    func restingZoom(for zoom: Double) -> Double {
+        let isNearRealPixels = abs(percent(forZoom: zoom) / 100 - 1) <= Self.realPixelsSnap
+
+        return isNearRealPixels ? self.zoom(forPercent: 100) : zoom
     }
 
     /// zoomIn(from:) is the zoom of the next preset above `zoom`, or the top of the range. When fit

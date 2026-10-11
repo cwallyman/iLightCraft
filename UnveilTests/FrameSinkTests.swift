@@ -18,23 +18,29 @@ struct FrameSinkTests {
 
     /// deliver hands `pixels` to the sink as a tightly packed frame, the way the engine does.
     private func deliver(
-        _ pixels  : [UInt8],
-        to sink   : FrameSink,
-        width     : Int,
-        height    : Int,
-        generation: UInt64,
-        isDraft   : Bool = false
+        _ pixels      : [UInt8],
+        to sink       : FrameSink,
+        width         : Int,
+        height        : Int,
+        generation    : UInt64,
+        isDraft       : Bool = false,
+        window        : FrameWindow? = nil,
+        replacesWindow: Bool = false
     ) {
         pixels.withUnsafeBytes { raw in
             guard let base = raw.baseAddress else { return }
 
             sink.receive(
-                rgba      : base,
-                width     : width,
-                height    : height,
-                stride    : width * 4,
-                generation: generation,
-                isDraft   : isDraft
+                rgba          : base,
+                width         : width,
+                height        : height,
+                stride        : width * 4,
+                generation    : generation,
+                isDraft       : isDraft,
+                window        : window,
+                replacesWindow: replacesWindow,
+                nativeWidth   : 640,
+                nativeHeight  : 427
             )
         }
     }
@@ -199,7 +205,7 @@ struct FrameSinkTests {
         )
 
         let frame  = try #require(sink.latest())
-        let buffer = frame.bufferIndex == 0 ? sink.buffers.0 : sink.buffers.1
+        let buffer = sink.buffer(at: frame.bufferIndex)
         let bytes  = buffer.contents().assumingMemoryBound(to: UInt8.self)
 
         for row in 0 ..< 3 {
@@ -226,5 +232,101 @@ struct FrameSinkTests {
         )
 
         #expect(seen.withLock { $0 } == 7)
+    }
+
+    /// Windows and previews alternate and repeat, as during a pan after an edit: each kind keeps its
+    /// own published buffer, a window never overwrites the preview's pixels, and the generation
+    /// rule holds across the two kinds.
+    @Test
+    func aWindowIsPublishedBesideThePreviewWithoutTouchingItsPixels() throws {
+        let sink   = FrameSink(device: device, maxPixels: 64)
+        let window = FrameWindow(
+            frameWidth  : 400,
+            frameHeight : 300,
+            x           : 100,
+            y           : 50,
+            width       : 4,
+            height      : 4
+        )
+
+        deliver(
+            [UInt8](repeating: 9, count: 4 * 4 * 4),
+            to         : sink,
+            width      : 4,
+            height     : 4,
+            generation : 1
+        )
+
+        for generation in UInt64(2) ... 5 {
+            deliver(
+                [UInt8](repeating: UInt8(generation), count: 4 * 4 * 4),
+                to         : sink,
+                width      : 4,
+                height     : 4,
+                generation : generation,
+                window     : window
+            )
+        }
+
+        let published = sink.published()
+        let preview   = try #require(published.frame)
+        let shown     = try #require(published.window)
+        let bytes     = sink.buffer(at: preview.bufferIndex).contents().assumingMemoryBound(to: UInt8.self)
+
+        #expect(preview.generation == 1 && preview.window == nil)
+        #expect(shown.generation == 5 && shown.window == window)
+        #expect(preview.bufferIndex != shown.bufferIndex)
+        #expect(bytes[0] == 9, "a window overwrote the preview")
+
+        // An older window is dropped, and a newer preview takes the free buffer.
+        deliver(
+            [UInt8](repeating: 1, count: 4 * 4 * 4),
+            to         : sink,
+            width      : 4,
+            height     : 4,
+            generation : 4,
+            window     : window
+        )
+        deliver(
+            [UInt8](repeating: 6, count: 4 * 4 * 4),
+            to         : sink,
+            width      : 4,
+            height     : 4,
+            generation : 6
+        )
+
+        let after = sink.published()
+        #expect(after.window?.generation == 5)
+        #expect(after.frame?.generation == 6)
+        #expect(Set([after.frame?.bufferIndex, after.window?.bufferIndex]).count == 2)
+    }
+
+    /// The engine's whole-frame answer to a window it could not render alone unpublishes the window,
+    /// which is older and may hold older settings; an ordinary preview leaves the window in place.
+    /// Every frame keeps the native size it came with.
+    @Test
+    func aFallbackPreviewUnpublishesTheWindow() {
+        let sink   = FrameSink(device: device, maxPixels: 64)
+        let pixels = [UInt8](repeating: 7, count: 4 * 4 * 4)
+        let window = FrameWindow(
+            frameWidth  : 400,
+            frameHeight : 300,
+            x           : 100,
+            y           : 50,
+            width       : 4,
+            height      : 4
+        )
+
+        deliver(pixels, to: sink, width: 4, height: 4, generation: 1)
+        deliver(pixels, to: sink, width: 4, height: 4, generation: 2, window: window)
+        deliver(pixels, to: sink, width: 4, height: 4, generation: 3)
+        #expect(sink.published().window?.generation == 2)
+
+        deliver(pixels, to: sink, width: 4, height: 4, generation: 4, replacesWindow: true)
+
+        let published = sink.published()
+        #expect(published.frame?.generation == 4)
+        #expect(published.window == nil)
+        #expect(published.frame?.nativeWidth == 640 && published.frame?.nativeHeight == 427)
     }
 }

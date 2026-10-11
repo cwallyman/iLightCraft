@@ -62,10 +62,11 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// maxUndoSteps caps the undo stack: past it the oldest step is dropped.
     static var maxUndoSteps: Int { 100 }
 
-    private let engine          : Engine
-    private let importer        : Importer
-    private let previewPixels   : Int
-    private let nudgeSettleDelay: Duration
+    private let engine            : Engine
+    private let importer          : Importer
+    private let previewPixels     : Int
+    private let nudgeSettleDelay  : Duration
+    private let windowReleaseDelay: Duration
 
     // Plain bookkeeping the view never reads, so it stays out of observation.
     @ObservationIgnored
@@ -90,6 +91,16 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     @ObservationIgnored
     private var waitingDrags: Set<DevelopAdjustmentKind> = []
 
+    /// visibleWindow is the window of the zoomed frame the canvas shows over the preview, or nil
+    /// while the preview is enough (see `showWindow`). Edits render it along with the preview.
+    @ObservationIgnored
+    private var visibleWindow: FrameWindow?
+
+    /// windowRelease is the timer that frees the engine's window memory once the canvas has wanted
+    /// no window for `windowReleaseDelay` (see `showWindow`).
+    @ObservationIgnored
+    private var windowRelease: Task<Void, Never>?
+
     /// nudgeSettle is the stepper burst waiting to be committed: its kind and the timer that
     /// commits it once the presses stop.
     @ObservationIgnored
@@ -104,20 +115,23 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         developDefaults[kind] ?? kind.defaultValue
     }
 
-    /// `nudgeSettleDelay` is how long after the last stepper press the burst is committed; tests
-    /// shorten it.
+    /// `nudgeSettleDelay` is how long after the last stepper press the burst is committed, and
+    /// `windowReleaseDelay` how long the canvas must want no window before the engine frees the
+    /// windows' memory; tests shorten both.
     init(
-        engine          : Engine,
-        importer        : Importer,
-        previewPixels   : Int,
-        nudgeSettleDelay: Duration = .milliseconds(300)
+        engine            : Engine,
+        importer          : Importer,
+        previewPixels     : Int,
+        nudgeSettleDelay  : Duration = .milliseconds(300),
+        windowReleaseDelay: Duration = .seconds(2)
     ) {
-        self.engine           = engine
-        self.importer         = importer
-        self.previewPixels    = previewPixels
-        self.nudgeSettleDelay = nudgeSettleDelay
-        self.values           = Self.defaultValues
-        self.developDefaults  = Self.defaultValues
+        self.engine             = engine
+        self.importer           = importer
+        self.previewPixels      = previewPixels
+        self.nudgeSettleDelay   = nudgeSettleDelay
+        self.windowReleaseDelay = windowReleaseDelay
+        self.values             = Self.defaultValues
+        self.developDefaults    = Self.defaultValues
     }
 
     /// open copies the picked file off the main actor, opens it in the engine, loads the controls'
@@ -180,6 +194,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             }
 
             self.openPhoto       = photo
+            self.visibleWindow   = nil
             self.values          = Self.defaultValues.merging(current) { _, engineValue in engineValue }
             self.sent            = self.values
             self.wanted          = [:]
@@ -251,7 +266,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
         guard waitingDrags.insert(kind).inserted else { return }
 
-        await enqueue { [engine, previewPixels] in
+        await enqueue { [engine] in
             self.waitingDrags.remove(kind)
 
             guard let newest = self.wanted[kind], self.sent[kind] != newest else { return }
@@ -260,7 +275,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             self.sent[kind] = newest
             self.noteSet(of: kind)
 
-            _ = try engine.requestPreview(maxPixels: previewPixels, draft: true)
+            try self.requestFrames(draft: true)
         }
     }
 
@@ -268,7 +283,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// full-quality preview, behind every earlier link, so the final frame carries the final value.
     /// The edited flag is read after the preview is asked for, so the render starts first.
     func endDrag(_ kind: DevelopAdjustmentKind) async {
-        await enqueue { [engine, previewPixels] in
+        await enqueue { [engine] in
             if let newest = self.wanted[kind], self.sent[kind] != newest {
                 try await engine.set(kind, to: newest)
                 self.sent[kind] = newest
@@ -277,7 +292,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
             self.commitEdit()
 
-            _ = try engine.requestPreview(maxPixels: previewPixels, draft: false)
+            try self.requestFrames(draft: false)
             try await self.reloadEdited()
         }
     }
@@ -295,7 +310,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
         wanted = [:]
 
-        await enqueue { [engine, previewPixels, cameraDefaults] in
+        await enqueue { [engine, cameraDefaults] in
             var resetError: EngineError?
 
             do throws(EngineError) {
@@ -306,7 +321,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
             try await self.reloadValues()
             self.commitEdit()
-            _ = try engine.requestPreview(maxPixels: previewPixels, draft: false)
+            try self.requestFrames(draft: false)
 
             if let resetError {
                 throw resetError
@@ -330,12 +345,12 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         wanted[.temperature] = nil
         wanted[.tint]        = nil
 
-        await enqueue { [engine, previewPixels] in
+        await enqueue { [engine] in
             try await engine.resetWhiteBalance()
             try await self.reloadValues()
             self.commitEdit()
 
-            _ = try engine.requestPreview(maxPixels: previewPixels, draft: false)
+            try self.requestFrames(draft: false)
         }
     }
 
@@ -356,8 +371,48 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     func refreshPreview() async {
         guard isPhotoOpen else { return }
 
-        await enqueue { [engine, previewPixels] in
-            _ = try engine.requestPreview(maxPixels: previewPixels, draft: false)
+        await enqueue {
+            try self.requestFrames(draft: false)
+        }
+    }
+
+    /// showWindow records which window of the zoomed frame the canvas shows over the preview (nil:
+    /// the preview is enough, and edits render only the preview again) and asks for it, behind any
+    /// queued edit, so the window carries the newest settings. The canvas calls it as the view moves:
+    /// at most every 100 ms during a gesture with `draft`, and once at full quality at rest.
+    ///
+    /// A window costs the engine about a gigabyte at 100 % on a 24 MP raw: the decoded original on
+    /// the CPU, its copy on the GPU, the window's stages and pooled buffers. Once nil has held for
+    /// `windowReleaseDelay` the engine frees all but the decoded original, a budgeted cache entry
+    /// (`releaseWindows`), so a view back at fit returns near the fit footprint and the next zoom
+    /// decodes nothing; any window in between cancels that, so a quick zoom out and in keeps it all.
+    /// The release goes straight to the engine: it orders nothing against the edits in the chain.
+    func showWindow(_ window: FrameWindow?, draft: Bool) async {
+        visibleWindow = window
+        windowRelease?.cancel()
+        windowRelease = nil
+
+        guard isPhotoOpen else { return }
+
+        guard let window else {
+            windowRelease = Task { [weak self, engine, windowReleaseDelay] in
+                do {
+                    try await Task.sleep(for: windowReleaseDelay)
+                } catch {
+                    return
+                }
+
+                // A window that lands after the sleep ended but before this resumes still cancels it.
+                guard !Task.isCancelled, let self, self.visibleWindow == nil else { return }
+
+                self.windowRelease = nil
+                engine.releaseWindows()
+            }
+            return
+        }
+
+        await enqueue { [engine] in
+            _ = try engine.requestWindow(window, draft: draft)
         }
     }
 
@@ -410,6 +465,24 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         Task.immediate { await self.endDrag(pending.kind) }
     }
 
+    /// requestFrames asks for what the canvas shows after an edit: the preview, and while the canvas
+    /// is zoomed past it, the window drawn over it. A draft is the window alone, because that is
+    /// what the user looks at and one render per drag step keeps the drag fluid. A full render
+    /// brings the preview up to date first, then the window (which never replaces the pending
+    /// preview, see `requestWindow`). Called from inside a chain link only.
+    private func requestFrames(draft: Bool) throws(EngineError) {
+        guard let window = visibleWindow else {
+            _ = try engine.requestPreview(maxPixels: previewPixels, draft: draft)
+            return
+        }
+
+        if !draft {
+            _ = try engine.requestPreview(maxPixels: previewPixels, draft: false)
+        }
+
+        _ = try engine.requestWindow(window, draft: draft)
+    }
+
     /// current is the snapshot of what the engine holds now, as far as the model has sent or read.
     private var current: EditSnapshot {
         EditSnapshot(values: sent, isWhiteBalanceAsShot: sentAsShot)
@@ -444,7 +517,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     ) async {
         commitPendingNudge()
 
-        await enqueue { [engine, previewPixels] in
+        await enqueue { [engine] in
             guard let snapshot = self[keyPath: source].last else { return }
 
             // The burst's commit and every earlier drag link have run: what is left wanted is stale.
@@ -464,7 +537,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             self[keyPath: source].removeLast()
             self[keyPath: target].append(before)
 
-            _ = try engine.requestPreview(maxPixels: previewPixels, draft: false)
+            try self.requestFrames(draft: false)
             try await self.reloadEdited()
         }
     }

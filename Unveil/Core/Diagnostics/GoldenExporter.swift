@@ -184,7 +184,7 @@ nonisolated struct GoldenExporter<Engine: EngineDriving & EngineDiagnosing>: Sen
 
         while true {
             if let frame = engine.frames.latest(), frame.generation >= generation, !frame.isDraft {
-                let buffer = frame.bufferIndex == 0 ? engine.frames.buffers.0 : engine.frames.buffers.1
+                let buffer = engine.frames.buffer(at: frame.bufferIndex)
                 let length = frame.bytesPerRow * frame.height
 
                 return (frame, Data(bytes: buffer.contents(), count: length))

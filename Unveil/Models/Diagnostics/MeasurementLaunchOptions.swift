@@ -15,6 +15,10 @@
 ///   "Color"...: the group title, any case), so a screenshot of a panel needs no tap;
 /// - `-UnveilZoom <percent>`: after the first full frame, zoom to that percentage of the photo's real
 ///   pixels (clamped to the zoom range), so a screenshot of a zoom level needs no pinch;
+/// - `-UnveilPanSweep`: during the sweep, also pan the canvas in a circle (CanvasView.measurementPan),
+///   so a zoomed sweep moves the visible window as a finger would;
+/// - `-UnveilZoomCycle`: instead of a sweep, zoom between fit and 100 % three times while the memory
+///   CSV is written, printing how long each zoom takes to its first window (EditorLaunchRunner);
 /// - `-UnveilHomePhotos`: start the home's panel on Photos instead of Files;
 /// - `-UnveilHomeExpanded`: start the home's panel at full height, so its screenshot needs no drag.
 ///
@@ -29,6 +33,8 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
     let exitsAfterSweep       : Bool
     let openPanel             : AdjustmentGroup?
     let zoomPercent           : Double?
+    let pansDuringSweep       : Bool
+    let cyclesZoom            : Bool
     let startsHomeOnPhotos    : Bool
     let startsHomeExpanded    : Bool
 
@@ -62,6 +68,8 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
             AdjustmentGroup.allCases.first { $0.title.lowercased() == name.lowercased() }
         }
         zoomPercent            = positiveNumber(after: "-UnveilZoom")
+        pansDuringSweep        = arguments.contains("-UnveilPanSweep")
+        cyclesZoom             = arguments.contains("-UnveilZoomCycle")
         startsHomeOnPhotos     = arguments.contains("-UnveilHomePhotos")
         startsHomeExpanded     = arguments.contains("-UnveilHomeExpanded")
     }

@@ -54,6 +54,15 @@ nonisolated protocol EngineDriving: AnyObject, Sendable {
     /// delivered if a newer request overtakes it, so wait for a frame at or above it, not equal to it.
     func requestPreview(maxPixels: Int, draft: Bool) throws(EngineError) -> UInt64
 
+    /// Starts a render of one window of the zoomed frame (see FrameWindow), drawn over the preview,
+    /// and returns its generation like `requestPreview`. A window never replaces a pending preview,
+    /// while a newer preview replaces it. Its size must fit `frames`.
+    func requestWindow(_ window: FrameWindow, draft: Bool) throws(EngineError) -> UInt64
+
+    /// Frees what windows keep resident in the engine (their stages and the full-size source on the
+    /// GPU) once the view no longer shows one. It never waits; the next window rebuilds them.
+    func releaseWindows()
+
     func suspend() throws(EngineError)
     func resume() throws(EngineError)
     func setMemoryBudget(bytes: UInt64)
