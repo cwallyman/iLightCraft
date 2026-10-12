@@ -22,6 +22,9 @@ final class EditorLaunchRunner {
 
         hasStarted = true
         runLaunchCommand(engine: engine)
+        #if DEBUG
+        runInputRecording(options: options, engine: engine)
+        #endif
         runMeasurement(
             options : options,
             session : session,
@@ -81,6 +84,31 @@ final class EditorLaunchRunner {
             print("disk: unreadable: \(error.localizedDescription)")
         }
     }
+
+    #if DEBUG
+    /// runInputRecording records the canvas's input for `-UnveilRecordInput` seconds (a Debug build,
+    /// see InputRecorder), from the first full frame of `-UnveilOpen` or else from the first
+    /// activation, and ends the process afterwards with `-UnveilExitAfterSweep`.
+    private func runInputRecording(options: MeasurementLaunchOptions, engine: EngineManager) {
+        guard let seconds = options.recordInputSeconds else { return }
+
+        Task {
+            while UIApplication.shared.applicationState != .active {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+
+            if options.openFileName != nil, await !Self.waitForFullFrame(in: engine.frames) {
+                print("input recording: no full frame")
+            }
+
+            UIApplication.shared.isIdleTimerDisabled = true
+            await InputRecorder.shared.record(for: seconds)
+            UIApplication.shared.isIdleTimerDisabled = false
+
+            if options.exitsAfterSweep { exit(0) }
+        }
+    }
+    #endif
 
     /// runMeasurement opens the photo named by `-UnveilOpen` and runs the sweep of `-UnveilSweep`
     /// (see MeasurementLaunchOptions), so T15's runs need no taps. The open goes through the
@@ -152,11 +180,18 @@ final class EditorLaunchRunner {
 
             guard let seconds = options.sweepSeconds else { return }
 
-            let sweep = StressSweep(viewModel: viewModel, duration: seconds) { isComplete, _ in
+            // A Debug build also writes the main thread's time during the sweep (FrameTimingProbe).
+            let probe = FrameTimingProbe.shared
+            let sweep = StressSweep(viewModel: viewModel, duration: seconds) { isComplete, csv in
                 canvas.isMeasurementPanning = false
-                if options.exitsAfterSweep { exit(isComplete ? 0 : 1) }
+
+                Task {
+                    await probe.writeReport(to: csv.deletingPathExtension().appendingPathExtension("timing.csv"))
+                    if options.exitsAfterSweep { exit(isComplete ? 0 : 1) }
+                }
             }
 
+            probe.start(phase: "sweep")
             sweep.start()
 
             if options.pansDuringSweep {

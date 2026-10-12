@@ -76,6 +76,7 @@ struct SignpostsTests {
             "-UnveilBefore",
             "-UnveilHomePhotos",
             "-UnveilHomeExpanded",
+            "-UnveilRecordInput", "20",
         ])
 
         #expect(options.openFileName == "DSCF0267.RAF")
@@ -91,6 +92,7 @@ struct SignpostsTests {
         #expect(options.exitsAfterSweep)
         #expect(options.startsHomeOnPhotos)
         #expect(options.startsHomeExpanded)
+        #expect(options.recordInputSeconds == 20)
     }
 
     @Test
@@ -110,6 +112,7 @@ struct SignpostsTests {
         #expect(options.showsBefore == false)
         #expect(options.startsHomeOnPhotos == false)
         #expect(options.startsHomeExpanded == false)
+        #expect(options.recordInputSeconds == nil)
     }
 
     @Test

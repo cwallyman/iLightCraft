@@ -29,7 +29,10 @@ import Foundation
 /// - `-UnveilBefore`: after the first full frame (and the exposure), show the unedited look, so a
 ///   screenshot of the before view needs no press and hold;
 /// - `-UnveilHomePhotos`: start the home's panel on Photos instead of Files;
-/// - `-UnveilHomeExpanded`: start the home's panel at full height, so its screenshot needs no drag.
+/// - `-UnveilHomeExpanded`: start the home's panel at full height, so its screenshot needs no drag;
+/// - `-UnveilRecordInput <s>`: a Debug build records the canvas's input events and display updates
+///   for that many seconds (InputRecorder), from the first full frame of `-UnveilOpen` or else from
+///   launch, so a hand-made trackpad session leaves a CSV; with `-UnveilExitAfterSweep` it then ends.
 ///
 /// `allowsImportSweep` is false under any of them, or any other `-Unveil...` argument (the
 /// `-UnveilRun` disk report, say): see its doc.
@@ -52,6 +55,7 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
     let showsBefore           : Bool
     let startsHomeOnPhotos    : Bool
     let startsHomeExpanded    : Bool
+    let recordInputSeconds    : Double?
 
     /// allowsImportSweep is the one gate of the import orphan sweep: true only for a plain launch,
     /// with no `-Unveil...` argument at all and not as the host of a test run (XCTest's
@@ -102,6 +106,7 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
         showsBefore            = arguments.contains("-UnveilBefore")
         startsHomeOnPhotos     = arguments.contains("-UnveilHomePhotos")
         startsHomeExpanded     = arguments.contains("-UnveilHomeExpanded")
+        recordInputSeconds     = positiveNumber(after: "-UnveilRecordInput")
         allowsImportSweep      = !arguments.contains { $0.hasPrefix("-Unveil") }
             && environment["XCTestConfigurationFilePath"] == nil
     }

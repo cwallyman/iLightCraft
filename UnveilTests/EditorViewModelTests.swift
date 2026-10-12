@@ -612,8 +612,15 @@ struct EditorViewModelTests {
     /// brings the preview up to date before the window over it.
     @Test
     func aZoomedDragRendersTheWindowAndTheReleaseThePreviewThenTheWindow() async {
-        let engine = FakeEngine()
-        let model  = EditorViewModel(engine: engine, importer: FakeImporter(), previewPixels: 1024)
+        // A still clock: under a loaded suite the two drags could land more than 80 ms apart.
+        let instant = ContinuousClock.now
+        let engine  = FakeEngine()
+        let model   = EditorViewModel(
+            engine        : engine,
+            importer      : FakeImporter(),
+            previewPixels : 1024,
+            now           : { instant }
+        )
         await model.open(pickedURL: URL(filePath: "/tmp/x.RAF"))
 
         await model.showWindow(Self.zoomWindow, draft: false)
