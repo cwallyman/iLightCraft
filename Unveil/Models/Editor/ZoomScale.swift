@@ -38,9 +38,13 @@ nonisolated struct ZoomScale: Equatable, Sendable {
     static let rearmBand = 0.02
 
     /// indirectPinchExponent damps a trackpad pinch: its scale is raised to this power, so a
-    /// trackpad doubling zooms by about 1.41x. A calibration knob: tune it on the device until a
+    /// trackpad doubling zooms by about 1.32x. A calibration knob: tune it on the device until a
     /// trackpad pinch feels like Photoshop or Preview on iPad. Finger pinches are not damped.
-    static let indirectPinchExponent = 0.5
+    static let indirectPinchExponent = 0.4
+
+    /// scrollZoomRate is the zoom, as a natural logarithm, per point of Cmd + scroll: 100 points
+    /// of trackpad swipe or about ten wheel clicks zoom by 1.5x. A calibration knob like the pinch's.
+    static let scrollZoomRate = 0.004
 
     /// percentAtFit is the real percentage at zoom 1.
     let percentAtFit: Double
@@ -149,6 +153,14 @@ nonisolated struct ZoomScale: Equatable, Sendable {
     /// indirectPinchFactor(for:) is the zoom factor of one trackpad pinch step of `scale`.
     static func indirectPinchFactor(for scale: Double) -> Double {
         pow(scale, indirectPinchExponent)
+    }
+
+    /// scrollZoomFactor(forTranslation:) is the zoom factor of one Cmd + scroll step of `points`
+    /// vertical points of content travel, as the system delivers them (so the Natural Scrolling
+    /// setting is already applied): content moving up zooms in, as in Photos, and down zooms out.
+    /// It is exponential, so many small steps add up to one big step.
+    static func scrollZoomFactor(forTranslation points: Double) -> Double {
+        exp(-points * scrollZoomRate)
     }
 
     /// label(forPercent:) is the pill's number: whole from 10 % up, one decimal below it (6.3).

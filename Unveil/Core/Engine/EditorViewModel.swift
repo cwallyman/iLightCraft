@@ -41,8 +41,9 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     private(set) var photoType   : String?
 
     /// histogram is the newest whole-frame preview's histogram for the open photo; nil until the first
-    /// frame of a newly opened photo. Zoom windows never replace it. At fit a drag's drafts update it;
-    /// zoomed in, drafts render only the window, so it holds until the next whole frame (the release).
+    /// frame of a newly opened photo. Zoom windows never replace it. At fit every draft of a drag updates
+    /// it; zoomed in, a draft renders the window and only every `histogramInterval` a whole-frame
+    /// draft besides, so it follows the drag at a few updates a second.
     private(set) var histogram: FrameHistogram?
 
     /// isShowingBefore is true while the canvas shows the photo's unedited look (a press and hold, or
@@ -105,6 +106,19 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     @ObservationIgnored
     private var histogramFloor: UInt64 = 0
 
+    /// histogramInterval is the least time between the whole-frame drafts that keep the
+    /// histogram moving while a drag renders windows; a window draft alone carries no histogram.
+    /// `now` is the clock it is measured on; tests drive it.
+    @ObservationIgnored
+    private let histogramInterval: Duration
+
+    @ObservationIgnored
+    private let now: () -> ContinuousClock.Instant
+
+    /// lastWindowedHistogramDraft is when the newest of those whole-frame drafts was asked for.
+    @ObservationIgnored
+    private var lastWindowedHistogramDraft: ContinuousClock.Instant?
+
     @ObservationIgnored
     private var wanted: [DevelopAdjustmentKind: Double] = [:]
 
@@ -151,7 +165,8 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// `settleNudge` is the wait after the last stepper press before the burst is committed (0.3 s;
     /// tests pass a wait they end themselves, so a burst never splits under load), and
     /// `windowReleaseDelay` how long the canvas must want no window before the engine frees the
-    /// windows' memory; tests shorten it.
+    /// windows' memory; tests shorten it. `histogramInterval` and `now` pace the histogram's
+    /// whole-frame drafts while a window is shown; tests drive the clock.
     init(
         engine            : Engine,
         importer          : Importer,
@@ -159,13 +174,17 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         settleNudge       : @escaping @Sendable () async throws -> Void = {
             try await Task.sleep(for: .milliseconds(300))
         },
-        windowReleaseDelay: Duration = .seconds(2)
+        windowReleaseDelay: Duration = .seconds(2),
+        histogramInterval : Duration = .milliseconds(200),
+        now               : @escaping () -> ContinuousClock.Instant = { .now }
     ) {
         self.engine             = engine
         self.importer           = importer
         self.previewPixels      = previewPixels
         self.settleNudge        = settleNudge
         self.windowReleaseDelay = windowReleaseDelay
+        self.histogramInterval  = histogramInterval
+        self.now                = now
         self.values             = Self.defaultValues
         self.developDefaults    = Self.defaultValues
 
@@ -591,7 +610,8 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
     /// requestFrames asks for what the canvas shows after an edit: the preview, and while the canvas
     /// is zoomed past it, the window drawn over it. A draft is the window alone, because that is
-    /// what the user looks at and one render per drag step keeps the drag fluid. A full render
+    /// what the user looks at and one render per drag step keeps the drag fluid, plus a whole-frame
+    /// draft once per `histogramInterval` so the histogram follows. A full render
     /// brings the preview up to date first, then the window (which never replaces the pending
     /// preview, see `requestWindow`). Called from inside a chain link only.
     private func requestFrames(draft: Bool) throws(EngineError) {
@@ -600,8 +620,9 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             return
         }
 
-        if !draft {
-            _ = try requestPreview(draft: false)
+        // The preview goes first: the engine renders it before the window it is drawn under.
+        if !draft || isWindowedHistogramDraftDue() {
+            _ = try requestPreview(draft: draft)
         }
 
         _ = try engine.requestWindow(
@@ -609,6 +630,19 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             draft  : draft,
             before : isShowingBefore
         )
+    }
+
+    /// isWindowedHistogramDraftDue says whether this drag step also asks for a whole-frame draft,
+    /// and records the time when it does.
+    private func isWindowedHistogramDraftDue() -> Bool {
+        let instant = now()
+
+        if let last = lastWindowedHistogramDraft, instant - last < histogramInterval {
+            return false
+        }
+
+        lastWindowedHistogramDraft = instant
+        return true
     }
 
     /// current is the snapshot of what the engine holds now, as far as the model has sent or read.

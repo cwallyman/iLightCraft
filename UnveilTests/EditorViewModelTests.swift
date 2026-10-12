@@ -607,8 +607,9 @@ struct EditorViewModelTests {
         height      : 1705
     )
 
-    /// While the canvas shows a window, a drag renders only that window (drafts), and the release
-    /// brings the preview up to date before the window over it.
+    /// While the canvas shows a window, a drag renders that window as drafts, and a whole-frame draft
+    /// before it once in a while for the histogram (never twice in a burst); the release brings the
+    /// preview up to date before the window over it.
     @Test
     func aZoomedDragRendersTheWindowAndTheReleaseThePreviewThenTheWindow() async {
         let engine = FakeEngine()
@@ -620,13 +621,51 @@ struct EditorViewModelTests {
 
         model.beginDrag(.exposure)
         await model.drag(.exposure, to: 0.7)
+        await model.drag(.exposure, to: 0.8)
         await model.endDrag(.exposure)
 
         #expect(Array(engine.calls[before...]) == [
             "set light.exposure 0.7",
+            "preview 1024 draft",
+            "window 1908,1227 2424x1705 of 6240x4159 draft",
+            "set light.exposure 0.8",
             "window 1908,1227 2424x1705 of 6240x4159 draft",
             "preview 1024 full",
             "window 1908,1227 2424x1705 of 6240x4159 full"
+        ])
+    }
+
+    /// The whole-frame draft that keeps the histogram moving repeats once the interval has passed
+    /// on the model's clock, and not before.
+    @Test
+    func aZoomedDragRepeatsTheHistogramDraftAfterTheInterval() async {
+        let engine = FakeEngine()
+        var clock  = ContinuousClock.now
+        let model  = EditorViewModel(
+            engine            : engine,
+            importer          : FakeImporter(),
+            previewPixels     : 1024,
+            histogramInterval : .milliseconds(200),
+            now               : { clock }
+        )
+        await model.open(pickedURL: URL(filePath: "/tmp/x.RAF"))
+        await model.showWindow(Self.zoomWindow, draft: false)
+        let before = engine.calls.count
+        let window = "window 1908,1227 2424x1705 of 6240x4159 draft"
+
+        await model.drag(.exposure, to: 0.1)
+        clock += .milliseconds(199)
+        await model.drag(.exposure, to: 0.2)
+        clock += .milliseconds(1)
+        await model.drag(.exposure, to: 0.3)
+        clock += .milliseconds(50)
+        await model.drag(.exposure, to: 0.4)
+
+        #expect(Array(engine.calls[before...]) == [
+            "set light.exposure 0.1", "preview 1024 draft", window,
+            "set light.exposure 0.2", window,
+            "set light.exposure 0.3", "preview 1024 draft", window,
+            "set light.exposure 0.4", window
         ])
     }
 

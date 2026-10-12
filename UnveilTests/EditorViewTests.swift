@@ -146,9 +146,80 @@ struct EditorViewTests {
         )
     }
 
-    /// theCardHugsItsRowsAndScrollsWhenTheyDoNotFit measures the card offered 700 pt: at the
-    /// default text size it is shorter (it hugs the Light rows), at an accessibility size it
-    /// fills the space and its rows scroll.
+    /// aDraftHistogramRepaintsTheOpenCardInPlace delivers two draft histograms, which share one view
+    /// identity, and checks the card's pixels change with each: the plot redraws, it is not just
+    /// re-evaluated. A third snapshot with nothing new measures the noise the comparison must stand out from.
+    @Test
+    func aDraftHistogramRepaintsTheOpenCardInPlace() async throws {
+        let fixture = try Fixture()
+        defer { fixture.window.isHidden = true }
+        await fixture.model.open(pickedURL: URL(filePath: "/tmp/photo.RAF"))
+        fixture.session.showPanel(.light)
+        try await Task.sleep(for: .milliseconds(500))
+
+        func deliverDraft(generation: UInt64, peakBin: Int) async throws {
+            var bins = [UInt32](repeating: 0, count: 256)
+            bins[peakBin] = 1_000
+            let histogram = FrameHistogram(
+                red         : bins,
+                green       : bins,
+                blue        : bins,
+                luma        : bins,
+                total       : 1_000,
+                clippedLow  : [0, 0, 0],
+                clippedHigh : [0, 0, 0],
+                generation  : generation,
+                isDraft     : true
+            )
+            let pixels = [UInt8](repeating: 9, count: 4 * 4 * 4)
+
+            pixels.withUnsafeBytes { raw in
+                guard let base = raw.baseAddress else { return }
+
+                fixture.engine.frames.receive(
+                    rgba       : base,
+                    width      : 4,
+                    height     : 4,
+                    stride     : 16,
+                    generation : generation,
+                    isDraft    : true,
+                    histogram  : histogram
+                )
+            }
+            try await waitUntil(seconds: 3) { fixture.model.histogram?.generation == generation }
+            try await Task.sleep(for: .milliseconds(300))
+        }
+
+        func snapshot() -> [UInt8] {
+            let image = UIGraphicsImageRenderer(bounds: fixture.window.bounds).image { _ in
+                fixture.window.drawHierarchy(in: fixture.window.bounds, afterScreenUpdates: true)
+            }
+            let data = image.cgImage?.dataProvider?.data
+
+            return data.map { Array(UnsafeBufferPointer(start: CFDataGetBytePtr($0), count: CFDataGetLength($0))) } ?? []
+        }
+
+        func differences(_ a: [UInt8], _ b: [UInt8]) -> Int {
+            zip(a, b).filter { $0 != $1 }.count
+        }
+
+        try await deliverDraft(generation: 1_000, peakBin: 60)
+        let first = snapshot()
+        try await deliverDraft(generation: 1_001, peakBin: 190)
+        let second = snapshot()
+        try await Task.sleep(for: .milliseconds(300))
+        let again = snapshot()
+
+        let changed = differences(first, second)
+        let noise   = differences(second, again)
+
+        #expect(!first.isEmpty && first.count == second.count)
+        #expect(changed > 1_000 && changed > 10 * noise, "changed \(changed) bytes, noise \(noise)")
+    }
+
+    /// theCardHugsItsRowsAndScrollsWhenTheyDoNotFit measures the card offered 780 pt (an iPad Air
+    /// in landscape, about): at the default text size it is shorter (it hugs the Light rows), at
+    /// an accessibility size, or offered less (an iPad mini), it fills the space and its rows scroll.
     @Test
     func theCardHugsItsRowsAndScrollsWhenTheyDoNotFit() {
         let model = EditorViewModel(
@@ -157,17 +228,33 @@ struct EditorViewTests {
             previewPixels : 1024
         )
 
-        func height(at textSize: DynamicTypeSize) -> CGFloat {
+        func height(at textSize: DynamicTypeSize, offered: CGFloat) -> CGFloat {
             let card = AdjustCard(viewModel: model, group: .constant(.light), clipping: .constant([]))
                 .dynamicTypeSize(textSize)
 
             return UIHostingController(rootView: card)
-                .sizeThatFits(in: CGSize(width: 340, height: 700))
+                .sizeThatFits(in: CGSize(width: 340, height: offered))
                 .height
         }
 
-        #expect(height(at: .large) < 700)
-        #expect(height(at: .accessibility3) == 700)
+        #expect(height(at: .large, offered: 780) < 780)
+        #expect(height(at: .large, offered: 680) == 680)
+        #expect(height(at: .accessibility3, offered: 780) == 780)
+    }
+
+    /// theHistogramPlotIsThreeToOne measures the histogram offered the card's inner width: its
+    /// height is a third of it, with or without a histogram yet.
+    @Test
+    func theHistogramPlotIsThreeToOne() {
+        let model = EditorViewModel(
+            engine        : FakeEngine(),
+            importer      : FakeImporter(),
+            previewPixels : 1024
+        )
+        let plot  = HistogramView(viewModel: model, clipping: .constant([]))
+        let size  = UIHostingController(rootView: plot).sizeThatFits(in: CGSize(width: 308, height: 1000))
+
+        #expect(abs(size.width / size.height - 3) < 0.05, "plot measures \(size)")
     }
 
     /// openingPhotoKeepsCanvas keeps the canvas attached even before an import (the home, not
