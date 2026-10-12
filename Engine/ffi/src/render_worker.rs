@@ -9,10 +9,12 @@ use lightcraft_engine::media::RenderResult;
 
 use crate::session::{Delivery, FrameCallback, Msg, caught, set_user_initiated_qos};
 
-/// Work is one render for the worker: the job (its request_id is the generation) and what the
-/// engine thread needs back to deliver the frame.
+/// Work is one render for the worker: the job (its request_id is the generation), the small whole
+/// frame whose histogram a window carries, if wanted, and what the engine thread needs back to
+/// deliver the frame.
 pub(crate) struct Work {
     pub job: RenderJob,
+    pub histogram_job: Option<RenderJob>,
     pub draft: bool,
     pub delivery: Delivery,
     pub callback: FrameCallback,
@@ -20,11 +22,13 @@ pub(crate) struct Work {
 
 /// RenderDone is a finished Work, sent back to the engine thread. `result` is None when the
 /// render panicked: the engine thread must still hear about it, or the scheduler would stall.
+/// `histogram` is the histogram job's result, None when there was none or it panicked.
 pub(crate) struct RenderDone {
     pub generation: u64,
     pub draft: bool,
     pub photo: PhotoId,
     pub result: Option<RenderResult>,
+    pub histogram: Option<RenderResult>,
     pub delivery: Delivery,
     pub callback: FrameCallback,
 }
@@ -46,6 +50,7 @@ impl RenderWorker {
                 set_user_initiated_qos();
                 for Work {
                     job,
+                    histogram_job,
                     draft,
                     delivery,
                     callback,
@@ -53,11 +58,13 @@ impl RenderWorker {
                 {
                     let (generation, photo) = (job.request_id, job.photo);
                     let result = caught("render", || job.run());
+                    let histogram = histogram_job.and_then(|job| caught("histogram render", || job.run()));
                     let done_msg = RenderDone {
                         generation,
                         draft,
                         photo,
                         result,
+                        histogram,
                         delivery,
                         callback,
                     };

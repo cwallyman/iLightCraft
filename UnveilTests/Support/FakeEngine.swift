@@ -276,13 +276,20 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
         return generation
     }
 
-    /// requestWindow logs "window <x>,<y> <width>x<height> of <frameWidth>x<frameHeight> draft|full"
+    /// requestWindow logs "window <x>,<y> <width>x<height> of <frameWidth>x<frameHeight> draft|full",
+    /// with " histogram" when it asks for the whole photo's histogram,
     /// and shares the preview's generations and `failNextPreview`.
-    func requestWindow(_ window: FrameWindow, draft: Bool, before: Bool) throws(EngineError) -> UInt64 {
+    func requestWindow(
+        _ window  : FrameWindow,
+        draft     : Bool,
+        before    : Bool,
+        histogram : Bool
+    ) throws(EngineError) -> UInt64 {
         let (failure, generation) = state.withLock {
             let place = "\(window.x),\(window.y) \(window.width)x\(window.height)"
             let frame = "\(window.frameWidth)x\(window.frameHeight)"
-            $0.calls.append("window \(place) of \(frame) \(draft ? "draft" : "full")\(before ? " before" : "")")
+            let wants = (before ? " before" : "") + (histogram ? " histogram" : "")
+            $0.calls.append("window \(place) of \(frame) \(draft ? "draft" : "full")\(wants)")
 
             let failure = $0.failNextPreview
             $0.failNextPreview = nil

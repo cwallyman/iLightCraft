@@ -55,7 +55,22 @@ fn preview(s: &TestSession, shots: &Arc<Shots>, before: bool) -> u64 {
 fn window(s: &TestSession, shots: &Arc<Shots>, before: bool) -> u64 {
     let ctx = Arc::as_ptr(shots) as *mut _;
     // SAFETY: s.raw is live; every test declares shots before s, so it outlives the session.
-    let g = unsafe { uv_request_window(s.raw, 96, 64, 16, 8, 48, 32, false, before, Some(keep_shot), ctx) };
+    let g = unsafe {
+        uv_request_window(
+            s.raw,
+            96,
+            64,
+            16,
+            8,
+            48,
+            32,
+            false,
+            before,
+            false,
+            Some(keep_shot),
+            ctx,
+        )
+    };
     assert!(g > 0, "{}", last_error());
     g
 }

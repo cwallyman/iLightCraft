@@ -346,8 +346,14 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
 
     /// requestWindow asks for one window of the zoomed frame (see FrameWindow) and returns its
     /// generation at once. The window must fit the sink; the frame lands in `frames` as its window.
-    /// The frame is asked for by its long edge (a square of `frameLong`, see FrameWindow).
-    func requestWindow(_ window: FrameWindow, draft: Bool, before: Bool) throws(EngineError) -> UInt64 {
+    /// The frame is asked for by its long edge (a square of `frameLong`, see FrameWindow). With
+    /// `histogram` its frame also carries the whole photo's histogram (ABI 6).
+    func requestWindow(
+        _ window  : FrameWindow,
+        draft     : Bool,
+        before    : Bool,
+        histogram : Bool
+    ) throws(EngineError) -> UInt64 {
         guard window.width  > 0, window.width  <= maxPixels,
               window.height > 0, window.height <= maxPixels,
               window.frameWidth > 0, window.frameHeight > 0
@@ -365,6 +371,7 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
             UInt32(window.height),
             draft,
             before,
+            histogram,
             Self.receiveFrame,
             Unmanaged.passUnretained(frames).toOpaque()
         )

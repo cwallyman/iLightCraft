@@ -1,9 +1,9 @@
-// uv.h: C ABI of the Unveil engine bridge. Version 5.
+// uv.h: C ABI of the Unveil engine bridge. Version 6.
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
 
-#define UV_ABI_VERSION 5
+#define UV_ABI_VERSION 6
 
 typedef enum UVStatus {
     UV_OK                    =  0,
@@ -43,7 +43,9 @@ typedef struct UVHistogram {
 /// `draft` and `window` say which request failed. Only the newest request's outcome is delivered,
 /// frame or failure, under the same generation rules.
 /// `histogram` (ABI 4) describes a whole frame (a preview or a fallback, draft or not) and is NULL
-/// for a window and a failure; like the pixels it is valid only during the call.
+/// for a failure; like the pixels it is valid only during the call. A window carries one only when
+/// its request asked for it (ABI 6) and its small whole frame of the same look rendered: the whole
+/// photo's. If that small frame fails, the window still arrives, with `histogram` NULL.
 typedef struct UVFrame {
     const uint8_t *rgba;
     uint32_t       width;
@@ -85,10 +87,12 @@ uint64_t    uv_request_preview(UVSession *session, uint32_t max_pixels, bool dra
 /// The (x, y, w, h) window of the frame fitted in full_w x full_h, same generations. A window
 /// never replaces a pending preview (it is drawn over it); a preview replaces older windows.
 /// A window that cannot render alone falls back to the whole frame fitted in max(w, h), with
-/// `fallback` set; the same fallback asked again is not rendered.
+/// `fallback` set; the same fallback asked again is not rendered. With `histogram` (ABI 6) the
+/// window also carries the whole photo's histogram, from a 512 px whole frame of the same look
+/// rendered after it; a newer window replacing a pending one that asked for it inherits the wish.
 uint64_t    uv_request_window(UVSession *session, uint32_t full_w, uint32_t full_h,
                               uint32_t x, uint32_t y, uint32_t w, uint32_t h, bool draft,
-                              bool before, uv_frame_cb callback, void *ctx);
+                              bool before, bool histogram, uv_frame_cb callback, void *ctx);
 /// Frees what windows keep resident (their stages, then, once no render is in flight, the GPU
 /// buffer pool with the shared full-size source); never waits. A later window rebuilds them.
 void        uv_release_windows(UVSession *session);

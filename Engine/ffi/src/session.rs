@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use lightcraft_engine::catalog::PhotoId;
 use lightcraft_engine::pipeline::geometry::Frame;
 use lightcraft_engine::pipeline::{PixelWindow, Rendered};
-use lightcraft_engine::{RenderJob, Session};
+use lightcraft_engine::{RenderJob, Session, SourceLevel};
 use serde_json::Value;
 
 use crate::memory_budget::install_release_hook;
@@ -27,6 +27,10 @@ const SUSPEND_TIMEOUT: Duration = Duration::from_secs(2);
 const CAMERA_PROFILES: &str = "LIGHTCRAFT_CAMERA_PROFILES";
 const QOS_CLASS_USER_INITIATED: u32 = 0x19;
 
+/// HISTOGRAM_PIXELS is the long edge of the small whole frame a window's histogram comes from: a
+/// few ms of GPU work next to a window's tens, and plenty of samples for 256 bins.
+const HISTOGRAM_PIXELS: usize = 512;
+
 unsafe extern "C" {
     fn pthread_set_qos_class_self_np(qos: u32, rel: i32) -> i32;
 }
@@ -40,7 +44,10 @@ unsafe extern "C" {
 /// `status` is UV_OK for a frame. A render that failed is delivered as a frame with `status` set,
 /// `error` pointing to its message (valid only during the call), `rgba` NULL and the sizes 0;
 /// `generation`, `draft` and `window` still say which request failed. `histogram` describes a
-/// whole frame (a preview or a fallback, draft or not) and is NULL for a window or a failure.
+/// whole frame (a preview or a fallback, draft or not) and is NULL for a failure. A window carries
+/// one only when its request asked for it (ABI 6) and its small whole frame rendered: the histogram
+/// of that frame, rendered with the window's settings, so it still describes the whole photo. If
+/// the small frame fails, the window is still delivered, with `histogram` NULL.
 #[repr(C)]
 #[derive(Debug)]
 pub struct UVFrame {
@@ -138,8 +145,16 @@ unsafe impl Send for FrameCallback {}
 
 impl FrameCallback {
     /// call hands the frame's pixels to the callback without a copy: RGBA8, rows of width * 4.
-    /// Without a placement the pixels are the whole frame.
-    fn call(&self, rendered: &Rendered, generation: u64, draft: bool, delivery: Delivery) {
+    /// Without a placement the pixels are the whole frame. `whole_frame` is the small whole frame a
+    /// window's histogram comes from, if one was rendered.
+    fn call(
+        &self,
+        rendered: &Rendered,
+        whole_frame: Option<&Rendered>,
+        generation: u64,
+        draft: bool,
+        delivery: Delivery,
+    ) {
         let image = &rendered.image;
         let rgba = image.data.as_flattened();
         let (width, height) = (image.width as u32, image.height as u32);
@@ -150,8 +165,11 @@ impl FrameCallback {
             y: 0,
         };
         let at = delivery.placement.unwrap_or(whole);
-        // A window's histogram covers only the window; the app's describes the whole photo.
-        let histogram = delivery.placement.is_none().then(|| UVHistogram::of(rendered));
+        // A window's own histogram covers only the window; the app's describes the whole photo.
+        let histogram = match delivery.placement {
+            None => Some(UVHistogram::of(rendered)),
+            Some(_) => whole_frame.map(UVHistogram::of),
+        };
         let frame = UVFrame {
             rgba: rgba.as_ptr(),
             width,
@@ -210,12 +228,14 @@ impl FrameCallback {
 
 /// PreviewRequest is one uv_request_preview or uv_request_window. Its job is built only when it
 /// starts, so a request that waited behind a render picks up the settings of the moment. `before`
-/// asks for the photo's unedited look (its crop kept) instead of the edited one.
+/// asks for the photo's unedited look (its crop kept) instead of the edited one, and `histogram`
+/// asks a window to carry the whole photo's histogram.
 pub(crate) struct PreviewRequest {
     generation: u64,
     kind: RequestKind,
     draft: bool,
     before: bool,
+    histogram: bool,
     callback: FrameCallback,
 }
 
@@ -240,6 +260,10 @@ impl Request for PreviewRequest {
 
     fn is_window(&self) -> bool {
         matches!(self.kind, RequestKind::Window { .. })
+    }
+
+    fn absorb(&mut self, replaced: &Self) {
+        self.histogram |= replaced.histogram;
     }
 }
 
@@ -358,6 +382,7 @@ impl UVSession {
         kind: RequestKind,
         draft: bool,
         before: bool,
+        histogram: bool,
         callback: Option<UvFrameCb>,
         ctx: *mut c_void,
     ) -> Result<u64, Failure> {
@@ -387,6 +412,7 @@ impl UVSession {
             kind,
             draft,
             before,
+            histogram,
             callback: FrameCallback { f, ctx },
         };
         self.tx.send(Msg::Preview(request)).map_err(|_| stopped())?;
@@ -464,6 +490,7 @@ fn engine_main(
         scheduler: PreviewScheduler::new(),
         stages: PreviewStages::default(),
         window_stages: PreviewStages::default(),
+        preview_pixels: SourceLevel::Preview.max_edge() as u32,
         last_fallback: None,
         is_release_pending: false,
         worker,
@@ -532,13 +559,16 @@ fn engine_main(
 /// stages of the two views (the whole-frame preview and the zoom window) and the render worker it
 /// feeds. The views keep separate stages because they read different source levels and sizes:
 /// one cache for both would be dropped at every switch between a preview and a window.
-/// `last_fallback` is the job key of the last fallback started (see job_for), and
-/// `is_release_pending` a uv_release_windows waiting for the render in flight (see release_windows).
+/// `preview_pixels` is the newest preview's max_pixels, which picks the source level of a window's
+/// histogram frame (see histogram_job). `last_fallback` is the job key of the last fallback started
+/// (see job_for), and `is_release_pending` a uv_release_windows waiting for the render in flight
+/// (see release_windows).
 struct Engine {
     session: Session,
     scheduler: PreviewScheduler<PreviewRequest>,
     stages: PreviewStages,
     window_stages: PreviewStages,
+    preview_pixels: u32,
     last_fallback: Option<u64>,
     is_release_pending: bool,
     worker: RenderWorker,
@@ -597,9 +627,10 @@ impl Engine {
     /// gone) it counts as finished, and the next pending request gets its turn.
     fn start(&mut self, mut request: PreviewRequest) {
         loop {
-            if let Some((job, delivery)) = self.job_for(&request) {
+            if let Some((job, histogram_job, delivery)) = self.job_for(&request) {
                 let work = Work {
                     job,
+                    histogram_job,
                     draft: request.draft,
                     delivery,
                     callback: request.callback,
@@ -621,11 +652,13 @@ impl Engine {
     /// window's long edge, which the caller sized to fit its buffers, marked as a fallback so the
     /// caller drops the window it shows. The same fallback asked again (a pan within the spot's
     /// reach) would change nothing on screen, so it is skipped: None, as for a vanished photo.
-    fn job_for(&mut self, request: &PreviewRequest) -> Option<(RenderJob, Delivery)> {
+    /// A window that asked for a histogram also gets its histogram job (a fallback has its own).
+    fn job_for(&mut self, request: &PreviewRequest) -> Option<(RenderJob, Option<RenderJob>, Delivery)> {
         let active = self.session.active()?;
         let frame = photo_frame(&self.session, active)?;
         let (mut job, placement, fallback) = match request.kind {
             RequestKind::Fit { max_pixels } => {
+                self.preview_pixels = max_pixels;
                 (self.fit_job(active, max_pixels, request.before)?, None, false)
             }
             RequestKind::Window {
@@ -665,12 +698,31 @@ impl Engine {
         let (native_w, native_h) = frame.native_size();
         let native = (native_w.round().max(1.0) as u32, native_h.round().max(1.0) as u32);
         job.request_id = request.generation;
+        let histogram_job = if request.histogram && placement.is_some() {
+            self.histogram_job(active, request.before).map(|whole| {
+                let mut whole = if request.draft { whole.draft() } else { whole };
+                whole.request_id = request.generation;
+                whole
+            })
+        } else {
+            None
+        };
         let delivery = Delivery {
             placement,
             fallback,
             native,
         };
-        Some((job, delivery))
+        Some((job, histogram_job, delivery))
+    }
+
+    /// histogram_job is the whole frame of `active` fitted in HISTOGRAM_PIXELS that a window's
+    /// histogram comes from. It reads the preview's source level (that of the newest preview's
+    /// size; a size of its own would pick the thumbnail level and decode the file again) through
+    /// the preview's stages: the source is uploaded once, and the stage cache keeps two output
+    /// sizes, so the preview's and this one stay warm side by side.
+    fn histogram_job(&mut self, active: PhotoId, before: bool) -> Option<RenderJob> {
+        let job = self.fit_job(active, self.preview_pixels, before)?;
+        Some(histogram_fit(job))
     }
 
     /// fit_job is the whole-frame preview of `active` fitted in `max_pixels`, with the preview stages.
@@ -699,15 +751,25 @@ impl Engine {
             }
             None => Err(Failure::new(UVStatus::UV_ERR_PANIC, "the render panicked")),
         };
+        // Without its histogram frame a window is still delivered, with no histogram.
+        let whole_frame = done.histogram.as_ref().and_then(|result| {
+            caught("accept", || self.session.accept(result));
+            result
+                .rendered
+                .as_ref()
+                .map_err(|e| log::warn!("unveil: histogram of {} failed: {e}", done.generation))
+                .ok()
+        });
         let active = self.session.active().map(|p| p.0);
         if self
             .scheduler
             .should_deliver(done.generation, done.photo.0, active)
         {
             match outcome {
-                Ok(rendered) => done
-                    .callback
-                    .call(rendered, done.generation, done.draft, done.delivery),
+                Ok(rendered) => {
+                    done.callback
+                        .call(rendered, whole_frame, done.generation, done.draft, done.delivery)
+                }
                 Err(failure) => {
                     done.callback
                         .call_failure(done.generation, done.draft, done.delivery, failure)
@@ -729,6 +791,18 @@ impl Engine {
             log::warn!("unveil: closing the library failed: {e}");
         }
     }
+}
+
+/// histogram_fit turns a whole-frame preview job into the HISTOGRAM_PIXELS one a window's
+/// histogram comes from, keeping the preview's source level, source and stages.
+pub(crate) fn histogram_fit(mut job: RenderJob) -> RenderJob {
+    let edge = (job.request.max_w.max(job.request.max_h) ^ HISTOGRAM_PIXELS) as u64;
+    job.request.max_w = HISTOGRAM_PIXELS;
+    job.request.max_h = HISTOGRAM_PIXELS;
+    // Swaps the fitted size in the key: the result is the key render_job gives a 512 px fit at
+    // this level (XOR distributes over the shifts).
+    job.key ^= (edge << 40) ^ (edge << 20);
+    job
 }
 
 /// photo_frame is photo `id`'s output frame as upstream's region_job builds it for a window: the
@@ -900,7 +974,14 @@ pub unsafe extern "C" fn uv_request_preview(
     guard(|| {
         // SAFETY: a live session per the contract; it is only borrowed for this call.
         let session = unsafe { session.as_ref() }.ok_or_else(|| Failure::invalid("session is NULL"))?;
-        session.request(RequestKind::Fit { max_pixels }, draft, before, callback, ctx)
+        session.request(
+            RequestKind::Fit { max_pixels },
+            draft,
+            before,
+            false,
+            callback,
+            ctx,
+        )
     })
 }
 
@@ -910,7 +991,10 @@ pub unsafe extern "C" fn uv_request_preview(
 /// pixels, clamped inside the frame; spatial stages read their neighbours, so ask for a margin.
 /// The frame reaches `callback` with `window` true, the frame's size and the window's origin, so
 /// the caller can place it over the whole-frame preview. With `before` the window is of the
-/// unedited look, like uv_request_preview's.
+/// unedited look, like uv_request_preview's. With `histogram` (ABI 6) the window also carries the
+/// whole photo's histogram, from a small whole frame rendered with the same settings and quality
+/// on the preview's source level and stages (a few ms more per window); a newer window that
+/// replaces a pending one which asked for it inherits the wish, so it is never lost to a drag.
 ///
 /// Requests share uv_request_preview's generations and the newest wins, with one refinement for
 /// the preview a window is drawn over: a window never replaces a pending preview (the preview
@@ -934,6 +1018,7 @@ pub unsafe extern "C" fn uv_request_window(
     h: u32,
     draft: bool,
     before: bool,
+    histogram: bool,
     callback: Option<UvFrameCb>,
     ctx: *mut c_void,
 ) -> u64 {
@@ -951,7 +1036,7 @@ pub unsafe extern "C" fn uv_request_window(
             full_h,
             window,
         };
-        session.request(kind, draft, before, callback, ctx)
+        session.request(kind, draft, before, histogram, callback, ctx)
     })
 }
 

@@ -8,9 +8,9 @@ import Foundation
 // nonisolated: the engine thread builds it, and the adjust card reads it on the main actor.
 /// FrameHistogram is the engine's histogram of one whole-frame preview (uv.h `UVHistogram`): 256
 /// bins each for red, green, blue and luminance over `total` sampled pixels, and the sampled
-/// pixels at 0 and at 255 per channel. A zoom window carries none: the histogram always describes
-/// the whole photo. `generation` and `isDraft` are the frame's, so the card can tell a drag frame
-/// from the full preview that settles it.
+/// pixels at 0 and at 255 per channel. It always describes the whole photo: a zoom window carries
+/// one only when asked, from a small whole frame of the same look. `generation` and `isDraft` are
+/// the frame's, so the card can tell a drag frame from the full preview that settles it.
 nonisolated struct FrameHistogram: Equatable, Sendable {
 
     let red        : [UInt32]

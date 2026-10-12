@@ -5,6 +5,10 @@ pub trait Request {
 
     /// True for a window of a zoomed frame (uv_request_window), false for a whole-frame preview.
     fn is_window(&self) -> bool;
+
+    /// absorb takes over what this request must still do for the older pending window it replaces
+    /// (a window's histogram wish): the newer pixels win, a wish they did not cancel survives.
+    fn absorb(&mut self, _replaced: &Self) {}
 }
 
 /// PreviewScheduler keeps at most one render in flight and remembers only the newest request:
@@ -16,7 +20,8 @@ pub trait Request {
 /// every older pending window, because the app never draws a window older than the preview under
 /// it. A window older than the pending preview is dropped for the same reason. So the pending
 /// preview, when there is one, is always older than the pending window, renders before it, and
-/// frames still reach the callback in increasing generations.
+/// frames still reach the callback in increasing generations. A window replacing a pending window
+/// absorbs it first (`Request::absorb`).
 pub struct PreviewScheduler<R> {
     in_flight: Option<u64>,
     pending_fit: Option<R>,
@@ -54,6 +59,10 @@ impl<R: Request> PreviewScheduler<R> {
         let is_older = |pending: &Option<R>| pending.as_ref().is_some_and(|p| p.generation() > generation);
         if request.is_window() {
             if !is_older(&self.pending_window) && !is_older(&self.pending_fit) {
+                let mut request = request;
+                if let Some(replaced) = &self.pending_window {
+                    request.absorb(replaced);
+                }
                 self.pending_window = Some(request);
             }
         } else if !is_older(&self.pending_fit) {
@@ -133,6 +142,37 @@ mod tests {
         fn is_window(&self) -> bool {
             matches!(self, K::Window(_))
         }
+    }
+
+    /// W is a window that may want a histogram, for the absorb tests.
+    #[derive(Debug, PartialEq)]
+    struct W(u64, bool);
+    impl Request for W {
+        fn generation(&self) -> u64 {
+            self.0
+        }
+        fn is_window(&self) -> bool {
+            true
+        }
+        fn absorb(&mut self, replaced: &Self) {
+            self.1 |= replaced.1;
+        }
+    }
+
+    #[test]
+    fn a_window_replacing_a_pending_window_keeps_its_histogram_wish() {
+        let mut s = PreviewScheduler::new();
+        s.submit(W(1, false));
+        s.submit(W(2, true));
+        s.submit(W(3, false));
+        assert_eq!(s.submit(W(4, false)), None);
+        assert_eq!(s.finished(1), Some(W(4, true)), "the newest window lost the wish");
+        s.submit(W(5, false));
+        assert_eq!(
+            s.finished(4),
+            Some(W(5, false)),
+            "a wish already served came back"
+        );
     }
 
     #[test]

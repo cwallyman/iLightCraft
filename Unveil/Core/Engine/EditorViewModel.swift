@@ -40,10 +40,10 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     private(set) var photoTitle  : String = "Photo"
     private(set) var photoType   : String?
 
-    /// histogram is the newest whole-frame preview's histogram for the open photo; nil until the first
-    /// frame of a newly opened photo. Zoom windows never replace it. At fit every draft of a drag updates
-    /// it; zoomed in, a draft renders the window and only every `histogramInterval` a whole-frame
-    /// draft besides, so it follows the drag at a few updates a second.
+    /// histogram is the newest histogram of the whole open photo; nil until the first frame of a newly
+    /// opened photo. At fit every draft of a drag updates it; zoomed in, a draft window carries it at
+    /// most every `histogramInterval` (from a small whole frame the engine renders after the window),
+    /// so it follows the drag at about a dozen updates a second without a preview render.
     private(set) var histogram: FrameHistogram?
 
     /// isShowingBefore is true while the canvas shows the photo's unedited look (a press and hold, or
@@ -106,8 +106,8 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     @ObservationIgnored
     private var histogramFloor: UInt64 = 0
 
-    /// histogramInterval is the least time between the whole-frame drafts that keep the
-    /// histogram moving while a drag renders windows; a window draft alone carries no histogram.
+    /// histogramInterval is the least time between the draft windows that ask for the histogram
+    /// while a drag renders windows: each one costs the engine a small whole frame besides.
     /// `now` is the clock it is measured on; tests drive it.
     @ObservationIgnored
     private let histogramInterval: Duration
@@ -115,9 +115,9 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     @ObservationIgnored
     private let now: () -> ContinuousClock.Instant
 
-    /// lastWindowedHistogramDraft is when the newest of those whole-frame drafts was asked for.
+    /// lastWindowHistogram is when the newest of those windows was asked for.
     @ObservationIgnored
-    private var lastWindowedHistogramDraft: ContinuousClock.Instant?
+    private var lastWindowHistogram: ContinuousClock.Instant?
 
     @ObservationIgnored
     private var wanted: [DevelopAdjustmentKind: Double] = [:]
@@ -165,8 +165,8 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// `settleNudge` is the wait after the last stepper press before the burst is committed (0.3 s;
     /// tests pass a wait they end themselves, so a burst never splits under load), and
     /// `windowReleaseDelay` how long the canvas must want no window before the engine frees the
-    /// windows' memory; tests shorten it. `histogramInterval` and `now` pace the histogram's
-    /// whole-frame drafts while a window is shown; tests drive the clock.
+    /// windows' memory; tests shorten it. `histogramInterval` and `now` pace the draft windows that
+    /// carry the histogram while a window is shown; tests drive the clock.
     init(
         engine            : Engine,
         importer          : Importer,
@@ -175,7 +175,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             try await Task.sleep(for: .milliseconds(300))
         },
         windowReleaseDelay: Duration = .seconds(2),
-        histogramInterval : Duration = .milliseconds(200),
+        histogramInterval : Duration = .milliseconds(80),
         now               : @escaping () -> ContinuousClock.Instant = { .now }
     ) {
         self.engine             = engine
@@ -507,8 +507,9 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         await enqueue { [engine] in
             _ = try engine.requestWindow(
                 window,
-                draft  : draft,
-                before : self.isShowingBefore
+                draft     : draft,
+                before    : self.isShowingBefore,
+                histogram : false
             )
         }
     }
@@ -610,10 +611,10 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
     /// requestFrames asks for what the canvas shows after an edit: the preview, and while the canvas
     /// is zoomed past it, the window drawn over it. A draft is the window alone, because that is
-    /// what the user looks at and one render per drag step keeps the drag fluid, plus a whole-frame
-    /// draft once per `histogramInterval` so the histogram follows. A full render
-    /// brings the preview up to date first, then the window (which never replaces the pending
-    /// preview, see `requestWindow`). Called from inside a chain link only.
+    /// what the user looks at and one render per drag step keeps the drag fluid; once per
+    /// `histogramInterval` it also carries the whole photo's histogram. A full render brings the
+    /// preview (and its histogram) up to date first, then the window (which never replaces the
+    /// pending preview, see `requestWindow`). Called from inside a chain link only.
     private func requestFrames(draft: Bool) throws(EngineError) {
         guard let window = visibleWindow else {
             _ = try requestPreview(draft: draft)
@@ -621,27 +622,28 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         }
 
         // The preview goes first: the engine renders it before the window it is drawn under.
-        if !draft || isWindowedHistogramDraftDue() {
-            _ = try requestPreview(draft: draft)
+        if !draft {
+            _ = try requestPreview(draft: false)
         }
 
         _ = try engine.requestWindow(
             window,
-            draft  : draft,
-            before : isShowingBefore
+            draft     : draft,
+            before    : isShowingBefore,
+            histogram : draft && isWindowHistogramDue()
         )
     }
 
-    /// isWindowedHistogramDraftDue says whether this drag step also asks for a whole-frame draft,
-    /// and records the time when it does.
-    private func isWindowedHistogramDraftDue() -> Bool {
+    /// isWindowHistogramDue says whether this drag step's window also asks for the histogram, and
+    /// records the time when it does.
+    private func isWindowHistogramDue() -> Bool {
         let instant = now()
 
-        if let last = lastWindowedHistogramDraft, instant - last < histogramInterval {
+        if let last = lastWindowHistogram, instant - last < histogramInterval {
             return false
         }
 
-        lastWindowedHistogramDraft = instant
+        lastWindowHistogram = instant
         return true
     }
 

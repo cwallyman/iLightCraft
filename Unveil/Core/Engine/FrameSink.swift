@@ -84,8 +84,9 @@ nonisolated final class FrameSink: @unchecked Sendable {
         set { state.withLock { $0.onFailure = newValue } }
     }
 
-    /// onHistogram hears the histogram of each whole-frame preview the sink publishes, draft or not,
-    /// on the engine thread after the canvas is woken. A window carries none.
+    /// onHistogram hears the histogram of each frame the sink publishes, draft or not, on the engine
+    /// thread after the canvas is woken: every whole-frame preview's, and a window's when its request
+    /// asked for one (it still describes the whole photo).
     var onHistogram: (@Sendable (FrameHistogram) -> Void)? {
         get { state.withLock { $0.onHistogram } }
         set { state.withLock { $0.onHistogram = newValue } }
@@ -144,7 +145,7 @@ nonisolated final class FrameSink: @unchecked Sendable {
     ///
     /// `rgba` must point to `height` rows of `stride` bytes, each holding at least `width * 4`.
     /// The pointer is only read during the call. The native size is passed through to the frame,
-    /// and a published preview's `histogram` goes to `onHistogram`.
+    /// and a published frame's `histogram` goes to `onHistogram`.
     func receive(
         rgba          : UnsafeRawPointer,
         width         : Int,
@@ -215,7 +216,7 @@ nonisolated final class FrameSink: @unchecked Sendable {
                 current.latestWindow = frame
             }
 
-            return (current.onFrame, window == nil ? current.onHistogram : nil)
+            return (current.onFrame, current.onHistogram)
         }
 
         wake?()

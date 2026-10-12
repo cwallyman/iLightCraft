@@ -105,10 +105,10 @@ XMP-imported settings) and the decoded source's size, either of which can move i
   render), 256 `uint32_t` bins each for `r`, `g`, `b` and `luma` (`(54 R + 183 G + 19 B) >> 8`) over at most about 1 MP
   sampled on a grid (`total` is the pixels sampled), plus `clipped_low[3]` and `clipped_high[3]`, the sampled pixels at 0
   and 255 in R, G, B. It is NULL for a window (its histogram would cover only the window, and the app's describes the
-  whole photo) and for a failure. Copying it costs about 4 KB per frame on the engine thread. The app shows it at the top
-  of the adjust card, updated on drafts at fit; zoomed in, drafts render only the window, so the histogram holds until
-  the next whole frame (the full preview on release). A clipping indicator lights above 0.1 % of the pixels at an end in
-  one channel, tinted by the clipped channels (white when all three, or luminance, reach the end); the canvas overlay
+  whole photo; ABI 6 lets a window ask for the whole photo's) and for a failure. Copying it costs about 4 KB per frame
+  on the engine thread. The app shows it at the top of the adjust card, updated on drafts at fit; zoomed in, a draft
+  window carries it when asked (ABI 6, below). A clipping indicator lights above 0.1 % of the pixels at an end in one
+  channel, tinted by the clipped channels (white when all three, or luminance, reach the end); the canvas overlay
   itself tests every displayed pixel (any channel at 0 or 255) in `Canvas.metal`.
 - **Before (ABI 5).** `uv_request_preview` and `uv_request_window` gain `before` (after `draft`): the frame is the photo's
   unedited look, its crop and orientation kept, as a render of its import settings (what `develop.reset` gives), so a
@@ -119,6 +119,16 @@ XMP-imported settings) and the decoded source's size, either of which can move i
   makes them replace each other's linear stage, so the first frame after a toggle recomputes it. Its
   histogram is the before frame's own (the engine computes it with every render); the app shows the histogram of the
   frame on screen. The first before frame costs one render: the app keeps the edited frame on screen until it arrives.
+- **Window histogram (ABI 6).** `uv_request_window` gains `histogram` (after `before`). When set and the window renders
+  as a window, the render thread also renders the whole frame fitted in 512 px with the same settings and quality, and
+  the window's `UVFrame.histogram` is that frame's: it describes the whole photo, never the window (NULL if the small
+  frame failed; the window is still delivered). The small frame keeps the newest preview's source level (a 512 px job of
+  its own would pick the thumbnail level and decode the file again) and goes through the preview's stage cache, which
+  holds two output sizes and one uploaded source, so the preview's stages stay warm beside it (`preview_stages.rs`
+  test). A window that replaces a pending window that asked for it inherits the wish, so a fast drag never loses it. A
+  fallback carries its own whole-frame histogram. Cost on the Mac (DSCF0267, 2360 x 1640 draft window at 100 %, 190
+  interleaved pairs): 8.46 to 9.82 ms median per window; NEF 7.06 to 8.86 ms. The app asks for it on a zoomed drag's
+  draft windows at most every 80 ms, instead of the whole-frame preview draft it used to add every 200 ms (F1).
 - **Accuracy** (`Engine/ffi/tests/window.rs`). On a PNG the window is bytewise equal to the same pixels of the whole frame
   rendered at that size. On the five test RAWs at 100 % the reported frame size equals the whole-frame render's, and inside
   a 32 px margin the window matches its crop to mean ΔE2000 0.0000 to 0.0007, p99 0.000 (max 0 to 1.19); the outer 32 px
