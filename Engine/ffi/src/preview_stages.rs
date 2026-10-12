@@ -221,6 +221,50 @@ mod tests {
         );
     }
 
+    /// a_windows_histogram_frame_shares_the_preview_stages_without_evicting_them: the 512 px frame
+    /// keeps the preview's source level, so attaching it keeps the cache (no re-upload), and its
+    /// stages join the preview's instead of replacing them (the cache holds two output sizes, on the
+    /// CPU or the GPU). A plain 512 px job would read the thumbnail level.
+    #[test]
+    fn a_windows_histogram_frame_shares_the_preview_stages_without_evicting_them() {
+        let mut library = Library::new("histogram");
+        let id = library.import(2400, 1600);
+        let mut stages = PreviewStages::default();
+        let preview = library.render(Some(&mut stages));
+        let cache = stages.cache.clone();
+        let preview_bytes = stages.bytes();
+        assert!(preview_bytes > 0);
+
+        let job = library.session.render_job(id, 2048, 2048, false, true).unwrap();
+        let small = library.session.render_job(id, 512, 512, false, true).unwrap();
+        assert_ne!(
+            small.level, job.level,
+            "a plain 512 px job reads the preview level"
+        );
+        let job = stages.attach(crate::session::histogram_fit(job));
+        let result = job.run();
+        library.session.accept(&result);
+        let image = result.rendered.unwrap().image;
+        assert_eq!(image.width.max(image.height), 512);
+        assert!(
+            Arc::ptr_eq(&stages.cache, &cache),
+            "the histogram frame replaced the preview stages"
+        );
+        let both = stages.bytes();
+        // 512 x 341 against 2048 x 1365 is about 6 % of the pixels.
+        assert!(
+            both > preview_bytes && both - preview_bytes < preview_bytes / 8,
+            "the histogram frame's stages did not join the preview's: {preview_bytes} -> {both}"
+        );
+
+        assert!(library.render(Some(&mut stages)) == preview);
+        assert!(
+            Arc::ptr_eq(&stages.cache, &cache),
+            "the next preview replaced the stages"
+        );
+        assert_eq!(stages.bytes(), both, "the next preview evicted a size");
+    }
+
     #[test]
     fn a_small_budget_drops_the_stages() {
         let mut library = Library::new("trim");

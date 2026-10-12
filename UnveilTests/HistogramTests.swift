@@ -65,9 +65,10 @@ struct HistogramTests {
         }
     }
 
-    /// The sink passes on a published preview's histogram, never a window's or a stale frame's.
+    /// The sink passes on every published frame's histogram, a window's that carries one included,
+    /// never a stale frame's.
     @Test
-    func theSinkHearsOnlyPublishedPreviewHistograms() throws {
+    func theSinkHearsEveryPublishedFramesHistogram() throws {
         let sink  = FrameSink(device: try #require(MTLCreateSystemDefaultDevice()), maxPixels: 16)
         let heard = Mutex<[UInt64]>([])
         sink.onHistogram = { histogram in heard.withLock { $0.append(histogram.generation) } }
@@ -77,8 +78,9 @@ struct HistogramTests {
         deliver(3, to: sink, window: window, histogram: histogram(generation: 3))
         deliver(1, to: sink, histogram: histogram(generation: 1))
         deliver(4, to: sink, histogram: histogram(generation: 4))
+        deliver(5, to: sink, window: window, histogram: nil)
 
-        #expect(heard.withLock { $0 } == [2, 4])
+        #expect(heard.withLock { $0 } == [2, 3, 4])
     }
 
     @Test

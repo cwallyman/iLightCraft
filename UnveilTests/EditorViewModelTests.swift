@@ -607,9 +607,9 @@ struct EditorViewModelTests {
         height      : 1705
     )
 
-    /// While the canvas shows a window, a drag renders that window as drafts, and a whole-frame draft
-    /// before it once in a while for the histogram (never twice in a burst); the release brings the
-    /// preview up to date before the window over it.
+    /// While the canvas shows a window, a drag renders that window as drafts, no preview, and a
+    /// draft window asks for the histogram once in a while (not twice in a quick burst); the release
+    /// brings the preview up to date before the window over it.
     @Test
     func aZoomedDragRendersTheWindowAndTheReleaseThePreviewThenTheWindow() async {
         let engine = FakeEngine()
@@ -626,8 +626,7 @@ struct EditorViewModelTests {
 
         #expect(Array(engine.calls[before...]) == [
             "set light.exposure 0.7",
-            "preview 1024 draft",
-            "window 1908,1227 2424x1705 of 6240x4159 draft",
+            "window 1908,1227 2424x1705 of 6240x4159 draft histogram",
             "set light.exposure 0.8",
             "window 1908,1227 2424x1705 of 6240x4159 draft",
             "preview 1024 full",
@@ -635,26 +634,27 @@ struct EditorViewModelTests {
         ])
     }
 
-    /// The whole-frame draft that keeps the histogram moving repeats once the interval has passed
-    /// on the model's clock, and not before.
+    /// The draft window that carries the histogram repeats once the interval has passed on the
+    /// model's clock, and not before; no whole-frame preview is asked for during the drag.
     @Test
-    func aZoomedDragRepeatsTheHistogramDraftAfterTheInterval() async {
+    func aZoomedDragAsksTheWindowForTheHistogramAfterTheInterval() async {
         let engine = FakeEngine()
         var clock  = ContinuousClock.now
         let model  = EditorViewModel(
             engine            : engine,
             importer          : FakeImporter(),
             previewPixels     : 1024,
-            histogramInterval : .milliseconds(200),
+            histogramInterval : .milliseconds(80),
             now               : { clock }
         )
         await model.open(pickedURL: URL(filePath: "/tmp/x.RAF"))
         await model.showWindow(Self.zoomWindow, draft: false)
         let before = engine.calls.count
-        let window = "window 1908,1227 2424x1705 of 6240x4159 draft"
+        let window    = "window 1908,1227 2424x1705 of 6240x4159 draft"
+        let histogram = window + " histogram"
 
         await model.drag(.exposure, to: 0.1)
-        clock += .milliseconds(199)
+        clock += .milliseconds(79)
         await model.drag(.exposure, to: 0.2)
         clock += .milliseconds(1)
         await model.drag(.exposure, to: 0.3)
@@ -662,9 +662,9 @@ struct EditorViewModelTests {
         await model.drag(.exposure, to: 0.4)
 
         #expect(Array(engine.calls[before...]) == [
-            "set light.exposure 0.1", "preview 1024 draft", window,
+            "set light.exposure 0.1", histogram,
             "set light.exposure 0.2", window,
-            "set light.exposure 0.3", "preview 1024 draft", window,
+            "set light.exposure 0.3", histogram,
             "set light.exposure 0.4", window
         ])
     }

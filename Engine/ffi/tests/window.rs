@@ -26,10 +26,11 @@ struct Shot {
 }
 
 /// Histogram is what a shot keeps of its UVHistogram: the sampled total, each channel's bins
-/// summed, its edge bins and the clipped counts.
+/// summed, its edge bins, the clipped counts and the mean luminance bin.
 #[derive(Clone, Debug)]
 struct Histogram {
     total: u32,
+    mean_luma: f64,
     sums: [u32; 4],
     edges: [[u32; 3]; 2],
     clipped: [[u32; 3]; 2],
@@ -65,6 +66,13 @@ extern "C" fn keep_shot(ctx: *mut std::ffi::c_void, frame: *const UVFrame) {
         // SAFETY: a non-NULL histogram is valid during the callback, like the frame.
         histogram: unsafe { f.histogram.as_ref() }.map(|h| Histogram {
             total: h.total,
+            mean_luma: h
+                .luma
+                .iter()
+                .enumerate()
+                .map(|(i, &n)| i as f64 * n as f64)
+                .sum::<f64>()
+                / h.total.max(1) as f64,
             sums: [&h.r, &h.g, &h.b, &h.luma].map(|bins| bins.iter().sum()),
             edges: [[h.r[0], h.g[0], h.b[0]], [h.r[255], h.g[255], h.b[255]]],
             clipped: [h.clipped_low, h.clipped_high],
@@ -85,6 +93,18 @@ fn preview(s: &TestSession, shots: &Arc<Shots>, max: u32, draft: bool) -> u64 {
 }
 
 fn window(s: &TestSession, shots: &Arc<Shots>, full: (u32, u32), win: [u32; 4], draft: bool) -> u64 {
+    window_with(s, shots, full, win, draft, false)
+}
+
+/// window_with is `window` that may also ask for the whole photo's histogram.
+fn window_with(
+    s: &TestSession,
+    shots: &Arc<Shots>,
+    full: (u32, u32),
+    win: [u32; 4],
+    draft: bool,
+    histogram: bool,
+) -> u64 {
     let ctx = Arc::as_ptr(shots) as *mut _;
     let [x, y, w, h] = win;
     // SAFETY: s.raw is live; every test declares shots before s, so it outlives the session.
@@ -99,6 +119,7 @@ fn window(s: &TestSession, shots: &Arc<Shots>, full: (u32, u32), win: [u32; 4], 
             h,
             draft,
             false,
+            histogram,
             Some(keep_shot),
             ctx,
         )
@@ -341,6 +362,7 @@ fn a_window_request_with_an_empty_size_is_an_invalid_argument() {
                 win[3],
                 false,
                 false,
+                false,
                 Some(keep_shot),
                 ctx,
             )
@@ -403,6 +425,43 @@ fn raw_windows_match_the_whole_frame() {
         assert!(
             mean <= 0.5 && p99 <= 2.0,
             "inside the margin: mean {mean}, p99 {p99}"
+        );
+    }
+}
+
+/// a_window_that_asks_carries_the_whole_photos_histogram: the histogram comes from the whole frame
+/// fitted in 512 px (every pixel sampled), not from the window, and follows an edit as the preview's
+/// does, for full and draft windows.
+#[test]
+fn a_window_that_asks_carries_the_whole_photos_histogram() {
+    let shots = Arc::new(Shots::default());
+    let s = TestSession::new();
+    import_png(&s, &gradient_png(s.dir.path(), "zoomed.png", 640, 427));
+    for (exposure, draft) in [(0.0, false), (1.5, true)] {
+        let control = format!(r#"{{"control":"light.exposure","value":{exposure}}}"#);
+        exec_ok(&s, "develop.set", &control);
+        let whole = shot_at(&shots, preview(&s, &shots, 640, draft));
+        let win = [300, 200, 256, 192];
+        let part = shot_at(&shots, window_with(&s, &shots, (1280, 1280), win, draft, true));
+        assert!(part.window && !part.fallback, "not a window: {part:?}");
+        let h = part.histogram.expect("a window that asked carried no histogram");
+        let expected = whole.height * 512 / whole.width;
+        assert!(
+            (expected..=expected + 1).any(|rows| h.total == 512 * rows),
+            "sampled {} pixels, not a 512 px whole frame ({}x{} whole)",
+            h.total,
+            whole.width,
+            whole.height
+        );
+        assert_eq!(
+            h.sums, [h.total; 4],
+            "every sampled pixel lands in one bin per channel"
+        );
+        let mean = whole.histogram.unwrap().mean_luma;
+        assert!(
+            (h.mean_luma - mean).abs() < 2.0,
+            "exposure {exposure}: window histogram mean {} against the preview's {mean}",
+            h.mean_luma
         );
     }
 }

@@ -59,7 +59,14 @@ nonisolated protocol EngineDriving: AnyObject, Sendable {
     /// Starts a render of one window of the zoomed frame (see FrameWindow), drawn over the preview,
     /// and returns its generation like `requestPreview`. A window never replaces a pending preview,
     /// while a newer preview replaces it. Its size must fit `frames`. `before` is as in `requestPreview`.
-    func requestWindow(_ window: FrameWindow, draft: Bool, before: Bool) throws(EngineError) -> UInt64
+    /// With `histogram` the window also carries the whole photo's histogram (from a small whole frame
+    /// the canvas never shows), so a zoomed drag keeps the histogram moving without a preview render.
+    func requestWindow(
+        _ window  : FrameWindow,
+        draft     : Bool,
+        before    : Bool,
+        histogram : Bool
+    ) throws(EngineError) -> UInt64
 
     /// Frees what windows keep resident in the engine (their stages and the full-size source on the
     /// GPU) once the view no longer shows one. It never waits; the next window rebuilds them.

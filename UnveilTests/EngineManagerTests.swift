@@ -75,8 +75,9 @@ struct EngineManagerTests {
         )
         let generation = try manager.requestWindow(
             asked,
-            draft  : false,
-            before : false
+            draft     : false,
+            before    : false,
+            histogram : false
         )
 
         try await waitUntil(seconds: 30) { (manager.frames.published().window?.generation ?? 0) >= generation }
@@ -87,6 +88,53 @@ struct EngineManagerTests {
         #expect(published.frame?.generation == preview && published.frame?.window == nil)
         #expect(published.frame?.nativeWidth == 96 && published.frame?.nativeHeight == 64)
         #expect(published.window?.nativeWidth == 96 && published.window?.nativeHeight == 64)
+    }
+
+    /// A window that asks for the histogram brings the whole photo's (every pixel of the 512 px
+    /// whole frame, not the window's 120 x 80) to the sink's listener under its own generation; a
+    /// window that does not ask brings none.
+    @Test
+    func aWindowThatAsksCarriesTheWholePhotosHistogramToTheSink() async throws {
+        let manager = try makeManager(maxPixels: 512)
+        _ = try await manager.openPhoto(at: fixtureURL())
+        let heard = Mutex<[FrameHistogram]>([])
+        manager.frames.onHistogram = { histogram in heard.withLock { $0.append(histogram) } }
+
+        let preview = try manager.requestPreview(
+            maxPixels : 96,
+            draft     : false,
+            before    : false
+        )
+        try await waitUntil(seconds: 30) { (manager.frames.latest()?.generation ?? 0) >= preview }
+
+        let asked = FrameWindow(
+            frameWidth  : 384,
+            frameHeight : 256,
+            x           : 100,
+            y           : 40,
+            width       : 120,
+            height      : 80
+        )
+        let plain = try manager.requestWindow(
+            asked,
+            draft     : true,
+            before    : false,
+            histogram : false
+        )
+        let carrying = try manager.requestWindow(
+            asked,
+            draft     : true,
+            before    : false,
+            histogram : true
+        )
+        try await waitUntil(seconds: 30) { (manager.frames.published().window?.generation ?? 0) >= carrying }
+        try await waitUntil(seconds: 3) { heard.withLock { $0.contains { $0.generation == carrying } } }
+
+        let histograms = heard.withLock { $0 }
+        let window     = try #require(histograms.first { $0.generation == carrying })
+        #expect(!histograms.contains { $0.generation == plain })
+        #expect(window.isDraft)
+        #expect(window.total == 512 * 341 || window.total == 512 * 342)
     }
 
     /// A render whose source is gone comes back through the C callback as a failure with the
