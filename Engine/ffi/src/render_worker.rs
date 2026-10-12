@@ -7,6 +7,7 @@ use lightcraft_engine::RenderJob;
 use lightcraft_engine::catalog::PhotoId;
 use lightcraft_engine::media::RenderResult;
 
+use crate::diagnostics::{Category, Part, Span, record};
 use crate::session::{Delivery, FrameCallback, Msg, caught, set_user_initiated_qos};
 
 /// Work is one render for the worker: the job (its request_id is the generation), the small whole
@@ -57,8 +58,15 @@ impl RenderWorker {
                 } in rx
                 {
                     let (generation, photo) = (job.request_id, job.photo);
+                    let category = Category::of(draft, delivery.placement.is_some());
+                    let span = Span::start();
                     let result = caught("render", || job.run());
+                    record(category, Part::Render, &span);
+                    let span = Span::start();
                     let histogram = histogram_job.and_then(|job| caught("histogram render", || job.run()));
+                    if histogram.is_some() {
+                        record(category, Part::Histogram, &span);
+                    }
                     let done_msg = RenderDone {
                         generation,
                         draft,

@@ -12,8 +12,9 @@ use lightcraft_engine::catalog::PhotoId;
 use lightcraft_engine::pipeline::geometry::Frame;
 use lightcraft_engine::pipeline::{PixelWindow, Rendered};
 use lightcraft_engine::{RenderJob, Session, SourceLevel};
-use serde_json::Value;
+use serde_json::{Value, json};
 
+use crate::diagnostics::{self, Category, Part, Span};
 use crate::memory_budget::install_release_hook;
 use crate::panic_guard::{guard, panic_message};
 use crate::preview_scheduler::{PreviewScheduler, Request};
@@ -475,6 +476,7 @@ fn engine_main(
         }
     };
     let mut session = Session::new().with_fs();
+    diagnostics::instrument_loads(&mut session);
     if let Err(e) = session.open_library(&data_dir, false) {
         let _ = ready.send(Err(Failure::engine(e)));
         return;
@@ -578,7 +580,20 @@ struct Engine {
 
 impl Engine {
     fn execute(&mut self, command: &str, params: &Value) -> Result<Value, Failure> {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // The `unveil.` commands are the bridge's own read-only diagnostics, not engine commands.
+        match command {
+            "unveil.diagnostics" => {
+                let enabled = params.get("enabled").and_then(Value::as_bool).unwrap_or(false);
+                return Ok(diagnostics::set_enabled(enabled));
+            }
+            "unveil.loads" => return Ok(diagnostics::loads_json()),
+            "unveil.renders" => {
+                let reset = params.get("reset").and_then(Value::as_bool).unwrap_or(false);
+                return Ok(diagnostics::renders_json(reset));
+            }
+            _ => {}
+        }
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.session.execute(command, params).map_err(Failure::engine)
         }))
         .unwrap_or_else(|p| {
@@ -586,7 +601,18 @@ impl Engine {
                 UVStatus::UV_ERR_PANIC,
                 format!("panic: {}", panic_message(&*p)),
             ))
-        })
+        });
+        // library.memory also tells what the two views' resident stages hold (host and device).
+        match (command, result) {
+            ("library.memory", Ok(mut memory)) => {
+                memory["unveil"] = json!({
+                    "previewStages": { "cpu": self.stages.cpu_bytes(), "gpu": self.stages.gpu_bytes() },
+                    "windowStages": { "cpu": self.window_stages.cpu_bytes(), "gpu": self.window_stages.gpu_bytes() },
+                });
+                Ok(memory)
+            }
+            (_, result) => result,
+        }
     }
 
     /// answer_suspend replies to a waiting uv_suspend once no render is in flight.
@@ -765,10 +791,13 @@ impl Engine {
             .scheduler
             .should_deliver(done.generation, done.photo.0, active)
         {
+            let category = Category::of(done.draft, done.delivery.placement.is_some());
+            let span = Span::start();
             match outcome {
                 Ok(rendered) => {
                     done.callback
-                        .call(rendered, whole_frame, done.generation, done.draft, done.delivery)
+                        .call(rendered, whole_frame, done.generation, done.draft, done.delivery);
+                    diagnostics::record(category, Part::Deliver, &span);
                 }
                 Err(failure) => {
                     done.callback

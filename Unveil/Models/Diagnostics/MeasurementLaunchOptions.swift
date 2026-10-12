@@ -33,6 +33,11 @@ import Foundation
 /// - `-UnveilRecordInput <s>`: a Debug build records the canvas's input events and display updates
 ///   for that many seconds (InputRecorder), from the first full frame of `-UnveilOpen` or else from
 ///   launch, so a hand-made trackpad session leaves a CSV; with `-UnveilExitAfterSweep` it then ends.
+/// - `-UnveilMemoryMap`: after the first full frame, take the E0 memory map at four moments (open, fit,
+///   100 %, back at fit), printing one `MM` line each (MemoryMapReport);
+/// - `-UnveilTimeline`: print the open's phases and the engine's file loads (`TL` lines);
+/// - `-UnveilCost`: around the sweep, print its CPU, energy, GPU and render totals (`COST` line);
+/// - `-UnveilSweepFull`: the sweep releases on every tick, so every frame is a full render.
 ///
 /// `allowsImportSweep` is false under any of them, or any other `-Unveil...` argument (the
 /// `-UnveilRun` disk report, say): see its doc.
@@ -56,6 +61,10 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
     let startsHomeOnPhotos    : Bool
     let startsHomeExpanded    : Bool
     let recordInputSeconds    : Double?
+    let reportsMemoryMap      : Bool
+    let reportsTimeline       : Bool
+    let reportsCost           : Bool
+    let releasesEveryTick     : Bool
 
     /// allowsImportSweep is the one gate of the import orphan sweep: true only for a plain launch,
     /// with no `-Unveil...` argument at all and not as the host of a test run (XCTest's
@@ -107,6 +116,10 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
         startsHomeOnPhotos     = arguments.contains("-UnveilHomePhotos")
         startsHomeExpanded     = arguments.contains("-UnveilHomeExpanded")
         recordInputSeconds     = positiveNumber(after: "-UnveilRecordInput")
+        reportsMemoryMap       = arguments.contains("-UnveilMemoryMap")
+        reportsTimeline        = arguments.contains("-UnveilTimeline")
+        reportsCost            = arguments.contains("-UnveilCost")
+        releasesEveryTick      = arguments.contains("-UnveilSweepFull")
         allowsImportSweep      = !arguments.contains { $0.hasPrefix("-Unveil") }
             && environment["XCTestConfigurationFilePath"] == nil
     }

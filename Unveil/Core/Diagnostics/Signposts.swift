@@ -41,7 +41,7 @@ nonisolated enum Signposts {
 
     private enum WaitingInterval: Sendable {
 
-        case sliderToFrame(OSSignpostIntervalState)
+        case sliderToFrame(OSSignpostIntervalState, quality: String, startedAtNs: UInt64)
         case openToFirstFrame(OSSignpostIntervalState)
     }
 
@@ -56,7 +56,7 @@ nonisolated enum Signposts {
             "\(quality, privacy: .public)"
         )
 
-        wait(.sliderToFrame(state), for: generation)
+        wait(.sliderToFrame(state, quality: quality, startedAtNs: SliderLatencyLog.isActive ? ProcessCostProbe.uptimeNs() : 0), for: generation)
     }
 
     /// beginOpen starts `OpenToFirstFrame`; hand the state to `openRequestedPreview` once the open
@@ -108,11 +108,13 @@ nonisolated enum Signposts {
 
     private static func end(_ interval: WaitingInterval, outcome: String) {
         switch interval {
-            case .sliderToFrame(let state):
+            case .sliderToFrame(let state, let quality, let startedAtNs):
                 signposter.endInterval("SliderToFrame", state, "\(outcome, privacy: .public)")
+                SliderLatencyLog.record(quality: quality, startedAtNs: startedAtNs, outcome: outcome)
 
             case .openToFirstFrame(let state):
                 signposter.endInterval("OpenToFirstFrame", state, "\(outcome, privacy: .public)")
+                OpenTimeline.mark("first-frame-presented \(outcome)")
         }
     }
 }

@@ -487,6 +487,8 @@ nonisolated final class EngineManager:
             height      : Int(info.height)
         ) : nil
 
+        OpenTimeline.mark("frame-delivered gen \(info.generation) \(info.window ? "window" : "fit") draft \(info.draft)")
+
         sink.receive(
             rgba          : UnsafeRawPointer(rgba),
             width         : Int(info.width),
@@ -618,7 +620,11 @@ nonisolated final class EngineManager:
             id: Signposts.signposter.makeSignpostID(),
             "\(command, privacy: .public)"
         )
-        defer { Signposts.signposter.endInterval("Command", signpost) }
+        OpenTimeline.mark("cmd-begin \(command)")
+        defer {
+            Signposts.signposter.endInterval("Command", signpost)
+            OpenTimeline.mark("cmd-end \(command)")
+        }
 
         let json: Data
         do {
