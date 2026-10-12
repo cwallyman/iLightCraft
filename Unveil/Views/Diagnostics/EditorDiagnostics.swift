@@ -14,6 +14,8 @@ final class EditorDiagnostics<Engine: EngineDriving & EngineDiagnosing, Importer
     private let viewModel        : EditorViewModel<Engine, Importer>
     private let possibleTearCount: () -> Int
     private let present          : (EditorAlert) -> Void
+    private let cleanUpImports   : () async -> ImportSweepReport
+    private let testData         : TestDataCleaner
 
     private var soakTest: StressSweep<Engine, Importer>?
 
@@ -21,12 +23,16 @@ final class EditorDiagnostics<Engine: EngineDriving & EngineDiagnosing, Importer
         engine           : Engine,
         viewModel        : EditorViewModel<Engine, Importer>,
         possibleTearCount: @escaping () -> Int,
-        present          : @escaping (EditorAlert) -> Void
+        present          : @escaping (EditorAlert) -> Void,
+        cleanUpImports   : @escaping () async -> ImportSweepReport = { .nothing },
+        testData         : TestDataCleaner = TestDataCleaner()
     ) {
         self.engine           = engine
         self.viewModel        = viewModel
         self.possibleTearCount = possibleTearCount
         self.present          = present
+        self.cleanUpImports   = cleanUpImports
+        self.testData         = testData
     }
 
     /// showEngineState reads and logs the backend and memory state. A diagnostic failure is
@@ -68,6 +74,22 @@ final class EditorDiagnostics<Engine: EngineDriving & EngineDiagnosing, Importer
         }
 
         present(EditorAlert(title: "Reference images", message: message))
+    }
+
+    /// cleanUpTestData deletes the generated golden and measurement folders, sweeps the orphan
+    /// import copies, and says what it freed.
+    func cleanUpTestData() async {
+        let testBytes = await testData.removeAll()
+        let imports   = await cleanUpImports()
+        let total     = (testBytes + imports.freedBytes).formatted(.byteCount(style: .file))
+        let testSize  = testBytes.formatted(.byteCount(style: .file))
+        let copySize  = imports.freedBytes.formatted(.byteCount(style: .file))
+
+        present(EditorAlert(
+            title   : "Clean Up Test Data",
+            message : "Freed \(total): test output \(testSize), "
+                + "\(imports.removedCount) unused import copies \(copySize)."
+        ))
     }
 
     /// startSoakTest retains one sweep until it ends, including when the menu disappears.

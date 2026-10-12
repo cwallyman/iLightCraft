@@ -7,14 +7,21 @@ import Foundation
 import Testing
 @testable import Unveil
 
-struct PhotoImporterTests {
+/// A class, so `deinit` removes each test's folder: Swift Testing makes one instance per test.
+final class PhotoImporterTests {
+
+    let root = FileManager.default.temporaryDirectory.appending(path: "importer-\(UUID())")
+
+    deinit {
+        try? FileManager.default.removeItem(at: root)
+    }
 
     func makeImporter() -> PhotoImporter {
-        PhotoImporter(importsDirectory: FileManager.default.temporaryDirectory.appending(path: "imports-\(UUID())"))
+        PhotoImporter(importsDirectory: root.appending(path: "imports-\(UUID())"))
     }
 
     func pickedFile(named name: String, bytes: Data) throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appending(path: "picked-\(UUID())")
+        let folder = root.appending(path: "picked-\(UUID())")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
         let url = folder.appending(path: name)
@@ -54,6 +61,40 @@ struct PhotoImporterTests {
         #expect(second.url == first.url)
         #expect(second.isNew == false)
         #expect(try copies(in: importer).count == 1)
+    }
+
+    @Test
+    func aNewCopyOfAnOldFileIsDatedNow() throws {
+        let importer = makeImporter()
+        let source   = try pickedFile(named: "DSC0001.ARW", bytes: Data([1, 2, 3]))
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date.now.addingTimeInterval(-86_400)],
+            ofItemAtPath: source.path
+        )
+
+        let copy     = try importer.importCopy(of: source)
+        let modified = try copy.url.resourceValues(forKeys: [.contentModificationDateKey])
+            .contentModificationDate
+
+        #expect(try #require(modified) > Date.now.addingTimeInterval(-60))
+    }
+
+    @Test
+    func reusingACopyRefreshesItsAgeSoTheSweepKeepsIt() throws {
+        let importer = makeImporter()
+        let source   = try pickedFile(named: "DSC0001.ARW", bytes: Data([1, 2, 3]))
+        let first    = try importer.importCopy(of: source)
+
+        let longAgo = Date.now.addingTimeInterval(-86_400)
+        try FileManager.default.setAttributes(
+            [.modificationDate: longAgo],
+            ofItemAtPath: first.url.path
+        )
+        _ = try importer.importCopy(of: source)
+
+        let modified = try first.url.resourceValues(forKeys: [.contentModificationDateKey])
+            .contentModificationDate
+        #expect(try #require(modified) > Date.now.addingTimeInterval(-60))
     }
 
     @Test

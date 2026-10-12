@@ -46,6 +46,10 @@ final class EditorSession<
     private(set) var isEditorPresented: Bool = false
     private(set) var isImporting      : Bool = false
 
+    /// onPhotoOpened runs after each successful open, for work that follows one (the import sweep).
+    @ObservationIgnored
+    var onPhotoOpened: (() -> Void)?
+
     private let libraryLoader: LibraryLoader
 
     init(
@@ -198,6 +202,7 @@ final class EditorSession<
     private func openAndPresent(_ pickedURL: URL, title: String? = nil) async {
         if await viewModel.open(pickedURL: pickedURL, title: title) {
             isEditorPresented = true
+            onPhotoOpened?()
         }
     }
 

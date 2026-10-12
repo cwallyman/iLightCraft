@@ -3,6 +3,8 @@
 //  Unveil
 //
 
+import Foundation
+
 /// MeasurementLaunchOptions are the launch arguments that let an agent run T15's measurements with
 /// no taps (`devicectl device process launch <bundle> -- <arguments>`):
 ///
@@ -29,6 +31,9 @@
 /// - `-UnveilHomePhotos`: start the home's panel on Photos instead of Files;
 /// - `-UnveilHomeExpanded`: start the home's panel at full height, so its screenshot needs no drag.
 ///
+/// `allowsImportSweep` is false under any of them, or any other `-Unveil...` argument (the
+/// `-UnveilRun` disk report, say): see its doc.
+///
 /// They are parsed by hand, not through UserDefaults, because several are flags with no value.
 /// A number that does not parse, or is negative, or not finite, counts as absent.
 nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
@@ -48,7 +53,19 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
     let startsHomeOnPhotos    : Bool
     let startsHomeExpanded    : Bool
 
-    init(arguments: [String]) {
+    /// allowsImportSweep is the one gate of the import orphan sweep: true only for a plain launch,
+    /// with no `-Unveil...` argument at all and not as the host of a test run (XCTest's
+    /// `XCTestConfigurationFilePath` in the environment); the tests call the sweep directly.
+    /// A fresh or other engine directory (`-UnveilEngineDir`) has a catalog that does not
+    /// describe the shared Imports folder, so a sweep there would delete the real library's
+    /// copies; a measurement or agent run must not change the disk it reads. Matching the
+    /// prefix keeps a future option safe without a change here.
+    let allowsImportSweep     : Bool
+
+    init(
+        arguments  : [String],
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
         func value(after flag: String) -> String? {
             guard let index = arguments.firstIndex(of: flag), index + 1 < arguments.count else { return nil }
             return arguments[index + 1]
@@ -85,5 +102,7 @@ nonisolated struct MeasurementLaunchOptions: Equatable, Sendable {
         showsBefore            = arguments.contains("-UnveilBefore")
         startsHomeOnPhotos     = arguments.contains("-UnveilHomePhotos")
         startsHomeExpanded     = arguments.contains("-UnveilHomeExpanded")
+        allowsImportSweep      = !arguments.contains { $0.hasPrefix("-Unveil") }
+            && environment["XCTestConfigurationFilePath"] == nil
     }
 }

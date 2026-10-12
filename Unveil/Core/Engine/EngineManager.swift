@@ -28,7 +28,12 @@ import UnveilEngine
 /// Sendable. It is never mutated after init, and every `uv_*` function is documented as callable
 /// from any thread; the engine serialises the work on its own thread behind that handle.
 // Nonisolated: the queue and the engine thread call into it, and the app default is MainActor.
-nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @unchecked Sendable {
+nonisolated final class EngineManager:
+    EngineDriving,
+    EngineDiagnosing,
+    ImportCatalogReading,
+    @unchecked Sendable
+{
 
     let frames: FrameSink
 
@@ -107,6 +112,31 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
         struct Summary: Decodable {
 
             let edited: Bool
+        }
+    }
+
+    /// CatalogPageRequest is one page of `catalog.query` over the library, or over Recently Deleted.
+    private struct CatalogPageRequest: Encodable {
+
+        let filter: Filter
+        let offset: Int
+        let limit : Int
+
+        struct Filter: Encodable {
+
+            let deleted: Bool
+        }
+    }
+
+    /// CatalogPageResult is one page of photo summaries, with `total`, the size of the whole answer.
+    private struct CatalogPageResult: Decodable {
+
+        let total : Int
+        let photos: [Summary]
+
+        struct Summary: Decodable {
+
+            let fileName: String
         }
     }
 
@@ -285,6 +315,49 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
             }
 
             return summary.edited
+        }
+    }
+
+    /// referencedFileNames lists the file name of every photo the catalog holds, the trashed ones too
+    /// (a restore needs the file), from `catalog.query` summaries a page at a time. The engine keeps
+    /// `fileName` equal to the stored file's name, at import and on relink.
+    ///
+    /// It is one queue block, so no open lands between the pages. An answer is complete only when
+    /// the pages add up to the `total` the engine reported; anything else throws, like a failure.
+    /// Browsed ("local") photos are not in the answer: the app never browses a folder.
+    func referencedFileNames() async throws(EngineError) -> Set<String> {
+        try await onQueue { () throws(EngineError) -> Set<String> in
+            let pageSize = 500
+            var names    = Set<String>()
+
+            for isDeleted in [false, true] {
+                var listed = 0
+                var total  = 0
+
+                repeat {
+                    let request = CatalogPageRequest(
+                        filter : .init(deleted: isDeleted),
+                        offset : listed,
+                        limit  : pageSize
+                    )
+                    let json = try self.execute("catalog.query", request)
+                    let page = try self.decode(CatalogPageResult.self, from: json)
+
+                    total   = page.total
+                    listed += page.photos.count
+                    names.formUnion(page.photos.map(\.fileName))
+
+                    guard !page.photos.isEmpty || listed >= total else {
+                        throw .engine("catalog.query stopped at \(listed) of \(total) photos")
+                    }
+                } while listed < total
+
+                guard listed == total else {
+                    throw .engine("catalog.query listed \(listed) photos, total \(total)")
+                }
+            }
+
+            return names
         }
     }
 
