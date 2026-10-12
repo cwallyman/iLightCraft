@@ -50,7 +50,9 @@ nonisolated final class MemoryBudgetMonitor<Engine: EngineDriving, Memory: Avail
             object  : nil,
             queue   : nil
         ) { _ in
-            Self.apply(to: engine, memory: memory, halved: true)
+            FrameTimingProbe.shared.measure("MemoryWarning") {
+                Self.apply(to: engine, memory: memory, halved: true)
+            }
         }
     }
 

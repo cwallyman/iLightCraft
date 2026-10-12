@@ -17,8 +17,9 @@
 ///   pixels (clamped to the zoom range), so a screenshot of a zoom level needs no pinch;
 /// - `-UnveilPanSweep`: during the sweep, also pan the canvas in a circle (CanvasView.measurementPan),
 ///   so a zoomed sweep moves the visible window as a finger would;
-/// - `-UnveilZoomCycle`: instead of a sweep, zoom between fit and 100 % three times while the memory
-///   CSV is written, printing how long each zoom takes to its first window (EditorLaunchRunner);
+/// - `-UnveilZoomCycle`: instead of a sweep, zoom between fit and 100 % three times, then pinch to
+///   400 % and back, while the memory CSV is written, printing how long each zoom takes to its first
+///   window; a Debug build also writes the hitch table of each phase (FrameTimingProbe);
 /// - `-UnveilExposure <ev>`: after the first full frame, set the exposure to that value (it may be
 ///   negative), committed like a released slider, so a screenshot of a clipping photo needs no drag;
 /// - `-UnveilClipping`: after the first full frame, turn on both clipping overlays (they show with

@@ -50,6 +50,59 @@ struct CanvasWindowTests {
         #expect(!fixture.canvas.isShowable(late))
     }
 
+    /// While a pinch changes the zoom no draft window is asked for (each would be a render of a
+    /// frame or region already gone, competing with the canvas on the GPU); as soon as the fingers
+    /// hold the zoom still the draft goes, and at rest the full window.
+    @Test
+    func noDraftWindowIsAskedForWhileTheZoomChanges() async throws {
+        let fixture = try Fixture()
+        defer { fixture.window.isHidden = true }
+
+        fixture.deliver(generation: 1)
+        try await waitUntil(seconds: 3) { fixture.canvas.bounds.width > 0 }
+
+        fixture.canvas.isMeasurementPanning = true
+
+        for step in 1 ... 30 {
+            fixture.canvas.measurementPinch(toPercent: 400, progress: Double(step) / 30)
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(!fixture.reports.contains { $0.window != nil })
+
+        try await waitUntil(seconds: 3) { fixture.lastReport?.window != nil }
+        #expect(fixture.lastReport?.isDraft == true)
+
+        fixture.canvas.isMeasurementPanning = false
+        _ = try await fixture.nextWindow()
+    }
+
+    /// A zoom spring from fit to 100 % asks at once for the full window it will rest on, nothing on
+    /// the way and nothing at the settle; that window landing while the spring is still below the
+    /// preview's resolution (where the floor normally rises) is the one drawn when it rests.
+    @Test
+    func aZoomSpringAsksForItsTargetWindowAtOnceAndShowsIt() async throws {
+        let fixture = try Fixture()
+        defer { fixture.window.isHidden = true }
+
+        fixture.deliver(generation: 1)
+        try await waitUntil(seconds: 3) { fixture.canvas.bounds.width > 0 }
+
+        fixture.canvas.zoom(toPercent: 100)
+
+        let prefetched = try #require(fixture.lastReport?.window)
+        #expect(fixture.reports.count == 1 && fixture.lastReport?.isDraft == false)
+
+        fixture.deliver(generation: 2, window: prefetched)
+
+        let landed = try #require(fixture.sink.published().window)
+        try await waitUntil(seconds: 3) { fixture.canvas.isShowable(landed) }
+        try await Task.sleep(for: .milliseconds(300))
+
+        #expect(fixture.reports.count == 1)
+        #expect(fixture.canvas.isShowable(landed))
+    }
+
     /// A canvas made after frames were published (another scene's, or a photo it never opened)
     /// draws none of them: the first frame it shows is one asked for after it exists.
     @Test
@@ -88,8 +141,10 @@ struct CanvasWindowTests {
         let canvas: CanvasView
         let window: UIWindow
 
-        /// lastReport is the newest window the canvas asked for (nil: the preview is enough).
+        /// lastReport is the newest window the canvas asked for (nil: the preview is enough), and
+        /// reports every one so far.
         private(set) var lastReport: (window: FrameWindow?, isDraft: Bool)?
+        private(set) var reports   : [(window: FrameWindow?, isDraft: Bool)] = []
 
         init(publishingBefore generation: UInt64? = nil) throws {
             let device = try #require(MTLCreateSystemDefaultDevice())
@@ -115,6 +170,7 @@ struct CanvasWindowTests {
 
             canvas.onVisibleWindowChange = { [weak self] window, isDraft in
                 self?.lastReport = (window, isDraft)
+                self?.reports.append((window, isDraft))
             }
         }
 

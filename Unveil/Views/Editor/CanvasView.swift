@@ -14,15 +14,16 @@ import UIKit
 /// both ends), pan with momentum and rubber-banded edges, and a double tap that toggles between
 /// fit and 100 % at the tap point. A single tap is handed to `onSingleTap`.
 ///
-/// A mouse or trackpad drags the image one to one with no momentum, a trackpad scroll or wheel pans
-/// like a scroll view, and Cmd with the scroll zooms around the pointer.
+/// A mouse or trackpad drags the image one to one with no momentum, and Cmd with a trackpad scroll
+/// or a wheel zooms around the pointer. A scroll without Cmd pans through a real UIScrollView
+/// (`scrollProxy`), so it has the system's own acceleration and deceleration, as in Photos.
 ///
 /// The gestures write the transform directly while the fingers are down; when they lift, a
 /// CanvasSpring carries it to where it should rest (see CanvasTransform.settled), with the flick's
 /// velocity as momentum. The spring runs on the same display link as the redraw, so the link stays
 /// awake only while something moves. `onZoomChange` reports the zoom percentage for the editor's pill.
 ///
-/// There is no polling. A CADisplayLink runs only while something is dirty: a new frame, a
+/// There is no polling. A CAMetalDisplayLink runs only while something is dirty: a new frame, a
 /// transform change or a new drawable size marks the view, the next tick draws once, and the link
 /// pauses again. A view with nothing to draw costs no CPU and no GPU.
 ///
@@ -73,10 +74,14 @@ final class CanvasView: UIView {
     private let renderPass  = MTLRenderPassDescriptor()
     private let crossThread = CrossThreadState()
 
-    private var displayLink   : CADisplayLink?
+    private var displayLink   : CAMetalDisplayLink?
     private var isDirty       : Bool = false
     private var laidOutSize   : CGSize = .zero
     private var cachedTextures: InlineArray<3, CachedTexture?> = [nil, nil, nil]
+
+    /// wantedDrawOnLastTick is whether the last tick found the view dirty with the link running on,
+    /// so the next present follows it by one refresh unless something hitched (FrameTimingProbe).
+    private var wantedDrawOnLastTick = false
 
     private let pinchRecognizer = UIPinchGestureRecognizer()
     private let panRecognizer   = UIPanGestureRecognizer()
@@ -84,14 +89,36 @@ final class CanvasView: UIView {
     private var isHolding       = false
 
     /// pointerPanRecognizer is the click-drag pan of a mouse or trackpad, apart from the finger's
-    /// so its release carries no momentum; scrollRecognizer is the two-finger trackpad scroll and
-    /// the wheel (Cmd held: zoom around the pointer).
+    /// so its release carries no momentum; scrollRecognizer is the trackpad scroll and the wheel
+    /// with Cmd held (zoom around the pointer).
     private let pointerPanRecognizer = UIPanGestureRecognizer()
     private let scrollRecognizer     = UIPanGestureRecognizer()
 
-    /// isScrollZooming is true once the running scroll gesture zoomed (Cmd was held), so its end
-    /// carries no glide.
-    private var isScrollZooming = false
+    /// scrollProxy is an invisible UIScrollView that turns a scroll without Cmd into a pan. Its pan
+    /// recognizer sits on the canvas and hears only scroll events; it never takes a touch (no user
+    /// interaction of its own, so hit tests pass through it). Each change of its `contentOffset`,
+    /// the system's deceleration included, moves the image by the same points the other way. Its
+    /// content is far larger than any gesture travels, recentred on the middle between gestures.
+    private let scrollProxy = UIScrollView()
+
+    /// scrollProxyOffset is the proxy's offset already applied to the image, and scrollProxyMoved
+    /// when it last changed: the view counts as moving until `windowRequestInterval` after that, so
+    /// a scroll, its deceleration and a wheel's animated notch all ask for throttled draft windows.
+    private var scrollProxyOffset: CGPoint = .zero
+    private var scrollProxyMoved : CFTimeInterval = 0
+
+    /// isScrollProxyAnimating is true while the proxy moves on its own without a deceleration: a
+    /// wheel notch scrolls as a short animation. It is stopped and settled like a glide.
+    private var isScrollProxyAnimating = false
+
+    /// isScrollProxyGliding is true while the proxy moves after the fingers left: a deceleration
+    /// or a wheel notch's animation.
+    private var isScrollProxyGliding: Bool {
+        scrollProxy.isDecelerating || isScrollProxyAnimating
+    }
+
+    /// scrollProxyContent is the proxy's content size on each side, in points.
+    private static let scrollProxyContent: CGFloat = 1_000_000
 
     /// holdDuration is how long a still finger must stay down before the before look shows.
     static let holdDuration: TimeInterval = 0.35
@@ -196,6 +223,20 @@ final class CanvasView: UIView {
     private var lastWindowSendTime  : CFTimeInterval = 0
     private var isWindowUpdatePending = false
 
+    /// lastZoomChange is when a tick last saw the zoom differ from `lastTickZoom`. Until the zoom has
+    /// held still for `windowRequestInterval` no draft window is asked for: during a pinch, Cmd +
+    /// scroll or a zoom spring each would be a new frame size or region the engine renders on the
+    /// GPU while the canvas draws, and those renders made the zoom hitch on the iPad. Below 100 %
+    /// they were never even drawn (another frame by the time they landed, see `isShowable`).
+    private var lastTickZoom  : Double = 1
+    private var lastZoomChange: CFTimeInterval = 0
+
+    /// prefetchTarget is the target of the running zoom spring whose window was asked for when it
+    /// started (`prefetchWindow`). Until it lands no window, nil included, is asked for and the
+    /// floor stays where it is: the ticks below the preview's resolution early in a fit to 100 %
+    /// spring would otherwise bury the prefetched window and ask for it again at the settle.
+    private var prefetchTarget: CanvasTransform?
+
     /// windowFloor is the newest generation published on the last tick that wanted no window (or
     /// at the last photo change): a window at or below it is never drawn again.
     private var windowFloor: UInt64 = 0
@@ -206,8 +247,8 @@ final class CanvasView: UIView {
     private let previewFloor: UInt64
 
     /// canvasTransform is the gesture state (UIView already owns `transform`). Any real change to
-    /// it asks for one redraw.
-    private var canvasTransform = CanvasTransform() {
+    /// it asks for one redraw. Readable for the tests.
+    private(set) var canvasTransform = CanvasTransform() {
         didSet {
             if canvasTransform != oldValue {
                 setNeedsRedraw()
@@ -378,6 +419,22 @@ final class CanvasView: UIView {
         canvasTransform.offset = limits * SIMD2(cos(angle), sin(angle)) * 0.9
     }
 
+    /// measurementPinch(toPercent:progress:) zooms as a pinch at the view center would, to the zoom
+    /// `progress` of the way (in log space) from fit to `percent`: one step of a measured pinch, with
+    /// its landmark ticks. Pair it with `isMeasurementPanning`, so its windows are drafts.
+    func measurementPinch(toPercent percent: Double, progress: Double) {
+        guard let scale = zoomScale else { return }
+
+        let target = exp(log(scale.zoom(forPercent: percent)) * min(max(progress, 0), 1))
+
+        spring = nil
+        zoom(
+            by     : target / canvasTransform.zoom,
+            around : CGPoint(x: bounds.midX, y: bounds.midY),
+            scale  : scale
+        )
+    }
+
     /// zoomToFit animates back to aspect fit (a jump under Reduce Motion), like a double tap from zoomed in.
     func zoomToFit() {
         move(to: CanvasTransform())
@@ -422,9 +479,9 @@ final class CanvasView: UIView {
 
     // MARK: - View lifecycle
 
-    /// didMoveToWindow owns the display link. CADisplayLink retains its target, so a link left
-    /// alive after the view leaves its window would keep the view alive forever: it is invalidated
-    /// on every move and made again only when there is a window to draw into.
+    /// didMoveToWindow owns the display link. It is invalidated on every move (a link left alive
+    /// after the view leaves its window keeps running for nothing) and made again only when there
+    /// is a window to draw into.
     override func didMoveToWindow() {
         super.didMoveToWindow()
 
@@ -436,7 +493,8 @@ final class CanvasView: UIView {
         contentScaleFactor = window.traitCollection.displayScale
         setNeedsLayout()
 
-        let link = CADisplayLink(target: self, selector: #selector(displayLinkDidFire(_:)))
+        let link = CAMetalDisplayLink(metalLayer: metalLayer)
+        link.delegate                = self
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         link.isPaused                = !isDirty
         link.add(to: .main, forMode: .common)
@@ -460,26 +518,45 @@ final class CanvasView: UIView {
 
         laidOutSize             = pixelSize
         metalLayer.drawableSize = pixelSize
+        scrollProxy.frame       = bounds
         setNeedsRedraw()
     }
 
     // MARK: - Drawing
 
-    /// displayLinkDidFire draws once if the view is dirty, then pauses the link.
+    /// displayLinkNeedsUpdate draws once if the view is dirty, then pauses the link. The link is a
+    /// CAMetalDisplayLink: it calls with a drawable already free, ahead of the frame it is for. A
+    /// CADisplayLink calling `nextDrawable` blocked main on the iPad 3.5 ms in every frame of an
+    /// animation, and a whole frame or two whenever the compositor held its drawables late.
     ///
-    /// If the last command buffer is still on the GPU the tick returns with the link running, so
-    /// the draw is retried on the next tick: that is the one-pass-in-flight rule. `isDirty` is
+    /// If the last command buffer is still on the GPU the update returns with the link running, so
+    /// the draw is retried on the next one: that is the one-pass-in-flight rule. `isDirty` is
     /// cleared before `encodeFrame` reads the sink, so a frame published after that read marks the
     /// view again and gets its own draw instead of being lost.
-    @objc
-    private func displayLinkDidFire(_ link: CADisplayLink) {
-        advanceSpring(to: link.targetTimestamp)
+    private func displayLinkNeedsUpdate(_ link: CAMetalDisplayLink, update: CAMetalDisplayLink.Update) {
+        let outcome = FrameTimingProbe.shared.measure("Tick") { drawIfDirty(link, update: update) }
+
+        FrameTimingProbe.shared.tick(
+            at          : update.targetPresentationTimestamp,
+            isPaused    : link.isPaused,
+            skippedDraw : outcome.wantedDraw && !outcome.drew
+        )
+        wantedDrawOnLastTick = outcome.wantedDraw && !link.isPaused
+    }
+
+    /// drawIfDirty is the body of an update (see `displayLinkNeedsUpdate`). It returns whether the
+    /// view was dirty once the spring moved, and whether it drew (a pass still in flight skips it).
+    private func drawIfDirty(
+        _ link: CAMetalDisplayLink,
+        update: CAMetalDisplayLink.Update
+    ) -> (wantedDraw: Bool, drew: Bool) {
+        advanceSpring(to: update.targetPresentationTimestamp)
         reportZoom()
-        updateVisibleWindow(at: link.timestamp)
+        updateVisibleWindow(at: CACurrentMediaTime())
 
         guard isDirty else {
             link.isPaused = spring == nil && !isWindowUpdatePending
-            return
+            return (false, false)
         }
 
         let claimed = crossThread.isCommandBufferInFlight.compareExchange(
@@ -488,34 +565,29 @@ final class CanvasView: UIView {
             ordering : .acquiring
         )
 
-        guard claimed.exchanged else { return }
+        guard claimed.exchanged else { return (true, false) }
 
         isDirty = false
 
-        if !encodeFrame() {
+        let isEncoded = encodeFrame(into: update.drawable)
+
+        if !isEncoded {
             crossThread.isCommandBufferInFlight.store(false, ordering: .releasing)
         }
 
         link.isPaused = !isDirty && spring == nil && !isWindowUpdatePending
+        return (true, isEncoded)
     }
 
-    /// encodeFrame clears the drawable and draws the sink's newest preview into it, then the window
+    /// encodeFrame clears `drawable` and draws the sink's newest preview into it, then the window
     /// over it when it may be shown (see the type doc), returning false when nothing was committed
-    /// (no drawable yet, or no command buffer).
+    /// (no command buffer).
     ///
     /// `frames.published()` is read exactly once, here, and the textures and the tear check come
     /// from that one snapshot, so the pass never mixes the geometry of one frame with another.
-    ///
-    /// A nil drawable drops the draw instead of marking the view dirty again. Before the first
-    /// layout the size is zero, and `layoutSubviews` marks the view once it has a size. Otherwise
-    /// `nextDrawable` has already blocked main for its 1 s timeout, and retrying on every tick
-    /// would chain more of those stalls: the next frame or gesture draws instead.
-    private func encodeFrame() -> Bool {
-        guard let commandBuffer = commandQueue.makeCommandBuffer(),
-              let drawable      = metalLayer.nextDrawable()
-        else {
-            return false
-        }
+    // any: Metal vends drawables only as protocol existentials.
+    private func encodeFrame(into drawable: any CAMetalDrawable) -> Bool {
+        guard let commandBuffer = commandQueue.makeCommandBuffer() else { return false }
 
         let published = frames.published()
         let frame     = published.frame.flatMap { isCurrent($0) ? $0 : nil }
@@ -579,11 +651,24 @@ final class CanvasView: UIView {
             drawable.addPresentedHandler(Self.presentedHandler(
                 generation       : sampledFrame.generation,
                 windowGeneration : sampledWindow?.generation,
+                isContinuation   : wantedDrawOnLastTick,
                 crossThread      : crossThread,
                 drawAgain        : { [weak self] in
                     DispatchQueue.main.async { self?.setNeedsRedraw() }
                 }
             ))
+        }
+        #endif
+
+        #if DEBUG
+        let committedAt = CACurrentMediaTime()
+
+        commandBuffer.addCompletedHandler { buffer in
+            FrameTimingProbe.shared.gpuPass(
+                committedAt : committedAt,
+                start       : buffer.gpuStartTime,
+                end         : buffer.gpuEndTime
+            )
         }
         #endif
 
@@ -687,11 +772,14 @@ final class CanvasView: UIView {
     private nonisolated static func presentedHandler(
         generation      : UInt64,
         windowGeneration: UInt64?,
+        isContinuation  : Bool,
         crossThread     : CrossThreadState,
         drawAgain       : @escaping @Sendable () -> Void
     ) -> @Sendable (any MTLDrawable) -> Void {
         { drawable in
             let isDropped = drawable.presentedTime == 0
+
+            FrameTimingProbe.shared.presented(at: drawable.presentedTime, isContinuation: isContinuation)
 
             let isDrawnAgain = crossThread.droppedFrames.withLock { retries in
                 retries.shouldDrawAgain(isDropped: isDropped, at: .now)
@@ -718,7 +806,9 @@ final class CanvasView: UIView {
             return cached.texture
         }
 
-        guard let texture = Self.makeTexture(for: frame, in: frames) else {
+        let made = FrameTimingProbe.shared.measure("MakeTexture") { Self.makeTexture(for: frame, in: frames) }
+
+        guard let texture = made else {
             Self.logger.error("Cannot wrap buffer \(frame.bufferIndex) as a \(frame.width)x\(frame.height) texture")
             return nil
         }
@@ -762,6 +852,7 @@ final class CanvasView: UIView {
         switch recognizer.state {
             case .began, .changed:
                 spring = nil
+                stopScrollGlide()
 
                 guard let scale = zoomScale else { return }
 
@@ -805,10 +896,10 @@ final class CanvasView: UIView {
         disarmedLandmark = tick.disarmed
 
         if tick.ticks {
-            haptics.tick(at: center)
+            FrameTimingProbe.shared.measure("Haptic") { haptics.tick(at: center) }
         }
 
-        haptics.prepare()
+        FrameTimingProbe.shared.measure("HapticPrepare") { haptics.prepare() }
     }
 
     /// handlePan moves the image, rubber-banded past the edges; resetting the translation makes
@@ -818,6 +909,7 @@ final class CanvasView: UIView {
         switch recognizer.state {
             case .began, .changed:
                 spring = nil
+                stopScrollGlide()
                 canvasTransform.pan(
                     by        : recognizer.translation(in: self),
                     viewSize  : bounds.size,
@@ -842,51 +934,28 @@ final class CanvasView: UIView {
         }
     }
 
-    /// handleScroll follows a trackpad two-finger scroll or a wheel one to one, like a scroll
-    /// view; with Cmd held the vertical travel zooms around the pointer instead.
-    ///
-    /// UIKit gives a scroll pan no momentum phase, and whether the system sends its own as further
-    /// changes is not documented. So the end hands the release velocity on, damped
-    /// (CanvasSpring.scrollReleaseVelocity): with system momentum it is near zero, without it the
-    /// pan glides like a scroll view. A zoom never glides.
+    /// handleScroll zooms around the pointer with the vertical travel of a trackpad scroll or a
+    /// wheel while Cmd is held; it begins only then (see `gestureRecognizerShouldBegin`), and a
+    /// scroll without Cmd pans through `scrollProxy`. A zoom never glides.
     @objc
     private func handleScroll(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
             case .began, .changed:
                 spring = nil
+                stopScrollGlide()
 
                 let translation = recognizer.translation(in: self)
                 recognizer.setTranslation(.zero, in: self)
 
-                if recognizer.modifierFlags.contains(.command) {
-                    guard let scale = zoomScale else { return }
+                guard let scale = zoomScale else { return }
 
-                    isScrollZooming = true
+                zoom(
+                    by     : ZoomScale.scrollZoomFactor(forTranslation: Double(translation.y)),
+                    around : recognizer.location(in: self),
+                    scale  : scale
+                )
 
-                    zoom(
-                        by     : ZoomScale.scrollZoomFactor(forTranslation: Double(translation.y)),
-                        around : recognizer.location(in: self),
-                        scale  : scale
-                    )
-                } else {
-                    canvasTransform.pan(
-                        by        : translation,
-                        viewSize  : bounds.size,
-                        imageSize : imageSize
-                    )
-                }
-
-            case .ended:
-                let velocity = recognizer.velocity(in: self)
-                let release  = isScrollZooming
-                    ? SIMD2<Double>.zero
-                    : CanvasSpring.scrollReleaseVelocity(SIMD2<Double>(Double(velocity.x), Double(velocity.y)))
-
-                isScrollZooming = false
-                settle(velocity: release)
-
-            case .cancelled, .failed:
-                isScrollZooming = false
+            case .ended, .cancelled, .failed:
                 settle(velocity: .zero)
 
             default:
@@ -931,6 +1000,7 @@ final class CanvasView: UIView {
         super.touchesBegan(touches, with: event)
 
         spring = nil
+        stopScrollGlide()
         onTouchDown?()
     }
 
@@ -952,10 +1022,23 @@ final class CanvasView: UIView {
     }
 
     /// A hold never begins while a pinch or a pan moves the image, nor on a canvas with no frame yet.
+    /// A scroll with Cmd held zooms (scrollRecognizer), one without pans (the proxy's recognizer).
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard gestureRecognizer === holdRecognizer else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
+        let isCommand = gestureRecognizer.modifierFlags.contains(.command)
 
-        return !isGestureActive && frames.latest() != nil
+        switch gestureRecognizer {
+            case holdRecognizer:
+                return !isGestureActive && frames.latest() != nil
+
+            case scrollRecognizer:
+                return Self.acceptsScroll(fromProxy: false, withCommand: isCommand)
+
+            case scrollProxy.panGestureRecognizer:
+                return Self.acceptsScroll(fromProxy: true, withCommand: isCommand)
+
+            default:
+                return super.gestureRecognizerShouldBegin(gestureRecognizer)
+        }
     }
 
     // MARK: - Motion
@@ -1012,9 +1095,15 @@ final class CanvasView: UIView {
     }
 
     private var isGestureActive: Bool {
-        [pinchRecognizer, panRecognizer, pointerPanRecognizer, scrollRecognizer].contains {
-            $0.state == .began || $0.state == .changed
-        }
+        let recognizers: [UIGestureRecognizer] = [
+            pinchRecognizer,
+            panRecognizer,
+            pointerPanRecognizer,
+            scrollRecognizer,
+            scrollProxy.panGestureRecognizer,
+        ]
+
+        return recognizers.contains { $0.state == .began || $0.state == .changed }
     }
 
     /// settle springs the transform to where it should rest once no finger moves it. A flick
@@ -1094,6 +1183,30 @@ final class CanvasView: UIView {
         )
         springStartTime = CACurrentMediaTime()
         displayLink?.isPaused = false
+
+        prefetchWindow(for: target)
+    }
+
+    /// prefetchWindow(for:) asks at once, at full quality, for the window a zoom spring will rest
+    /// on, so the engine renders it (a cold photo decodes its full resolution) while the spring
+    /// runs. The spring itself changes the zoom, invisibly at the end, for about a second, and no
+    /// draft is asked for meanwhile (`lastZoomChange`): without this the first request went at the
+    /// settle, 0.8 s later than drafts used to start it. A pan's glide keeps the zoom and its drafts.
+    private func prefetchWindow(for target: CanvasTransform) {
+        prefetchTarget = nil
+
+        guard target.zoom != canvasTransform.zoom, let window = visibleWindow(for: target) else { return }
+
+        prefetchTarget = target
+
+        guard window != sentWindow || isSentWindowDraft else { return }
+
+        sentWindow            = window
+        isSentWindowDraft     = false
+        lastWindowSendTime    = CACurrentMediaTime()
+        isWindowUpdatePending = false
+
+        FrameTimingProbe.shared.measure("WindowChange") { onVisibleWindowChange?(window, false) }
     }
 
     /// advanceSpring moves the transform to where the running spring is at `time`, and ends the
@@ -1109,11 +1222,11 @@ final class CanvasView: UIView {
         }
     }
 
-    /// visibleWindow is the window the current view needs (FrameWindow.visible), nil while the
-    /// preview is enough.
-    private var visibleWindow: FrameWindow? {
+    /// visibleWindow(for:) is the window a view at `transform` needs (FrameWindow.visible), nil
+    /// while the preview is enough.
+    private func visibleWindow(for transform: CanvasTransform) -> FrameWindow? {
         FrameWindow.visible(
-            transform   : canvasTransform,
+            transform   : transform,
             viewSize    : bounds.size,
             imageSize   : imageSize,
             photoSize   : nativeSize,
@@ -1125,23 +1238,46 @@ final class CanvasView: UIView {
     /// updateVisibleWindow runs on each display tick: it recomputes the wanted window and hands it to
     /// `onVisibleWindowChange` when it changed. While the view moves (a gesture, a spring or the pan
     /// sweep) a new window waits at least `windowRequestInterval` after the last one and goes as a
-    /// draft; at rest the window goes at once, at full quality, even if its draft already went.
-    /// Losing the window (nil) goes at once. Every tick that wants no window raises `windowFloor`:
-    /// a window still rendering when the view left it lands later, and wakes a tick of its own.
+    /// draft, and none goes until the zoom has held still that long (`lastZoomChange`); at rest the
+    /// window goes at once, at full quality, even if its draft already went. Losing the window (nil)
+    /// goes at once. Every tick that wants no window raises `windowFloor`: a window still rendering
+    /// when the view left it lands later, and wakes a tick of its own.
     private func updateVisibleWindow(at time: CFTimeInterval) {
-        let wanted   = visibleWindow
-        let isMoving = isGestureActive || spring != nil || isMeasurementPanning
+        if canvasTransform.zoom != lastTickZoom {
+            lastTickZoom   = canvasTransform.zoom
+            lastZoomChange = time
+        }
+
+        let wanted      = visibleWindow(for: canvasTransform)
+        let isZooming   = time - lastZoomChange < Self.windowRequestInterval
+        let isScrolling = time - scrollProxyMoved < Self.windowRequestInterval
+        let isMoving    = isGestureActive || spring != nil || isMeasurementPanning || isScrolling
+
+        wantedWindow = wanted
+
+        // A spring resting on a prefetched window asks for nothing on the way and buries nothing.
+        if let prefetchTarget, spring?.target == prefetchTarget {
+            isWindowUpdatePending = false
+            return
+        }
+
+        prefetchTarget = nil
 
         if wanted == nil {
             windowFloor = Self.newestGeneration(frames.published())
         }
 
-        wantedWindow = wanted
-
         let isCurrent = wanted == sentWindow && (isMoving || !isSentWindowDraft)
 
+        // A draft sent while the proxy scrolled still owes its full window once the scroll is still.
         guard !isCurrent else {
-            isWindowUpdatePending = false
+            isWindowUpdatePending = isScrolling && isSentWindowDraft
+            return
+        }
+
+        // No draft while the zoom changes (see `lastZoomChange`): the window on screen stays meanwhile.
+        if wanted != nil, isMoving, isZooming {
+            isWindowUpdatePending = true
             return
         }
 
@@ -1155,7 +1291,7 @@ final class CanvasView: UIView {
         lastWindowSendTime    = time
         isWindowUpdatePending = false
 
-        onVisibleWindowChange?(wanted, isSentWindowDraft)
+        FrameTimingProbe.shared.measure("WindowChange") { onVisibleWindowChange?(wanted, isSentWindowDraft) }
     }
 
     /// wakeForWindowUpdate runs the display link for at least one tick, so `updateVisibleWindow`
@@ -1177,7 +1313,7 @@ final class CanvasView: UIView {
 
         reportedPercent    = label
         accessibilityValue = "\(label)%"
-        onZoomChange?(percent)
+        FrameTimingProbe.shared.measure("ZoomPill") { onZoomChange?(percent) }
     }
 
     // MARK: - Setup
@@ -1237,9 +1373,64 @@ final class CanvasView: UIView {
         addGestureRecognizer(panRecognizer)
         addGestureRecognizer(pointerPanRecognizer)
         addGestureRecognizer(scrollRecognizer)
+        configureScrollProxy()
         addGestureRecognizer(holdRecognizer)
         addGestureRecognizer(doubleTap)
         addGestureRecognizer(singleTap)
+    }
+
+    /// configureScrollProxy hides the proxy scroll view in the canvas and moves its pan recognizer
+    /// onto the canvas, limited to scroll events: touches never reach the proxy (see `scrollProxy`).
+    private func configureScrollProxy() {
+        let side = Self.scrollProxyContent
+
+        scrollProxy.isUserInteractionEnabled       = false
+        scrollProxy.accessibilityElementsHidden    = true
+        scrollProxy.showsHorizontalScrollIndicator = false
+        scrollProxy.showsVerticalScrollIndicator   = false
+        scrollProxy.scrollsToTop                   = false
+        scrollProxy.bounces                        = false
+        scrollProxy.contentInsetAdjustmentBehavior = .never
+        scrollProxy.contentSize                    = CGSize(width: side, height: side)
+        scrollProxy.delegate                       = self
+
+        // Its offset sits far from the top, so the toolbar's scroll edge effect showed as scrolled.
+        scrollProxy.topEdgeEffect.isHidden    = true
+        scrollProxy.bottomEdgeEffect.isHidden = true
+        scrollProxy.leftEdgeEffect.isHidden   = true
+        scrollProxy.rightEdgeEffect.isHidden  = true
+
+        scrollProxy.panGestureRecognizer.allowedTouchTypes      = []
+        scrollProxy.panGestureRecognizer.allowedScrollTypesMask = .all
+
+        addSubview(scrollProxy)
+        addGestureRecognizer(scrollProxy.panGestureRecognizer)
+        recentreScrollProxy()
+    }
+
+    /// recentreScrollProxy puts the proxy's offset back in the middle of its content without
+    /// moving the image. Only between gestures: a drag computes its offsets from where it began.
+    private func recentreScrollProxy() {
+        let middle = CGPoint(x: Self.scrollProxyContent / 2, y: Self.scrollProxyContent / 2)
+
+        scrollProxyOffset         = middle
+        scrollProxy.contentOffset = middle
+    }
+
+    /// stopScrollGlide ends the proxy's deceleration or wheel animation where it is, for a gesture
+    /// that takes over or an image that reached an edge.
+    private func stopScrollGlide() {
+        guard isScrollProxyGliding else { return }
+
+        isScrollProxyAnimating = false
+        scrollProxy.setContentOffset(scrollProxy.contentOffset, animated: false)
+    }
+
+    /// acceptsScroll(fromProxy:withCommand:) splits a trackpad or wheel scroll between the two
+    /// recognizers that hear it: with Cmd held it zooms (scrollRecognizer), without it pans (the
+    /// proxy's recognizer). Exactly one of them begins.
+    nonisolated static func acceptsScroll(fromProxy isProxy: Bool, withCommand isCommand: Bool) -> Bool {
+        isProxy != isCommand
     }
 
     /// handleHold starts the before look when the hold begins and ends it when the finger lifts, or
@@ -1301,6 +1492,71 @@ final class CanvasView: UIView {
                 self?.setNeedsRedraw()
             }
         }
+    }
+}
+
+extension CanvasView: @preconcurrency CAMetalDisplayLinkDelegate {
+
+    // The link is added to the main run loop, so it always calls on main.
+    func metalDisplayLink(_ link: CAMetalDisplayLink, needsUpdate update: CAMetalDisplayLink.Update) {
+        displayLinkNeedsUpdate(link, update: update)
+    }
+}
+
+extension CanvasView: UIScrollViewDelegate {
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        spring = nil
+
+        if !scrollView.isDecelerating {
+            recentreScrollProxy()
+        }
+    }
+
+    /// scrollViewDidScroll moves the image by the proxy's travel since the last call, the other way
+    /// (content follows the fingers), rubber-banded past the edges like a finger's pan. A glide that
+    /// carries the image past an edge stops there and springs back, as a scroll view bounces.
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        let offset = scrollView.contentOffset
+        let delta  = CGPoint(x: offset.x - scrollProxyOffset.x, y: offset.y - scrollProxyOffset.y)
+
+        scrollProxyOffset = offset
+
+        guard delta != .zero else { return }
+
+        spring                 = nil
+        scrollProxyMoved       = CACurrentMediaTime()
+        isScrollProxyAnimating = !scrollView.isDragging && !scrollView.isDecelerating
+        canvasTransform.pan(
+            by        : CGPoint(x: -delta.x, y: -delta.y),
+            viewSize  : bounds.size,
+            imageSize : imageSize
+        )
+
+        let resting = canvasTransform.settled(viewSize: bounds.size, imageSize: imageSize)
+
+        if isScrollProxyGliding, resting.offset != canvasTransform.offset {
+            stopScrollGlide()
+            settle(velocity: .zero)
+        }
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate {
+            settle(velocity: .zero)
+        }
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        isScrollProxyAnimating = false
+        settle(velocity: .zero)
+        recentreScrollProxy()
+    }
+
+    /// A wheel's notch scrolls as an animation, not a deceleration: its end settles the same way.
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        isScrollProxyAnimating = false
+        settle(velocity: .zero)
     }
 }
 
