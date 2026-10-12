@@ -21,6 +21,7 @@ struct FrameTimingProbeTests {
         let probe = FrameTimingProbe.shared
         let file  = URL.temporaryDirectory.appending(path: "probe-test.csv")
         let frame = 1.0 / 60
+        defer { try? FileManager.default.removeItem(at: file) }
 
         probe.start(phase: "test")
         probe.measure("ProbeTest") { usleep(20_000) }

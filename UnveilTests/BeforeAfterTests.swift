@@ -225,9 +225,13 @@ struct BeforeAfterTests {
     /// of the same photo, and an edited request after it shows the edit again.
     @Test
     func aBeforeFrameFromTheEngineDiffersFromTheEditedOne() async throws {
-        let library = FileManager.default.temporaryDirectory.appending(path: "engine-\(UUID())")
-        let manager = try EngineManager(dataDirectory: library, maxPixels: 256)
-        _ = try await manager.openPhoto(at: EngineManagerTests().fixtureURL())
+        let manager = try EngineManager(
+            dataDirectory : TemporaryEngineLibrary.make(),
+            maxPixels     : 256
+        )
+        let fixture = try EngineManagerTests().fixtureURL()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        _ = try await manager.openPhoto(at: fixture)
         try await manager.set(.exposure, to: 2)
 
         func firstPixel(before: Bool) async throws -> [UInt8] {

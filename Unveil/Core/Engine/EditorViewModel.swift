@@ -29,6 +29,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
     private(set) var values      : [DevelopAdjustmentKind: Double]
     private(set) var openPhoto   : PhotoID?
+    private(set) var openCopyURL : URL?
 
     /// errorMessages are the errors raised and not yet acknowledged, oldest first: a second error
     /// while the first is on screen waits behind it. `errorMessage` is the one to show now.
@@ -266,6 +267,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             }
 
             self.openPhoto       = photo
+            self.openCopyURL     = copy.url
             self.visibleWindow   = nil
             self.values          = Self.defaultValues.merging(current) { _, engineValue in engineValue }
             self.sent            = self.values

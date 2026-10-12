@@ -5,6 +5,7 @@
 
 import CryptoKit
 import Foundation
+import Synchronization
 
 /// PhotoImporter copies a picked file into `Application Support/Imports/<sha256>-<name>`.
 ///
@@ -25,11 +26,19 @@ import Foundation
 // Nonisolated: the project defaults to MainActor, but the copy must run off main.
 nonisolated struct PhotoImporter: PhotoImporting {
 
+    static let defaultDirectory = URL.applicationSupportDirectory.appending(
+        path          : "Imports",
+        directoryHint : .isDirectory
+    )
+
+    /// reuseLock pairs the importer's reuse of a copy with the orphan sweep's delete of one. Under it
+    /// the importer refreshes the date of a copy it reuses, and the sweep re-reads that date before
+    /// it deletes: a copy is never handed to the engine and deleted at the same time.
+    static let reuseLock = Mutex(())
+
     let importsDirectory: URL
 
-    init(
-        importsDirectory: URL = URL.applicationSupportDirectory.appending(path: "Imports", directoryHint: .isDirectory)
-    ) {
+    init(importsDirectory: URL = Self.defaultDirectory) {
         self.importsDirectory = importsDirectory
     }
 
@@ -54,12 +63,21 @@ nonisolated struct PhotoImporter: PhotoImporting {
             let hash = try Self.contentHash(of: pickedURL)
             let copy = imports.appending(path: "\(hash)-\(pickedURL.lastPathComponent)")
 
-            if fileManager.fileExists(atPath: copy.path(percentEncoded: false)) {
+            let isReused = try Self.reuseLock.withLock { _ throws -> Bool in
+                guard fileManager.fileExists(atPath: copy.path(percentEncoded: false))
+                else { return false }
+
+                try Self.markUsedNow(copy)
+                return true
+            }
+            if isReused {
                 return (copy, false)
             }
 
+            // A new copy needs no lock: the sweep lists the folder, and this file is not in it yet.
             let partial = URL.temporaryDirectory.appending(path: "import-\(UUID().uuidString)")
             try fileManager.copyItem(at: pickedURL, to: partial)
+            try Self.markUsedNow(partial)
             try fileManager.moveItem(at: partial, to: copy)
 
             return (copy, true)
@@ -68,6 +86,17 @@ nonisolated struct PhotoImporter: PhotoImporting {
         } catch {
             throw .copyFailed(error.localizedDescription)
         }
+    }
+
+    /// markUsedNow sets the copy's modification date to now. copyItem keeps the source's date, so a
+    /// fresh copy of an old photo would look old, and the orphan sweep keeps only recent files
+    /// that no catalog photo names yet (an open in flight, or a copy about to be reused). It throws,
+    /// failing the open, rather than leave an old date the sweep would read as unused.
+    private static func markUsedNow(_ url: URL) throws {
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date.now],
+            ofItemAtPath: url.path(percentEncoded: false)
+        )
     }
 
     /// contentHash is the file's SHA-256 in hex, read in 1 MB chunks so a 100 MB RAW never sits

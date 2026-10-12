@@ -29,6 +29,10 @@ struct DiagnosticsMenuItems<Engine: EngineDriving & EngineDiagnosing, Importer: 
                 Task { await diagnostics.exportReferenceImages() }
             }
 
+            Button("Clean Up Test Data", systemImage: "trash") {
+                Task { await diagnostics.cleanUpTestData() }
+            }
+
             Button(
                 "Run Stress Test (10 min)",
                 systemImage : "flame",

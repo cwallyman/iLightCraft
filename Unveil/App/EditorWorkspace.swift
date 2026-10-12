@@ -18,6 +18,7 @@ final class EditorWorkspace {
     let launchOptions: MeasurementLaunchOptions
 
     private let launchRunner = EditorLaunchRunner()
+    private let importSweeper: ImportSweeper<EngineManager>?
 
     // Foundation exposes notification tokens as an existential.
     private var becomeActiveToken: (any NSObjectProtocol)?
@@ -34,15 +35,24 @@ final class EditorWorkspace {
         )
         let session = EditorSession(viewModel: viewModel, libraryLoader: PhotoLibraryLoader())
         let canvas  = CanvasView(frames: engine.frames, device: device)
+        let options = MeasurementLaunchOptions(arguments: ProcessInfo.processInfo.arguments)
+
+        // The one gate: without it no sweep runs at launch, after an open or from the Debug menu.
+        let sweeper = options.allowsImportSweep
+            ? ImportSweeper(store: ImportStore(catalog: engine)) { [weak viewModel] in
+                viewModel?.openCopyURL
+            }
+            : nil
 
         self.session  = session
         self.canvas   = canvas
-        launchOptions = MeasurementLaunchOptions(arguments: ProcessInfo.processInfo.arguments)
+        launchOptions = options
         diagnostics   = EditorDiagnostics(
             engine            : engine,
             viewModel         : viewModel,
             possibleTearCount : { [weak canvas] in canvas?.possibleTearCount ?? 0 },
-            present           : { [weak session] in session?.show($0) }
+            present           : { [weak session] in session?.show($0) },
+            cleanUpImports    : { await sweeper?.sweepNow() ?? .nothing }
         )
 
         becomeActiveToken = NotificationCenter.default.addObserver(
@@ -51,6 +61,18 @@ final class EditorWorkspace {
             queue   : nil
         ) { _ in
             Task { @MainActor in await viewModel.refreshPreview() }
+        }
+
+        importSweeper = sweeper
+
+        if let sweeper {
+            session.onPhotoOpened = { sweeper.request() }
+
+            // The launch pass waits a moment, so the first open or preview gets the engine first.
+            Task {
+                try? await Task.sleep(for: .seconds(5))
+                sweeper.request()
+            }
         }
 
         launchRunner.start(

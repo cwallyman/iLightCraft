@@ -14,14 +14,18 @@ import UIKit
 @Suite(.serialized)
 struct EngineManagerTests {
 
-    /// A PNG the engine can import: the simulator has no RAW samples.
-    func fixtureURL() throws -> URL {
-        let url      = FileManager.default.temporaryDirectory.appending(path: "fixture-\(UUID()).png")
+    /// A PNG the engine can import: the simulator has no RAW samples. Two colors make two photos;
+    /// one color twice is the same bytes, which the engine and the importer treat as one file.
+    func fixtureURL(
+        color : UIColor = .systemTeal,
+        in    folder: URL = FileManager.default.temporaryDirectory
+    ) throws -> URL {
+        let url      = folder.appending(path: "fixture-\(UUID()).png")
         let format   = UIGraphicsImageRendererFormat()
         format.scale = 1
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 96, height: 64), format: format)
         let data     = renderer.pngData { context in
-            UIColor.systemTeal.setFill()
+            color.setFill()
             context.fill(CGRect(x: 0, y: 0, width: 96, height: 64))
         }
 
@@ -30,14 +34,15 @@ struct EngineManagerTests {
     }
 
     func makeManager(maxPixels: Int) throws -> EngineManager {
-        let library = FileManager.default.temporaryDirectory.appending(path: "engine-\(UUID())")
-        return try EngineManager(dataDirectory: library, maxPixels: maxPixels)
+        try EngineManager(dataDirectory: TemporaryEngineLibrary.make(), maxPixels: maxPixels)
     }
 
     @Test
     func openSetAndPreviewDeliversAFrame() async throws {
         let manager = try makeManager(maxPixels: 512)
-        _ = try await manager.openPhoto(at: fixtureURL())
+        let fixture = try fixtureURL()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        _ = try await manager.openPhoto(at: fixture)
         try await manager.set(.exposure, to: 0.5)
 
         let generation = try manager.requestPreview(
@@ -56,7 +61,9 @@ struct EngineManagerTests {
     @Test
     func aWindowRequestDeliversAPlacedWindowBesideThePreview() async throws {
         let manager = try makeManager(maxPixels: 512)
-        _ = try await manager.openPhoto(at: fixtureURL())
+        let fixture = try fixtureURL()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        _ = try await manager.openPhoto(at: fixture)
 
         let preview = try manager.requestPreview(
             maxPixels : 96,
@@ -96,7 +103,9 @@ struct EngineManagerTests {
     @Test
     func aWindowThatAsksCarriesTheWholePhotosHistogramToTheSink() async throws {
         let manager = try makeManager(maxPixels: 512)
-        _ = try await manager.openPhoto(at: fixtureURL())
+        let fixture = try fixtureURL()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        _ = try await manager.openPhoto(at: fixture)
         let heard = Mutex<[FrameHistogram]>([])
         manager.frames.onHistogram = { histogram in heard.withLock { $0.append(histogram) } }
 
@@ -143,6 +152,7 @@ struct EngineManagerTests {
     func aRenderWhoseSourceIsGoneIsReportedNotSilent() async throws {
         let manager = try makeManager(maxPixels: 256)
         let file    = try fixtureURL()
+        defer { try? FileManager.default.removeItem(at: file) }
         _ = try await manager.openPhoto(at: file)
         try FileManager.default.removeItem(at: file)
 
@@ -168,6 +178,7 @@ struct EngineManagerTests {
     func reopeningAfterTheFileMovedRelinksItAndStillRenders() async throws {
         let manager  = try makeManager(maxPixels: 256)
         let original = try fixtureURL()
+        defer { try? FileManager.default.removeItem(at: original) }
         let bytes    = try Data(contentsOf: original)
         let first    = try await manager.openPhoto(at: original)
 
@@ -175,6 +186,7 @@ struct EngineManagerTests {
         try FileManager.default.removeItem(at: original)
         let moved = FileManager.default.temporaryDirectory.appending(path: "moved-\(UUID()).png")
         try bytes.write(to: moved)
+        defer { try? FileManager.default.removeItem(at: moved) }
 
         let second     = try await manager.openPhoto(at: moved)
         let generation = try manager.requestPreview(
@@ -192,6 +204,7 @@ struct EngineManagerTests {
     func reopeningTheSamePathSelectsTheSamePhotoAndRenders() async throws {
         let manager = try makeManager(maxPixels: 256)
         let file    = try fixtureURL()
+        defer { try? FileManager.default.removeItem(at: file) }
 
         let first      = try await manager.openPhoto(at: file)
         let second     = try await manager.openPhoto(at: file)
@@ -208,7 +221,9 @@ struct EngineManagerTests {
     @Test
     func currentValuesReportsWhatWasSet() async throws {
         let manager = try makeManager(maxPixels: 256)
-        _ = try await manager.openPhoto(at: fixtureURL())
+        let fixture = try fixtureURL()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        _ = try await manager.openPhoto(at: fixture)
         try await manager.set(.exposure, to: 0.5)
 
         let values = try await manager.currentValues()
@@ -220,7 +235,9 @@ struct EngineManagerTests {
     @Test
     func editedFlagSizeAndResetsSpeakTheEngineJSON() async throws {
         let manager = try makeManager(maxPixels: 256)
-        let photo   = try await manager.openPhoto(at: fixtureURL())
+        let fixture = try fixtureURL()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let photo   = try await manager.openPhoto(at: fixture)
 
         let info    = try await manager.photoInfo(of: photo)
         #expect(info.size == CGSize(width: 96, height: 64))
@@ -256,6 +273,7 @@ struct EngineManagerTests {
         let manager = try makeManager(maxPixels: 256)
         let url     = FileManager.default.temporaryDirectory.appending(path: "broken-\(UUID()).ARW")
         try Data("not a raw".utf8).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
 
         await #expect(throws: EngineError.self) {
             _ = try await manager.openPhoto(at: url)
@@ -265,7 +283,9 @@ struct EngineManagerTests {
     @Test
     func previewWhileSuspendedIsRefused() async throws {
         let manager = try makeManager(maxPixels: 256)
-        _ = try await manager.openPhoto(at: fixtureURL())
+        let fixture = try fixtureURL()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        _ = try await manager.openPhoto(at: fixture)
         try manager.suspend()
 
         #expect(throws: EngineError.suspended("the session is suspended")) {
@@ -285,5 +305,79 @@ struct EngineManagerTests {
         let json = try await manager.diagnostic("app.gpu", params: [String: String]())
 
         #expect(json.contains("\"enabled\""))
+    }
+
+    /// age dates each file an hour back, past the sweep's 10-minute grace period.
+    func age(_ files: [URL]) throws {
+        for file in files {
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date.now.addingTimeInterval(-3600)],
+                ofItemAtPath: file.path(percentEncoded: false)
+            )
+        }
+    }
+
+    /// The real catalog's answer decides the sweep: of three imported copies, the one whose photo
+    /// is deleted from the catalog for good goes, the trashed one stays (a restore needs it) and
+    /// so does the kept one.
+    @Test
+    func theSweepRemovesOnlyTheCopyOfAPhotoDeletedFromTheCatalog() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "sweep-engine-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let manager  = try makeManager(maxPixels: 256)
+        let importer = PhotoImporter(importsDirectory: root.appending(path: "Imports"))
+        let kept     = try importer.importCopy(of: fixtureURL(color: .systemTeal, in: root)).url
+        let trashed  = try importer.importCopy(of: fixtureURL(color: .systemPink, in: root)).url
+        let removed  = try importer.importCopy(of: fixtureURL(color: .systemOrange, in: root)).url
+
+        let removedPhoto = try await manager.openPhoto(at: removed)
+        let trashedPhoto = try await manager.openPhoto(at: trashed)
+        _ = try await manager.openPhoto(at: kept)
+        let removal = ["ids": [removedPhoto.rawValue]]
+        let trash   = ["ids": [trashedPhoto.rawValue]]
+        // In this order: both need a selection, and deletePermanently clears it.
+        _ = try await manager.diagnostic("photo.delete", params: trash)
+        _ = try await manager.diagnostic("photo.deletePermanently", params: removal)
+        try age([kept, trashed, removed])
+
+        let store  = ImportStore(catalog: manager, importsDirectory: importer.importsDirectory)
+        let report = await store.sweep(keeping: nil)
+
+        #expect(FileManager.default.fileExists(atPath: kept.path(percentEncoded: false)))
+        #expect(FileManager.default.fileExists(atPath: trashed.path(percentEncoded: false)))
+        #expect(!FileManager.default.fileExists(atPath: removed.path(percentEncoded: false)))
+        #expect(report.removedCount == 1)
+    }
+
+    /// After an app update the container moves: the catalog still names the old folder, and the
+    /// copy now lives under the same name in a new one. The name alone keeps it.
+    @Test
+    func aCopyTheCatalogNamesUnderAnotherContainerFolderStays() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "sweep-moved-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let manager     = try makeManager(maxPixels: 256)
+        let oldImports  = root.appending(path: "OldContainer/Imports", directoryHint: .isDirectory)
+        let newImports  = root.appending(path: "NewContainer/Imports", directoryHint: .isDirectory)
+        let oldImporter = PhotoImporter(importsDirectory: oldImports)
+        let oldCopy     = try oldImporter.importCopy(of: fixtureURL(in: root)).url
+        _ = try await manager.openPhoto(at: oldCopy)
+
+        try FileManager.default.createDirectory(at: newImports, withIntermediateDirectories: true)
+        let movedCopy = newImports.appending(path: oldCopy.lastPathComponent)
+        let orphan    = newImports.appending(path: "0000-orphan.png")
+        try FileManager.default.copyItem(at: oldCopy, to: movedCopy)
+        try Data([1, 2, 3]).write(to: orphan)
+        try age([movedCopy, orphan])
+
+        let store  = ImportStore(catalog: manager, importsDirectory: newImports)
+        let report = await store.sweep(keeping: nil)
+
+        #expect(FileManager.default.fileExists(atPath: movedCopy.path(percentEncoded: false)))
+        #expect(!FileManager.default.fileExists(atPath: orphan.path(percentEncoded: false)))
+        #expect(report.removedCount == 1)
     }
 }
