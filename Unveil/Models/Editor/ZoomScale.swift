@@ -38,9 +38,11 @@ nonisolated struct ZoomScale: Equatable, Sendable {
     static let rearmBand = 0.02
 
     /// indirectPinchExponent damps a trackpad pinch: its scale is raised to this power, so a
-    /// trackpad doubling zooms by about 1.32x. A calibration knob: tune it on the device until a
-    /// trackpad pinch feels like Photoshop or Preview on iPad. Finger pinches are not damped.
-    static let indirectPinchExponent = 0.4
+    /// trackpad doubling zooms by about 1.68x. A calibration knob, tuned from the F5 recording: the
+    /// earlier 0.4 to 0.5 was applied to a cumulative scale as if it were a step, which compounded
+    /// to an effective exponent of about 1.5 (0.3 to 4, erratic) that the user found too sensitive.
+    /// Finger pinches are not damped.
+    static let indirectPinchExponent = 0.75
 
     /// scrollZoomRate is the zoom, as a natural logarithm, per point of Cmd + scroll: 100 points
     /// of trackpad swipe or about ten wheel clicks zoom by 1.5x. A calibration knob like the pinch's.

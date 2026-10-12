@@ -13,8 +13,8 @@ import UIKit
 @MainActor
 struct PointerInputTests {
 
-    /// A trackpad pinch zooms less than the same finger pinch, in the same direction, and the
-    /// recognizer's reset scale makes many steps add up to the one big step.
+    /// A trackpad pinch zooms less than the same finger pinch, in the same direction, and its
+    /// steps (ratios of the cumulative scale) add up to the one big step.
     @Test
     func aTrackpadPinchIsSlowerThanAFingerPinchAndAddsUpAcrossSteps() {
         func factor(_ scale: Double) -> Double { ZoomScale.indirectPinchFactor(for: scale) }
@@ -23,7 +23,7 @@ struct PointerInputTests {
         #expect(factor(2) > 1 && factor(2) < 2)
         #expect(factor(0.5) < 1 && factor(0.5) > 0.5)
         #expect(abs(factor(2) - pow(2, ZoomScale.indirectPinchExponent)) < 1e-12)
-        #expect(ZoomScale.indirectPinchExponent <= 0.5)
+        #expect(ZoomScale.indirectPinchExponent < 1)
         #expect(abs(factor(1.05) * factor(1.05) - factor(1.05 * 1.05)) < 1e-12)
     }
 

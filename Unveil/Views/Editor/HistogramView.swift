@@ -14,11 +14,13 @@ import SwiftUI
 /// next to a tall peak, scaled to the tallest bin away from the two ends: a clipped end may run off
 /// the top, which is what the toggles are for.
 ///
-/// A drag's draft frames redraw the plot in place; the full preview that settles it cross-fades in
-/// (not under Reduce Motion). VoiceOver reads the plot as one element that says what is clipped.
+/// The plot never fades: it glides toward each new histogram, a drag's drafts and the full preview
+/// that settles a release alike (HistogramEasing), stepped by a TimelineView that runs only while
+/// the glide moves. Under Reduce Motion each histogram shows at once. VoiceOver reads the plot as
+/// one element that says what is clipped.
 ///
 /// It is the only view that reads the view model's histogram, so a draft frame re-evaluates this
-/// view alone, not the card around it.
+/// view alone, not the card around it; a glide's frames re-evaluate only the timeline's plot.
 struct HistogramView<Engine: EngineDriving, Importer: PhotoImporting>: View {
 
     let viewModel: EditorViewModel<Engine, Importer>
@@ -28,6 +30,13 @@ struct HistogramView<Engine: EngineDriving, Importer: PhotoImporting>: View {
 
     @Environment(\.accessibilityReduceMotion)
     private var reduceMotion
+
+    @State
+    private var motion = HistogramMotion()
+
+    /// isGliding runs the plot's timeline; the glide's last step turns it off.
+    @State
+    private var isGliding = false
 
     /// plotAspect is the plot's width over its height.
     private let plotAspect  : CGFloat = 3
@@ -67,40 +76,75 @@ struct HistogramView<Engine: EngineDriving, Importer: PhotoImporting>: View {
         }
     }
 
-    /// plot keys the drawing by `fadeKey(of:)`: drafts share one identity and redraw in place, and
-    /// each full preview gets its own, which is what cross-fades.
+    /// plot steps the glide on each tick of its timeline, paused while the glide rests, and follows
+    /// every new histogram (see the type doc).
     private func plot(_ histogram: FrameHistogram?) -> some View {
         ZStack {
             // Gives the plot its size before the first histogram arrives.
             Color.clear
 
-            if let histogram {
-                HistogramPlot(histogram: histogram)
-                    .id(Self.fadeKey(of: histogram))
-                    .transition(.opacity)
+            if histogram != nil {
+                TimelineView(.animation(paused: !isGliding)) { timeline in
+                    let easing = FrameTimingProbe.shared.measure("HistogramGlide") {
+                        motion.advanced(
+                            toward    : histogram,
+                            at        : timeline.date.timeIntervalSinceReferenceDate,
+                            instantly : reduceMotion
+                        )
+                    }
+
+                    HistogramPlot(levels: easing.levels)
+                        .onChange(of: easing.isMoving) { _, isMoving in
+                            if !isMoving { isGliding = false }
+                        }
+                }
             }
         }
         .frame(maxWidth: .infinity)
         .aspectRatio(plotAspect, contentMode: .fit)
         .background(.black.opacity(0.35), in: .rect(cornerRadius: cornerRadius))
         .clipShape(.rect(cornerRadius: cornerRadius))
-        .animation(fade(to: histogram), value: histogram.map(Self.fadeKey))
+        .onChange(of: histogram?.generation, initial: true) {
+            isGliding = motion.aim(
+                at        : histogram,
+                from      : Date.now.timeIntervalSinceReferenceDate,
+                instantly : reduceMotion
+            )
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Histogram")
         .accessibilityValue(histogram?.clippingSummary ?? "No photo")
         .accessibilityIdentifier("histogram")
     }
+}
 
-    /// fadeKey is 0 for every draft and the generation for a full preview.
-    private static func fadeKey(of histogram: FrameHistogram) -> UInt64 {
-        histogram.isDraft ? 0 : histogram.generation
+/// HistogramMotion holds the glide across the timeline's ticks. It is a plain class, not observed:
+/// stepping it must not invalidate anything, the timeline alone redraws the plot.
+///
+/// A new histogram can reach the timeline's content before the view's `onChange` runs, so both aim
+/// through `aim`, which retargets once per frame generation, whichever comes first.
+@MainActor
+private final class HistogramMotion {
+
+    private var easing = HistogramEasing()
+    private var aimedAt: UInt64?
+
+    /// aim retargets the glide at `histogram` unless it already aims there, and says if it moves.
+    @discardableResult
+    func aim(at histogram: FrameHistogram?, from time: Double, instantly: Bool) -> Bool {
+        if histogram?.generation != aimedAt {
+            aimedAt = histogram?.generation
+            easing.retarget(to: histogram, at: time, instantly: instantly)
+        }
+
+        return easing.isMoving
     }
 
-    /// fade(to:) is the cross-fade to a full preview's histogram: none to a draft (the key also
-    /// changes on a drag's first draft) and none under Reduce Motion.
-    private func fade(to histogram: FrameHistogram?) -> Animation? {
-        guard let histogram, !histogram.isDraft, !reduceMotion else { return nil }
+    func advanced(toward histogram: FrameHistogram?, at time: Double, instantly: Bool) -> HistogramEasing {
+        // A paused timeline's date is the pause's: a glide starts from now.
+        aim(at: histogram, from: Date.now.timeIntervalSinceReferenceDate, instantly: instantly)
+        easing.advance(to: time)
 
-        return .easeInOut(duration: 0.2)
+        return easing
     }
 }

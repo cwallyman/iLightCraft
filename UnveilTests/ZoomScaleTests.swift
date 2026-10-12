@@ -156,7 +156,7 @@ struct ZoomScaleTests {
         #expect(factor(2) > 1 && factor(2) < 2)
         #expect(factor(0.5) < 1 && factor(0.5) > 0.5)
 
-        // The recognizer's scale is reset on every step: many small steps must add up to one big one.
+        // Each step is a ratio of the cumulative scale: many small steps must add up to one big one.
         #expect(abs(factor(1.1) * factor(1.1) * factor(1.1) - factor(1.1 * 1.1 * 1.1)) < 1e-12)
     }
 

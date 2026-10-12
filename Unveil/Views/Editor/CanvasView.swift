@@ -99,7 +99,7 @@ final class CanvasView: UIView {
     /// interaction of its own, so hit tests pass through it). Each change of its `contentOffset`,
     /// the system's deceleration included, moves the image by the same points the other way. Its
     /// content is far larger than any gesture travels, recentred on the middle between gestures.
-    private let scrollProxy = UIScrollView()
+    private let scrollProxy: UIScrollView
 
     /// scrollProxyOffset is the proxy's offset already applied to the image, and scrollProxyMoved
     /// when it last changed: the view counts as moving until `windowRequestInterval` after that, so
@@ -110,6 +110,10 @@ final class CanvasView: UIView {
     /// isScrollProxyAnimating is true while the proxy moves on its own without a deceleration: a
     /// wheel notch scrolls as a short animation. It is stopped and settled like a glide.
     private var isScrollProxyAnimating = false
+
+    /// isStoppingScrollGlide is true while `stopScrollGlide` stops the proxy: what it reports then
+    /// does not move the image.
+    private var isStoppingScrollGlide = false
 
     /// isScrollProxyGliding is true while the proxy moves after the fingers left: a deceleration
     /// or a wheel notch's animation.
@@ -206,6 +210,17 @@ final class CanvasView: UIView {
 
     /// pinchCenter is the fingers' last centroid, where a zoom stretched past the range springs back.
     private var pinchCenter: CGPoint?
+
+    /// zoomEasing is the zoom a trackpad pinch or Cmd + scroll still owes the display (ZoomEasing),
+    /// stepped on each display update from `lastZoomEasingTime`. A gesture that ends while it is
+    /// owed settles once it is paid (`settlesAfterZoomEasing`).
+    private var zoomEasing             = ZoomEasing()
+    private var lastZoomEasingTime     : CFTimeInterval = 0
+    private var settlesAfterZoomEasing = false
+
+    /// lastIndirectPinchScale is the trackpad pinch's scale at its last event. That scale counts from
+    /// the gesture's start: setting it back to 1, as a finger pinch does, has no effect (F5 recording).
+    private var lastIndirectPinchScale = 1.0
 
     /// windowRequestInterval is the least time between two window requests while the view moves.
     private static let windowRequestInterval: CFTimeInterval = 0.1
@@ -323,13 +338,18 @@ final class CanvasView: UIView {
         unsafeDowncast(layer, to: CAMetalLayer.self)
     }
 
-    /// init(frames:device:) builds the pipeline and wires the sink's wake-up to this view.
+    /// init(frames:device:scrollProxy:) builds the pipeline and wires the sink's wake-up to this view.
+    /// `scrollProxy` is the invisible scroll view (see its doc); the tests pass a subclass.
     ///
     /// The pipeline is built here from the app's default library (Canvas.metal), once per view. If
     /// it does not build, the error is logged and the canvas only clears to the surround: the editor
     /// stays usable, and CanvasTextureTests fails on the same error. A device that cannot make a
     /// command queue is out of resources at launch, with nothing to degrade to.
-    init(frames: FrameSink, device: some MTLDevice) {
+    init(
+        frames     : FrameSink,
+        device     : some MTLDevice,
+        scrollProxy: UIScrollView = UIScrollView()
+    ) {
         guard let commandQueue = device.makeCommandQueue() else {
             fatalError("CanvasView: the device cannot make a command queue")
         }
@@ -346,6 +366,7 @@ final class CanvasView: UIView {
 
         self.frames       = frames
         self.commandQueue = commandQueue
+        self.scrollProxy  = scrollProxy
         self.previewFloor = Self.newestGeneration(frames.published())
 
         super.init(frame: .zero)
@@ -496,6 +517,9 @@ final class CanvasView: UIView {
         let link = CAMetalDisplayLink(metalLayer: metalLayer)
         link.delegate                = self
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+        // Asks for one frame of latency (default 2). On the iPad Air it changed neither the update's
+        // lead nor the presented times (33 ms from update to glass either way, F5) and dropped nothing.
+        link.preferredFrameLatency   = 1
         link.isPaused                = !isDirty
         link.add(to: .main, forMode: .common)
 
@@ -534,7 +558,17 @@ final class CanvasView: UIView {
     /// cleared before `encodeFrame` reads the sink, so a frame published after that read marks the
     /// view again and gets its own draw instead of being lost.
     private func displayLinkNeedsUpdate(_ link: CAMetalDisplayLink, update: CAMetalDisplayLink.Update) {
-        let outcome = FrameTimingProbe.shared.measure("Tick") { drawIfDirty(link, update: update) }
+        let recorder = InputRecorder.shared
+        let began    = recorder.now
+        let outcome  = FrameTimingProbe.shared.measure("Tick") { drawIfDirty(link, update: update) }
+
+        recorder.update(
+            began          : began,
+            target         : update.targetPresentationTimestamp,
+            zoom           : canvasTransform.zoom,
+            drawable       : outcome.drew ? update.drawable.drawableID : nil,
+            windowInFlight : began > 0 && isWindowInFlight
+        )
 
         FrameTimingProbe.shared.tick(
             at          : update.targetPresentationTimestamp,
@@ -551,11 +585,12 @@ final class CanvasView: UIView {
         update: CAMetalDisplayLink.Update
     ) -> (wantedDraw: Bool, drew: Bool) {
         advanceSpring(to: update.targetPresentationTimestamp)
+        advanceZoomEasing(to: update.targetPresentationTimestamp)
         reportZoom()
         updateVisibleWindow(at: CACurrentMediaTime())
 
         guard isDirty else {
-            link.isPaused = spring == nil && !isWindowUpdatePending
+            link.isPaused = spring == nil && zoomEasing.isIdle && !isWindowUpdatePending
             return (false, false)
         }
 
@@ -575,7 +610,7 @@ final class CanvasView: UIView {
             crossThread.isCommandBufferInFlight.store(false, ordering: .releasing)
         }
 
-        link.isPaused = !isDirty && spring == nil && !isWindowUpdatePending
+        link.isPaused = !isDirty && spring == nil && zoomEasing.isIdle && !isWindowUpdatePending
         return (true, isEncoded)
     }
 
@@ -780,6 +815,7 @@ final class CanvasView: UIView {
             let isDropped = drawable.presentedTime == 0
 
             FrameTimingProbe.shared.presented(at: drawable.presentedTime, isContinuation: isContinuation)
+            InputRecorder.shared.presented(drawable: drawable.drawableID, at: drawable.presentedTime)
 
             let isDrawnAgain = crossThread.droppedFrames.withLock { retries in
                 retries.shouldDrawAgain(isDropped: isDropped, at: .now)
@@ -846,9 +882,17 @@ final class CanvasView: UIView {
     // MARK: - Gestures
 
     /// handlePinch zooms around the fingers; resetting `scale` makes each call a relative step. A
-    /// trackpad pinch is damped (ZoomScale.indirectPinchFactor); fit and 100 % tick (TickHaptics).
+    /// trackpad pinch's scale is cumulative, so its step is the ratio to the last one, damped
+    /// (ZoomScale.indirectPinchFactor) and eased (`easeZoom`); fit and 100 % tick (TickHaptics).
     @objc
     private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
+        let began = InputRecorder.shared.now
+
+        // A trackpad pinch arrives as a transform event, with no touches.
+        let isIndirect = recognizer.numberOfTouches == 0
+        let raw        = Double(recognizer.scale)
+        var factor     = 1.0
+
         switch recognizer.state {
             case .began, .changed:
                 spring = nil
@@ -856,23 +900,41 @@ final class CanvasView: UIView {
 
                 guard let scale = zoomScale else { return }
 
-                // A trackpad pinch arrives as a transform event, with no touches.
-                let isIndirect = recognizer.numberOfTouches == 0
-                let factor     = Double(recognizer.scale)
+                if isIndirect {
+                    if recognizer.state == .began {
+                        lastIndirectPinchScale = 1
+                    }
 
-                zoom(
-                    by     : isIndirect ? ZoomScale.indirectPinchFactor(for: factor) : factor,
-                    around : recognizer.location(in: self),
-                    scale  : scale
-                )
-                recognizer.scale = 1
+                    factor                 = ZoomScale.indirectPinchFactor(for: raw / lastIndirectPinchScale)
+                    lastIndirectPinchScale = raw
+                    easeZoom(by: factor, around: recognizer.location(in: self))
+                } else {
+                    factor = raw
+                    zoomEasing.reset()
+                    zoom(
+                        by     : factor,
+                        around : recognizer.location(in: self),
+                        scale  : scale
+                    )
+                    recognizer.scale = 1
+                }
 
             case .ended, .cancelled, .failed:
-                settle(velocity: .zero)
+                settleAfterZoomEasing()
 
             default:
                 break
         }
+
+        InputRecorder.shared.event(
+            "pinch",
+            state      : recognizer.state,
+            rawX       : raw,
+            factor     : factor,
+            zoom       : canvasTransform.zoom,
+            isIndirect : isIndirect,
+            began      : began
+        )
     }
 
     /// zoom(by:around:scale:) is one zoom step of a pinch or of Cmd + scroll: it zooms about `center`
@@ -900,6 +962,61 @@ final class CanvasView: UIView {
         }
 
         FrameTimingProbe.shared.measure("HapticPrepare") { haptics.prepare() }
+    }
+
+    /// easeZoom(by:around:) owes the display a trackpad zoom step about `center`, shown over the
+    /// next display updates (ZoomEasing); under Reduce Motion it zooms at once. It stops a scroll
+    /// glide first, so the pan and the zoom never fight. Internal for the tests.
+    func easeZoom(by factor: Double, around center: CGPoint) {
+        spring = nil
+        stopScrollGlide()
+
+        guard let scale = zoomScale else { return }
+
+        guard !UIAccessibility.isReduceMotionEnabled else {
+            zoom(by: factor, around: center, scale: scale)
+            return
+        }
+
+        if zoomEasing.isIdle {
+            lastZoomEasingTime = CACurrentMediaTime()
+        }
+
+        zoomEasing.add(factor, around: center)
+        settlesAfterZoomEasing = false
+        displayLink?.isPaused  = false
+    }
+
+    /// advanceZoomEasing shows the part of the owed zoom due by `time`, through `zoom(by:around:scale:)`
+    /// so the landmark ticks and the windows follow the zoom on screen, and settles a gesture that
+    /// ended meanwhile once nothing is owed.
+    private func advanceZoomEasing(to time: CFTimeInterval) {
+        guard !zoomEasing.isIdle else { return }
+
+        guard let scale = zoomScale else {
+            zoomEasing.reset()
+            settlesAfterZoomEasing = false
+            return
+        }
+
+        let factor = zoomEasing.step(elapsed: time - lastZoomEasingTime)
+        lastZoomEasingTime = time
+
+        zoom(by: factor, around: zoomEasing.anchor, scale: scale)
+
+        if zoomEasing.isIdle, settlesAfterZoomEasing {
+            settlesAfterZoomEasing = false
+            settle(velocity: .zero)
+        }
+    }
+
+    /// settleAfterZoomEasing settles a trackpad zoom that ended now, or once its owed zoom is shown.
+    private func settleAfterZoomEasing() {
+        if zoomEasing.isIdle {
+            settle(velocity: .zero)
+        } else {
+            settlesAfterZoomEasing = true
+        }
     }
 
     /// handlePan moves the image, rubber-banded past the edges; resetting the translation makes
@@ -939,28 +1056,34 @@ final class CanvasView: UIView {
     /// scroll without Cmd pans through `scrollProxy`. A zoom never glides.
     @objc
     private func handleScroll(_ recognizer: UIPanGestureRecognizer) {
+        let began       = InputRecorder.shared.now
+        let translation = recognizer.translation(in: self)
+        var factor      = 1.0
+
         switch recognizer.state {
             case .began, .changed:
-                spring = nil
-                stopScrollGlide()
-
-                let translation = recognizer.translation(in: self)
                 recognizer.setTranslation(.zero, in: self)
 
-                guard let scale = zoomScale else { return }
-
-                zoom(
-                    by     : ZoomScale.scrollZoomFactor(forTranslation: Double(translation.y)),
-                    around : recognizer.location(in: self),
-                    scale  : scale
-                )
+                factor = ZoomScale.scrollZoomFactor(forTranslation: Double(translation.y))
+                easeZoom(by: factor, around: recognizer.location(in: self))
 
             case .ended, .cancelled, .failed:
-                settle(velocity: .zero)
+                settleAfterZoomEasing()
 
             default:
                 break
         }
+
+        InputRecorder.shared.event(
+            "cmd-scroll",
+            state      : recognizer.state,
+            rawX       : Double(translation.x),
+            rawY       : Double(translation.y),
+            factor     : factor,
+            zoom       : canvasTransform.zoom,
+            isIndirect : recognizer.numberOfTouches == 0,
+            began      : began
+        )
     }
 
     /// handleDoubleTap toggles fit and the photo's real 100 % around the tap (see
@@ -981,6 +1104,8 @@ final class CanvasView: UIView {
 
     /// move goes to `target` with the snap spring, or at once under Reduce Motion.
     private func move(to target: CanvasTransform) {
+        zoomEasing.reset()
+
         if UIAccessibility.isReduceMotionEnabled {
             spring          = nil
             canvasTransform = target
@@ -1175,6 +1300,8 @@ final class CanvasView: UIView {
         velocity : SIMD2<Double>,
         frequency: Double
     ) {
+        zoomEasing.reset()
+        settlesAfterZoomEasing = false
         spring = CanvasSpring(
             from           : canvasTransform,
             to             : target,
@@ -1251,7 +1378,8 @@ final class CanvasView: UIView {
         let wanted      = visibleWindow(for: canvasTransform)
         let isZooming   = time - lastZoomChange < Self.windowRequestInterval
         let isScrolling = time - scrollProxyMoved < Self.windowRequestInterval
-        let isMoving    = isGestureActive || spring != nil || isMeasurementPanning || isScrolling
+        let isEasing    = !zoomEasing.isIdle
+        let isMoving    = isGestureActive || spring != nil || isEasing || isMeasurementPanning || isScrolling
 
         wantedWindow = wanted
 
@@ -1292,6 +1420,16 @@ final class CanvasView: UIView {
         isWindowUpdatePending = false
 
         FrameTimingProbe.shared.measure("WindowChange") { onVisibleWindowChange?(wanted, isSentWindowDraft) }
+    }
+
+    /// isWindowInFlight says the window last asked for has not landed yet: the sink shows another
+    /// placement, or a draft where a full window was asked for (InputRecorder).
+    private var isWindowInFlight: Bool {
+        guard let sentWindow else { return false }
+
+        let shown = frames.published().window
+
+        return shown?.window != sentWindow || (shown?.isDraft == true && !isSentWindowDraft)
     }
 
     /// wakeForWindowUpdate runs the display link for at least one tick, so `updateVisibleWindow`
@@ -1422,8 +1560,13 @@ final class CanvasView: UIView {
     private func stopScrollGlide() {
         guard isScrollProxyGliding else { return }
 
+        // The stop can report an offset hundreds of points past the glide's last step (F5 recording):
+        // the image stays where it was seen, so that travel is never applied.
         isScrollProxyAnimating = false
+        isStoppingScrollGlide  = true
         scrollProxy.setContentOffset(scrollProxy.contentOffset, animated: false)
+        isStoppingScrollGlide  = false
+        scrollProxyOffset      = scrollProxy.contentOffset
     }
 
     /// acceptsScroll(fromProxy:withCommand:) splits a trackpad or wheel scroll between the two
@@ -1517,12 +1660,26 @@ extension CanvasView: UIScrollViewDelegate {
     /// (content follows the fingers), rubber-banded past the edges like a finger's pan. A glide that
     /// carries the image past an edge stops there and springs back, as a scroll view bounces.
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        let began  = InputRecorder.shared.now
         let offset = scrollView.contentOffset
         let delta  = CGPoint(x: offset.x - scrollProxyOffset.x, y: offset.y - scrollProxyOffset.y)
 
         scrollProxyOffset = offset
 
-        guard delta != .zero else { return }
+        guard delta != .zero, !isStoppingScrollGlide else { return }
+
+        defer {
+            InputRecorder.shared.event(
+                "scroll",
+                state      : scrollView.panGestureRecognizer.state,
+                rawX       : Double(delta.x),
+                rawY       : Double(delta.y),
+                factor     : 1,
+                zoom       : canvasTransform.zoom,
+                isIndirect : true,
+                began      : began
+            )
+        }
 
         spring                 = nil
         scrollProxyMoved       = CACurrentMediaTime()
