@@ -29,7 +29,8 @@ struct HistogramView<Engine: EngineDriving, Importer: PhotoImporting>: View {
     @Environment(\.accessibilityReduceMotion)
     private var reduceMotion
 
-    private let plotHeight  : CGFloat = 64
+    /// plotAspect is the plot's width over its height.
+    private let plotAspect  : CGFloat = 3
     private let cornerRadius: CGFloat = 12
 
     var body: some View {
@@ -70,6 +71,9 @@ struct HistogramView<Engine: EngineDriving, Importer: PhotoImporting>: View {
     /// each full preview gets its own, which is what cross-fades.
     private func plot(_ histogram: FrameHistogram?) -> some View {
         ZStack {
+            // Gives the plot its size before the first histogram arrives.
+            Color.clear
+
             if let histogram {
                 HistogramPlot(histogram: histogram)
                     .id(Self.fadeKey(of: histogram))
@@ -77,7 +81,7 @@ struct HistogramView<Engine: EngineDriving, Importer: PhotoImporting>: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: plotHeight)
+        .aspectRatio(plotAspect, contentMode: .fit)
         .background(.black.opacity(0.35), in: .rect(cornerRadius: cornerRadius))
         .clipShape(.rect(cornerRadius: cornerRadius))
         .animation(fade(to: histogram), value: histogram.map(Self.fadeKey))

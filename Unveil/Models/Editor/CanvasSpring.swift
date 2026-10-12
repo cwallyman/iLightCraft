@@ -30,6 +30,22 @@ nonisolated struct CanvasSpring: Sendable {
     /// snapFrequency is for the double tap and the rubber band: settled in about half a second.
     static let snapFrequency      = 11.0
 
+    /// releaseVelocity(_:isPointer:) is the velocity a released pan hands to its glide: the finger's
+    /// own, but none for a mouse or trackpad drag, whose release speed is the hand's, far above
+    /// a finger's, and which stops where it is let go in every desktop editor.
+    static func releaseVelocity(_ velocity: SIMD2<Double>, isPointer: Bool) -> SIMD2<Double> {
+        isPointer ? .zero : velocity
+    }
+
+    /// scrollGlideDamping scales a trackpad scroll's release velocity: a two-finger swipe lifts at
+    /// a speed that would throw the image far with a finger's glide.
+    static let scrollGlideDamping = 0.5
+
+    /// scrollReleaseVelocity(_:) is the velocity a released trackpad or wheel scroll hands to its glide.
+    static func scrollReleaseVelocity(_ velocity: SIMD2<Double>) -> SIMD2<Double> {
+        velocity * scrollGlideDamping
+    }
+
     let start          : CanvasTransform
     let target         : CanvasTransform
     let offsetVelocity : SIMD2<Double>

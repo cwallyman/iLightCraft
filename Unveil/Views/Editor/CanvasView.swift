@@ -14,6 +14,9 @@ import UIKit
 /// both ends), pan with momentum and rubber-banded edges, and a double tap that toggles between
 /// fit and 100 % at the tap point. A single tap is handed to `onSingleTap`.
 ///
+/// A mouse or trackpad drags the image one to one with no momentum, a trackpad scroll or wheel pans
+/// like a scroll view, and Cmd with the scroll zooms around the pointer.
+///
 /// The gestures write the transform directly while the fingers are down; when they lift, a
 /// CanvasSpring carries it to where it should rest (see CanvasTransform.settled), with the flick's
 /// velocity as momentum. The spring runs on the same display link as the redraw, so the link stays
@@ -79,6 +82,16 @@ final class CanvasView: UIView {
     private let panRecognizer   = UIPanGestureRecognizer()
     private let holdRecognizer  = UILongPressGestureRecognizer()
     private var isHolding       = false
+
+    /// pointerPanRecognizer is the click-drag pan of a mouse or trackpad, apart from the finger's
+    /// so its release carries no momentum; scrollRecognizer is the two-finger trackpad scroll and
+    /// the wheel (Cmd held: zoom around the pointer).
+    private let pointerPanRecognizer = UIPanGestureRecognizer()
+    private let scrollRecognizer     = UIPanGestureRecognizer()
+
+    /// isScrollZooming is true once the running scroll gesture zoomed (Cmd was held), so its end
+    /// carries no glide.
+    private var isScrollZooming = false
 
     /// holdDuration is how long a still finger must stay down before the before look shows.
     static let holdDuration: TimeInterval = 0.35
@@ -752,34 +765,16 @@ final class CanvasView: UIView {
 
                 guard let scale = zoomScale else { return }
 
-                let zoomBefore = canvasTransform.zoom
-                let center     = recognizer.location(in: self)
-
                 // A trackpad pinch arrives as a transform event, with no touches.
                 let isIndirect = recognizer.numberOfTouches == 0
                 let factor     = Double(recognizer.scale)
 
-                canvasTransform.pinch(
-                    by       : isIndirect ? ZoomScale.indirectPinchFactor(for: factor) : factor,
-                    around   : center,
-                    range    : scale.range,
-                    viewSize : bounds.size
+                zoom(
+                    by     : isIndirect ? ZoomScale.indirectPinchFactor(for: factor) : factor,
+                    around : recognizer.location(in: self),
+                    scale  : scale
                 )
                 recognizer.scale = 1
-                pinchCenter      = center
-
-                let tick = scale.landmarkTick(
-                    from     : zoomBefore,
-                    to       : canvasTransform.zoom,
-                    disarmed : disarmedLandmark
-                )
-                disarmedLandmark = tick.disarmed
-
-                if tick.ticks {
-                    haptics.tick(at: center)
-                }
-
-                haptics.prepare()
 
             case .ended, .cancelled, .failed:
                 settle(velocity: .zero)
@@ -789,8 +784,35 @@ final class CanvasView: UIView {
         }
     }
 
+    /// zoom(by:around:scale:) is one zoom step of a pinch or of Cmd + scroll: it zooms about `center`
+    /// within the range, remembers the center for the spring back, and ticks at fit and 100 %.
+    private func zoom(by factor: Double, around center: CGPoint, scale: ZoomScale) {
+        let zoomBefore = canvasTransform.zoom
+
+        canvasTransform.pinch(
+            by       : factor,
+            around   : center,
+            range    : scale.range,
+            viewSize : bounds.size
+        )
+        pinchCenter = center
+
+        let tick = scale.landmarkTick(
+            from     : zoomBefore,
+            to       : canvasTransform.zoom,
+            disarmed : disarmedLandmark
+        )
+        disarmedLandmark = tick.disarmed
+
+        if tick.ticks {
+            haptics.tick(at: center)
+        }
+
+        haptics.prepare()
+    }
+
     /// handlePan moves the image, rubber-banded past the edges; resetting the translation makes
-    /// each call a relative step. On release the flick's velocity becomes momentum.
+    /// each call a relative step. On release a finger's flick becomes momentum, a pointer's does not.
     @objc
     private func handlePan(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
@@ -805,9 +827,66 @@ final class CanvasView: UIView {
 
             case .ended:
                 let velocity = recognizer.velocity(in: self)
-                settle(velocity: SIMD2<Double>(Double(velocity.x), Double(velocity.y)))
+                let release  = CanvasSpring.releaseVelocity(
+                    SIMD2<Double>(Double(velocity.x), Double(velocity.y)),
+                    isPointer: recognizer === pointerPanRecognizer
+                )
+
+                settle(velocity: release)
 
             case .cancelled, .failed:
+                settle(velocity: .zero)
+
+            default:
+                break
+        }
+    }
+
+    /// handleScroll follows a trackpad two-finger scroll or a wheel one to one, like a scroll
+    /// view; with Cmd held the vertical travel zooms around the pointer instead.
+    ///
+    /// UIKit gives a scroll pan no momentum phase, and whether the system sends its own as further
+    /// changes is not documented. So the end hands the release velocity on, damped
+    /// (CanvasSpring.scrollReleaseVelocity): with system momentum it is near zero, without it the
+    /// pan glides like a scroll view. A zoom never glides.
+    @objc
+    private func handleScroll(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+            case .began, .changed:
+                spring = nil
+
+                let translation = recognizer.translation(in: self)
+                recognizer.setTranslation(.zero, in: self)
+
+                if recognizer.modifierFlags.contains(.command) {
+                    guard let scale = zoomScale else { return }
+
+                    isScrollZooming = true
+
+                    zoom(
+                        by     : ZoomScale.scrollZoomFactor(forTranslation: Double(translation.y)),
+                        around : recognizer.location(in: self),
+                        scale  : scale
+                    )
+                } else {
+                    canvasTransform.pan(
+                        by        : translation,
+                        viewSize  : bounds.size,
+                        imageSize : imageSize
+                    )
+                }
+
+            case .ended:
+                let velocity = recognizer.velocity(in: self)
+                let release  = isScrollZooming
+                    ? SIMD2<Double>.zero
+                    : CanvasSpring.scrollReleaseVelocity(SIMD2<Double>(Double(velocity.x), Double(velocity.y)))
+
+                isScrollZooming = false
+                settle(velocity: release)
+
+            case .cancelled, .failed:
+                isScrollZooming = false
                 settle(velocity: .zero)
 
             default:
@@ -933,7 +1012,9 @@ final class CanvasView: UIView {
     }
 
     private var isGestureActive: Bool {
-        [pinchRecognizer.state, panRecognizer.state].contains { $0 == .began || $0 == .changed }
+        [pinchRecognizer, panRecognizer, pointerPanRecognizer, scrollRecognizer].contains {
+            $0.state == .began || $0.state == .changed
+        }
     }
 
     /// settle springs the transform to where it should rest once no finger moves it. A flick
@@ -1119,12 +1200,18 @@ final class CanvasView: UIView {
         attachment?.clearColor  = EditorSurround.metalClearColor
     }
 
+    private static func touchType(_ type: UITouch.TouchType) -> NSNumber {
+        NSNumber(value: type.rawValue)
+    }
+
     private func configureGestures() {
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
         let singleTap = UITapGestureRecognizer(target: self, action: #selector(handleSingleTap(_:)))
 
         pinchRecognizer.addTarget(self, action: #selector(handlePinch(_:)))
         panRecognizer.addTarget(self, action: #selector(handlePan(_:)))
+        pointerPanRecognizer.addTarget(self, action: #selector(handlePan(_:)))
+        scrollRecognizer.addTarget(self, action: #selector(handleScroll(_:)))
 
         holdRecognizer.addTarget(self, action: #selector(handleHold(_:)))
 
@@ -1133,12 +1220,23 @@ final class CanvasView: UIView {
         holdRecognizer.numberOfTouchesRequired = 1
         pinchRecognizer.delegate               = self
         panRecognizer.delegate                 = self
+        pointerPanRecognizer.delegate          = self
+        scrollRecognizer.delegate              = self
         holdRecognizer.delegate                = self
+
+        panRecognizer.allowedTouchTypes         = [Self.touchType(.direct), Self.touchType(.pencil)]
+        pointerPanRecognizer.allowedTouchTypes  = [Self.touchType(.indirectPointer)]
+        // No touches at all: the scroll recognizer only hears trackpad and wheel scroll events.
+        scrollRecognizer.allowedTouchTypes      = []
+        scrollRecognizer.allowedScrollTypesMask = .all
+
         singleTap.require(toFail: doubleTap)
         singleTap.require(toFail: holdRecognizer)
 
         addGestureRecognizer(pinchRecognizer)
         addGestureRecognizer(panRecognizer)
+        addGestureRecognizer(pointerPanRecognizer)
+        addGestureRecognizer(scrollRecognizer)
         addGestureRecognizer(holdRecognizer)
         addGestureRecognizer(doubleTap)
         addGestureRecognizer(singleTap)
