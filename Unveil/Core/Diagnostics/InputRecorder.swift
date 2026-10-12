@@ -21,7 +21,8 @@ import UIKit
 /// update's time and target presentation time, the main time of the update (the draw included)
 /// and of the gesture handlers since the previous update, whether it drew, whether the window the
 /// canvas asked for had not landed yet (a window render in flight), and, once Metal reports it,
-/// when its drawable was presented (0: never shown).
+/// when its drawable was presented (0: never shown). Frame rows also carry the scroll proxy's
+/// offset and the image offset at that update, and whether the proxy glides (fingers lifted).
 ///
 /// Times are media-time seconds from the start (`CACurrentMediaTime`, the presented time's clock
 /// too). It stops by itself after the given time, writes `Documents/measurements/<time>.input.csv`
@@ -31,7 +32,8 @@ nonisolated final class InputRecorder: Sendable {
     static let shared = InputRecorder()
 
     static let header = "kind,t,source,state,raw_x,raw_y,factor,zoom,indirect,handler_ms,"
-        + "target_t,update_ms,gesture_ms,drew,window_in_flight,drawable,presented_t"
+        + "target_t,update_ms,gesture_ms,drew,window_in_flight,drawable,presented_t,"
+        + "proxy_x,proxy_y,offset_x,offset_y,gliding"
 
     private let state = Mutex(State())
 
@@ -54,6 +56,11 @@ nonisolated final class InputRecorder: Sendable {
         var windowInFlight = false
         var drawable       = 0
         var presentedTime  = -1.0
+        var proxyX         = 0.0
+        var proxyY         = 0.0
+        var offsetX        = 0.0
+        var offsetY        = 0.0
+        var isGliding      = false
     }
 
     private struct State {
@@ -141,13 +148,17 @@ nonisolated final class InputRecorder: Sendable {
     }
 
     /// update records one display link update of the canvas that began at `began`. `drawable` is
-    /// the id of the drawable it drew into, nil when it did not draw. Main only.
+    /// the id of the drawable it drew into, nil when it did not draw. `proxy` is the scroll proxy's
+    /// offset and `offset` the image offset after the update. Main only.
     func update(
         began          : CFTimeInterval,
         target         : CFTimeInterval,
         zoom           : Double,
         drawable       : Int?,
-        windowInFlight : Bool
+        windowInFlight : Bool,
+        proxy          : CGPoint,
+        offset         : SIMD2<Double>,
+        isGliding      : Bool
     ) {
         guard began > 0 else { return }
 
@@ -169,7 +180,12 @@ nonisolated final class InputRecorder: Sendable {
                 gestureTime    : current.gestureTime,
                 drew           : drawable != nil,
                 windowInFlight : windowInFlight,
-                drawable       : drawable ?? 0
+                drawable       : drawable ?? 0,
+                proxyX         : Double(proxy.x),
+                proxyY         : Double(proxy.y),
+                offsetX        : offset.x,
+                offsetY        : offset.y,
+                isGliding      : isGliding
             ))
             current.gestureTime = 0
         }
@@ -186,7 +202,7 @@ nonisolated final class InputRecorder: Sendable {
 
     private static func line(_ row: Row) -> String {
         String(
-            format: "%@,%.6f,%@,%@,%.4f,%.4f,%.6f,%.6f,%d,%.3f,%.6f,%.3f,%.3f,%d,%d,%d,%.6f",
+            format: "%@,%.6f,%@,%@,%.4f,%.4f,%.6f,%.6f,%d,%.3f,%.6f,%.3f,%.3f,%d,%d,%d,%.6f,%.3f,%.3f,%.3f,%.3f,%d",
             row.kind,
             row.time,
             row.source,
@@ -203,7 +219,12 @@ nonisolated final class InputRecorder: Sendable {
             row.drew ? 1 : 0,
             row.windowInFlight ? 1 : 0,
             row.drawable,
-            row.presentedTime
+            row.presentedTime,
+            row.proxyX,
+            row.proxyY,
+            row.offsetX,
+            row.offsetY,
+            row.isGliding ? 1 : 0
         )
     }
 
@@ -250,7 +271,10 @@ nonisolated final class InputRecorder: Sendable {
         target         : CFTimeInterval,
         zoom           : Double,
         drawable       : Int?,
-        windowInFlight : Bool
+        windowInFlight : Bool,
+        proxy          : CGPoint,
+        offset         : SIMD2<Double>,
+        isGliding      : Bool
     ) {}
 
     @inline(__always)

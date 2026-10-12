@@ -6,7 +6,8 @@
 import Foundation
 
 /// CanvasSpring animates the canvas from one transform to another with a critically damped
-/// spring: the fastest motion that never overshoots its target, so the image glides in and stops.
+/// spring: the fastest motion that, started at rest, never overshoots its target, so the image
+/// glides in and stops.
 ///
 /// It is a closed-form value, not a simulation: `transform(at:)` is a pure function of the time
 /// since the start, so a dropped display frame costs nothing and the animation cannot drift. Each
@@ -17,8 +18,9 @@ import Foundation
 /// The same spring does momentum. A flick starts at the finger's velocity toward a target
 /// projected half a second ahead (what UIScrollView's normal deceleration would travel); with
 /// `w = 2 / 0.5` the spring's pull and its damping cancel at the start, so the image leaves the
-/// finger at the finger's speed and only slows down. If the target was clamped to an edge, the
-/// same spring stops the image there sooner.
+/// finger at the finger's speed and only slows down. A velocity carries the spring past its target
+/// when it exceeds `frequency` times the distance left, which is what happens when the target is
+/// clamped to an edge: `momentumVelocity` caps it, so the image comes to rest on the edge instead.
 nonisolated struct CanvasSpring: Sendable {
 
     /// momentumProjection is how far ahead, in seconds of velocity, a flick lands.
@@ -35,6 +37,44 @@ nonisolated struct CanvasSpring: Sendable {
     /// a finger's, and which stops where it is let go in every desktop editor.
     static func releaseVelocity(_ velocity: SIMD2<Double>, isPointer: Bool) -> SIMD2<Double> {
         isPointer ? .zero : velocity
+    }
+
+    /// momentumVelocity(_:from:to:) is the part of a flick's velocity the momentum spring can carry
+    /// without passing `target`, per axis. Moving toward the target the spring's offset stays on
+    /// the start's side while the speed is at most `momentumFrequency` times the gap, so the speed
+    /// is capped there; an unclamped target (half a second ahead) has twice that room, so a free
+    /// glide keeps its whole velocity. Moving away, or already on the target (an edge), or past it
+    /// in the rubber band, the spring would first carry the image further out (up to 1000 pt in the
+    /// F6 recording), so there is no momentum and the axis simply settles back.
+    static func momentumVelocity(
+        _ velocity : SIMD2<Double>,
+        from start : SIMD2<Double>,
+        to target  : SIMD2<Double>
+    ) -> SIMD2<Double> {
+        func capped(_ speed: Double, toward gap: Double) -> Double {
+            guard speed * gap > 0 else { return 0 }
+
+            let reach = momentumFrequency * gap
+
+            return speed > 0 ? min(speed, reach) : max(speed, reach)
+        }
+
+        let gap = target - start
+
+        return SIMD2(capped(velocity.x, toward: gap.x), capped(velocity.y, toward: gap.y))
+    }
+
+    /// startTime(firstFrame:previousFrame:frameInterval:) is when a spring first evaluated for the
+    /// frame shown at `firstFrame` starts: the previous frame, the one showing its start, or one
+    /// display refresh (`frameInterval`) earlier if the display link slept. The release time was
+    /// 2 frames before `firstFrame` (the link's pipeline), so a glide's first frame jumped 2.4
+    /// times its next step (F6 recording).
+    static func startTime(
+        firstFrame    : Double,
+        previousFrame : Double,
+        frameInterval : Double
+    ) -> Double {
+        max(previousFrame, firstFrame - frameInterval)
     }
 
     let start          : CanvasTransform

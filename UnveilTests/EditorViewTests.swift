@@ -9,7 +9,7 @@ import Testing
 import UIKit
 @testable import Unveil
 
-@Suite(.serialized)
+@Suite(.serialized, .exclusiveWindow)
 @MainActor
 struct EditorViewTests {
 

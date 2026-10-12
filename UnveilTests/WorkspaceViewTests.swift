@@ -9,6 +9,7 @@ import Testing
 import UIKit
 @testable import Unveil
 
+@Suite(.exclusiveWindow)
 @MainActor
 struct WorkspaceViewTests {
 
