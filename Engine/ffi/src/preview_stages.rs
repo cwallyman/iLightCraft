@@ -59,7 +59,16 @@ impl PreviewStages {
     }
 
     pub(crate) fn bytes(&self) -> usize {
-        self.cache.bytes() + lightcraft_engine::gpu::stage_bytes(&self.cache)
+        self.cpu_bytes() + self.gpu_bytes()
+    }
+
+    /// cpu_bytes is what the stages hold in host memory, gpu_bytes what they hold on the device.
+    pub(crate) fn cpu_bytes(&self) -> usize {
+        self.cache.bytes()
+    }
+
+    pub(crate) fn gpu_bytes(&self) -> usize {
+        lightcraft_engine::gpu::stage_bytes(&self.cache)
     }
 }
 

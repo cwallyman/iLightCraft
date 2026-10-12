@@ -226,6 +226,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         commitPendingNudge()
 
         let signpost = Signposts.beginOpen()
+        OpenTimeline.mark("open")
         let copy: (url: URL, isNew: Bool)
 
         do {
@@ -292,6 +293,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
             do throws(EngineError) {
                 previewGeneration = try self.requestPreview(draft: false)
+                OpenTimeline.mark("preview-requested")
             } catch .suspended {
                 // The app left mid-open: refreshPreview redraws on resume, so there is nothing to say.
             } catch {
@@ -809,8 +811,12 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             "ImportCopy",
             id: Signposts.signposter.makeSignpostID()
         )
-        defer { Signposts.signposter.endInterval("ImportCopy", signpost) }
+        defer {
+            Signposts.signposter.endInterval("ImportCopy", signpost)
+            OpenTimeline.mark("copy-end")
+        }
 
+        OpenTimeline.mark("copy-begin")
         return try importer.importCopy(of: pickedURL)
     }
 

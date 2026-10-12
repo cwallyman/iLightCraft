@@ -25,6 +25,10 @@ final class StressSweep<Engine: EngineDriving, Importer: PhotoImporting>: NSObje
     private let viewModel: EditorViewModel<Engine, Importer>
     private let duration : Double
     private let sampler  = FootprintSampler()
+
+    /// releasesEveryTick turns every tick into a released drag, so each frame asked for is a full one.
+    private let releasesEveryTick: Bool
+
     private let onFinish : @MainActor (_ isComplete: Bool, _ csv: URL) -> Void
 
     private var displayLink: CADisplayLink?
@@ -37,10 +41,12 @@ final class StressSweep<Engine: EngineDriving, Importer: PhotoImporting>: NSObje
     init(
         viewModel: EditorViewModel<Engine, Importer>,
         duration : Double,
+        releasesEveryTick: Bool = false,
         onFinish : @escaping @MainActor (_ isComplete: Bool, _ csv: URL) -> Void
     ) {
         self.viewModel = viewModel
         self.duration  = duration
+        self.releasesEveryTick = releasesEveryTick
         self.onFinish  = onFinish
     }
 
@@ -91,7 +97,7 @@ final class StressSweep<Engine: EngineDriving, Importer: PhotoImporting>: NSObje
         let value = Self.exposure(at: elapsed)
         Task { await viewModel.drag(.exposure, to: value) }
 
-        if Self.isRelease(from: lastElapsed, to: elapsed) {
+        if releasesEveryTick || Self.isRelease(from: lastElapsed, to: elapsed) {
             Task { await viewModel.endDrag(.exposure) }
         }
 

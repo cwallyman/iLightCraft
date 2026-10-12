@@ -4,6 +4,7 @@
 extern crate lightcraft_engine as _;
 
 pub mod delta_e;
+mod diagnostics;
 mod last_error;
 mod memory_budget;
 mod panic_guard;

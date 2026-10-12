@@ -61,6 +61,7 @@ nonisolated struct PhotoImporter: PhotoImporting {
             try imports.setResourceValues(noBackup)
 
             let hash = try Self.contentHash(of: pickedURL)
+            OpenTimeline.mark("hash-end")
             let copy = imports.appending(path: "\(hash)-\(pickedURL.lastPathComponent)")
 
             let isReused = try Self.reuseLock.withLock { _ throws -> Bool in

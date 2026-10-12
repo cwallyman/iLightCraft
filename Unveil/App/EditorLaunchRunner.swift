@@ -21,6 +21,7 @@ final class EditorLaunchRunner {
         guard !hasStarted else { return }
 
         hasStarted = true
+        ProcessCostProbe.registerMainThread()
         runLaunchCommand(engine: engine)
         #if DEBUG
         runInputRecording(options: options, engine: engine)
@@ -58,6 +59,10 @@ final class EditorLaunchRunner {
 
                 case "disk":
                     Self.printDiskSpace()
+                    exit(0)
+
+                case "metal":
+                    await Self.calibrateMemory(frames: engine.frames)
                     exit(0)
 
                 default:
@@ -140,8 +145,23 @@ final class EditorLaunchRunner {
             try? await Task.sleep(for: .seconds(options.delaySeconds))
             _ = try? await engine.diagnostic("app.gpu", params: [String: String]())
 
+            // The bridge's timers and logs are off in a normal launch: only these options switch them on.
+            if options.reportsTimeline || options.reportsMemoryMap || options.reportsCost {
+                _ = try? await engine.diagnostic("unveil.diagnostics", params: ["enabled": true])
+            }
+
+            let rawURL = URL.documentsDirectory.appending(path: "raw/\(fileName)")
+
+            if options.reportsTimeline {
+                await Self.prepareTimeline(for: rawURL, engine: engine)
+            }
+
+            if options.reportsTimeline || options.reportsMemoryMap {
+                OpenTimeline.start()
+            }
+
             print("measure: opening \(fileName)")
-            await session.open(pickedURL: URL.documentsDirectory.appending(path: "raw/\(fileName)"))
+            await session.open(pickedURL: rawURL)
 
             guard await Self.waitForFullFrame(in: engine.frames) else {
                 print("measure: no full frame for \(fileName): \(viewModel.errorMessage ?? "timed out")")
@@ -150,6 +170,29 @@ final class EditorLaunchRunner {
             }
 
             print("measure: first full frame")
+
+            let firstFrameAt = ContinuousClock.now
+
+            if options.reportsMemoryMap {
+                await Self.printMemoryMap("open", since: firstFrameAt, engine: engine)
+            }
+
+            if options.reportsTimeline {
+                try? await Task.sleep(for: .seconds(3))
+                await Self.printTimeline(engine: engine)
+
+                if options.exitsAfterSweep, !options.reportsMemoryMap, !options.reportsCost, options.sweepSeconds == nil {
+                    exit(0)
+                }
+            } else if options.reportsMemoryMap {
+                _ = OpenTimeline.stop()
+            }
+
+            if options.reportsMemoryMap {
+                await Self.runMemoryMap(canvas, engine: engine, firstFrameAt: firstFrameAt)
+                if options.exitsAfterSweep { exit(0) }
+                return
+            }
 
             if let panel = options.openPanel {
                 session.showPanel(panel)
@@ -178,14 +221,34 @@ final class EditorLaunchRunner {
                 return
             }
 
-            guard let seconds = options.sweepSeconds else { return }
+            if options.reportsCost {
+                await Self.settleBeforeCost(canvas, engine: engine, isZoomed: options.zoomPercent != nil)
+            }
+
+            guard let seconds = options.sweepSeconds else {
+                if options.reportsCost {
+                    await Self.printIdleCost(seconds: 30, engine: engine)
+                    if options.exitsAfterSweep { exit(0) }
+                }
+
+                return
+            }
 
             // A Debug build also writes the main thread's time during the sweep (FrameTimingProbe).
             let probe = FrameTimingProbe.shared
-            let sweep = StressSweep(viewModel: viewModel, duration: seconds) { isComplete, csv in
+            let cost = options.reportsCost ? await Self.beginCost(engine: engine) : nil
+            let sweep = StressSweep(
+                viewModel         : viewModel,
+                duration          : seconds,
+                releasesEveryTick : options.releasesEveryTick
+            ) { isComplete, csv in
                 canvas.isMeasurementPanning = false
 
                 Task {
+                    if let cost {
+                        await Self.printCost(cost, label: "sweep", isComplete: isComplete, engine: engine)
+                    }
+
                     await probe.writeReport(to: csv.deletingPathExtension().appendingPathExtension("timing.csv"))
                     if options.exitsAfterSweep { exit(isComplete ? 0 : 1) }
                 }

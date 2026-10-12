@@ -751,6 +751,12 @@ final class CanvasView: UIView {
         }
         #endif
 
+        if CanvasGPUTime.isActive {
+            commandBuffer.addCompletedHandler { buffer in
+                CanvasGPUTime.record(start: buffer.gpuStartTime, end: buffer.gpuEndTime)
+            }
+        }
+
         commandBuffer.present(drawable)
         commandBuffer.addCompletedHandler { [crossThread, frames] _ in
             crossThread.commandBufferCompleted(
