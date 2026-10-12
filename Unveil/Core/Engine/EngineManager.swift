@@ -332,14 +332,16 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
             throw .invalidArgument("maxPixels must be in 1...\(self.maxPixels), got \(maxPixels)")
         }
 
-        let generation = uv_request_preview(
-            session,
-            UInt32(maxPixels),
-            draft,
-            before,
-            Self.receiveFrame,
-            Unmanaged.passUnretained(frames).toOpaque()
-        )
+        let generation = FrameTimingProbe.shared.measure("RequestPreview") {
+            uv_request_preview(
+                session,
+                UInt32(maxPixels),
+                draft,
+                before,
+                Self.receiveFrame,
+                Unmanaged.passUnretained(frames).toOpaque()
+            )
+        }
 
         return try Self.requested(generation, isDraft: draft, isWindow: false)
     }
@@ -361,20 +363,22 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
             throw .invalidArgument("the window must fit 1...\(maxPixels) on each side, got \(window)")
         }
 
-        let generation = uv_request_window(
-            session,
-            UInt32(clamping: window.frameLong),
-            UInt32(clamping: window.frameLong),
-            UInt32(clamping: window.x),
-            UInt32(clamping: window.y),
-            UInt32(window.width),
-            UInt32(window.height),
-            draft,
-            before,
-            histogram,
-            Self.receiveFrame,
-            Unmanaged.passUnretained(frames).toOpaque()
-        )
+        let generation = FrameTimingProbe.shared.measure("RequestWindow") {
+            uv_request_window(
+                session,
+                UInt32(clamping: window.frameLong),
+                UInt32(clamping: window.frameLong),
+                UInt32(clamping: window.x),
+                UInt32(clamping: window.y),
+                UInt32(window.width),
+                UInt32(window.height),
+                draft,
+                before,
+                histogram,
+                Self.receiveFrame,
+                Unmanaged.passUnretained(frames).toOpaque()
+            )
+        }
 
         return try Self.requested(generation, isDraft: draft, isWindow: true)
     }
@@ -449,7 +453,7 @@ nonisolated final class EngineManager: EngineDriving, EngineDiagnosing, @uncheck
     /// releaseWindows frees what zoom windows keep resident in the engine (`uv_release_windows`):
     /// it only posts a message, so it never waits on the engine.
     func releaseWindows() {
-        uv_release_windows(session)
+        FrameTimingProbe.shared.measure("ReleaseWindows") { uv_release_windows(session) }
     }
 
     /// requested returns a request's generation and begins its `SliderToFrame`, or throws the

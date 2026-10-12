@@ -52,18 +52,29 @@ struct PointerInputTests {
         #expect(CanvasSpring.releaseVelocity(flick, isPointer: true) == .zero)
     }
 
-    /// A trackpad scroll's release glides at half the lift speed, in the same direction.
+    /// A scroll with Cmd held zooms (scrollRecognizer) and never pans, one without pans (the proxy's
+    /// recognizer) and never zooms; outside an event no modifier is held, so only the proxy begins.
     @Test
-    func aScrollReleaseGlidesDamped() {
-        let lift = SIMD2<Double>(1200, -400)
+    func cmdSplitsTheScrollBetweenZoomAndPan() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let canvas = CanvasView(frames: FrameSink(device: device, maxPixels: 16), device: device)
+        let proxy  = try #require(canvas.subviews.compactMap { $0 as? UIScrollView }.first)
+        let zoom   = try #require((canvas.gestureRecognizers ?? []).first { recognizer in
+            recognizer.allowedTouchTypes.isEmpty && recognizer !== proxy.panGestureRecognizer
+        })
 
-        #expect(CanvasSpring.scrollReleaseVelocity(lift) == lift * CanvasSpring.scrollGlideDamping)
-        #expect(CanvasSpring.scrollGlideDamping > 0 && CanvasSpring.scrollGlideDamping < 1)
-        #expect(CanvasSpring.scrollReleaseVelocity(.zero) == .zero)
+        #expect(CanvasView.acceptsScroll(fromProxy: true, withCommand: false))
+        #expect(!CanvasView.acceptsScroll(fromProxy: true, withCommand: true))
+        #expect(CanvasView.acceptsScroll(fromProxy: false, withCommand: true))
+        #expect(!CanvasView.acceptsScroll(fromProxy: false, withCommand: false))
+
+        #expect(canvas.gestureRecognizerShouldBegin(proxy.panGestureRecognizer))
+        #expect(!canvas.gestureRecognizerShouldBegin(zoom))
     }
 
     /// Fingers and the pencil pan one recognizer, the pointer's click-drag another (so only the
-    /// finger's gets momentum), and a third hears only scroll events, continuous and wheel.
+    /// finger's gets momentum), and two hear only scroll events, continuous and wheel: the Cmd zoom
+    /// and the pan of the invisible scroll view, whose own view never takes a touch.
     @Test
     func eachInputDeviceHasItsOwnPanRecognizer() throws {
         let device  = try #require(MTLCreateSystemDefaultDevice())
@@ -71,14 +82,17 @@ struct PointerInputTests {
         let pans    = (canvas.gestureRecognizers ?? []).compactMap { $0 as? UIPanGestureRecognizer }
         let direct  = NSNumber(value: UITouch.TouchType.direct.rawValue)
         let pointer = NSNumber(value: UITouch.TouchType.indirectPointer.rawValue)
+        let proxy   = try #require(canvas.subviews.compactMap { $0 as? UIScrollView }.first)
 
         let finger = pans.filter { $0.allowedTouchTypes.contains(direct) }
         let mouse  = pans.filter { $0.allowedTouchTypes.contains(pointer) }
         let scroll = pans.filter { $0.allowedTouchTypes.isEmpty && $0.allowedScrollTypesMask.contains(.continuous) }
 
-        #expect(pans.count == 3)
+        #expect(pans.count == 4)
         #expect(finger.count == 1 && !finger[0].allowedTouchTypes.contains(pointer))
         #expect(mouse.count == 1 && mouse[0].allowedTouchTypes == [pointer])
-        #expect(scroll.count == 1 && scroll[0].allowedScrollTypesMask.contains(.discrete))
+        #expect(scroll.count == 2 && scroll.allSatisfy { $0.allowedScrollTypesMask.contains(.discrete) })
+        #expect(scroll.contains { $0 === proxy.panGestureRecognizer })
+        #expect(!proxy.isUserInteractionEnabled)
     }
 }

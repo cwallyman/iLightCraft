@@ -189,6 +189,8 @@ final class EditorLaunchRunner {
     /// at fit (the window memory was released 2 s in), the third only 1 s (nothing released). It
     /// prints when each phase starts, how long each zoom took from its start (spring included) to
     /// its first window and first full window, and the engine's `library.memory` after each hold.
+    /// Then it pinches to 400 % and back, 1.5 s each way, with a rest after each. Every phase is a
+    /// FrameTimingProbe phase; a Debug build writes their table next to the memory CSV.
     private static func cycleZoom(_ canvas: CanvasView, engine: EngineManager) async {
         let sampler = FootprintSampler()
         let start   = ContinuousClock.now
@@ -199,8 +201,11 @@ final class EditorLaunchRunner {
             print("cycle: \(phase) memory \(memory)")
         }
 
+        let probe = FrameTimingProbe.shared
+
         UIApplication.shared.isIdleTimerDisabled = true
         sampler.start()
+        probe.start(phase: "fit-0")
         print("cycle: fit at \(start.duration(to: .now))")
         try? await Task.sleep(for: .seconds(20))
         await report("fit")
@@ -211,6 +216,7 @@ final class EditorLaunchRunner {
             var first  : Duration?
 
             print("cycle: zoom \(round) at \(start.duration(to: zoomed))")
+            probe.mark("zoom-in-\(round)")
             canvas.zoom(toPercent: 100)
 
             while zoomed.duration(to: .now) < .seconds(30) {
@@ -224,18 +230,75 @@ final class EditorLaunchRunner {
 
             let full = zoomed.duration(to: .now)
             print("cycle: zoom \(round) first window after \(first ?? full), first full window after \(full)")
+            probe.mark("zoomed-\(round)")
             try? await Task.sleep(for: .seconds(zoomedHold))
             await report("zoom \(round)")
 
             print("cycle: fit \(round) at \(start.duration(to: .now))")
+            probe.mark("zoom-out-\(round)")
             canvas.zoomToFit()
-            try? await Task.sleep(for: .seconds(fitHold))
+
+            // The spring and the loss of the window first, then the release 2 s after it.
+            if fitHold > 4 {
+                try? await Task.sleep(for: .seconds(1))
+                probe.mark("release-\(round)")
+                try? await Task.sleep(for: .seconds(3))
+                probe.mark("fit-\(round)")
+                try? await Task.sleep(for: .seconds(fitHold - 4))
+            } else {
+                try? await Task.sleep(for: .seconds(fitHold))
+            }
+
             await report("fit \(round)")
         }
 
+        // Fit to 400 % and back, each followed by a rest that lets the full window land.
+        let pinches = [
+            (phase: "pinch-in", from: 0.0, to: 1.0, rest: 4),
+            (phase: "pinch-out", from: 1.0, to: 0.0, rest: 5),
+        ]
+
+        for step in pinches {
+            await pinch(
+                canvas,
+                phase     : step.phase,
+                toPercent : 400,
+                from      : step.from,
+                to        : step.to
+            )
+            probe.mark("\(step.phase)-rest")
+            try? await Task.sleep(for: .seconds(step.rest))
+        }
+
+        await probe.writeReport(to: sampler.fileURL.deletingPathExtension().appendingPathExtension("timing.csv"))
         await sampler.stop()
         UIApplication.shared.isIdleTimerDisabled = false
         print("cycle: done at \(start.duration(to: .now))")
+    }
+
+    /// pinch zooms the canvas like a 1.5 s finger pinch at its center (CanvasView.measurementPinch),
+    /// in steps about every 8 ms, from `from` to `to` of the way between fit and `percent`.
+    private static func pinch(
+        _ canvas : CanvasView,
+        phase    : String,
+        toPercent: Double,
+        from     : Double,
+        to       : Double
+    ) async {
+        let start = ContinuousClock.now
+
+        FrameTimingProbe.shared.mark(phase)
+        canvas.isMeasurementPanning = true
+
+        while start.duration(to: .now) < .seconds(1.5) {
+            let progress = start.duration(to: .now) / .seconds(1.5)
+            canvas.measurementPinch(toPercent: toPercent, progress: from + (to - from) * progress)
+
+            try? await Task.sleep(for: .milliseconds(8))
+        }
+
+        canvas.measurementPinch(toPercent: toPercent, progress: to)
+        canvas.isMeasurementPanning = false
     }
 
     /// waitForFullFrame polls the sink every 20 ms, for at most 60 s, until it holds a full frame.

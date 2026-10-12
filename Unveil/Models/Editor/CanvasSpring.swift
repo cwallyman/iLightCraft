@@ -37,15 +37,6 @@ nonisolated struct CanvasSpring: Sendable {
         isPointer ? .zero : velocity
     }
 
-    /// scrollGlideDamping scales a trackpad scroll's release velocity: a two-finger swipe lifts at
-    /// a speed that would throw the image far with a finger's glide.
-    static let scrollGlideDamping = 0.5
-
-    /// scrollReleaseVelocity(_:) is the velocity a released trackpad or wheel scroll hands to its glide.
-    static func scrollReleaseVelocity(_ velocity: SIMD2<Double>) -> SIMD2<Double> {
-        velocity * scrollGlideDamping
-    }
-
     let start          : CanvasTransform
     let target         : CanvasTransform
     let offsetVelocity : SIMD2<Double>
