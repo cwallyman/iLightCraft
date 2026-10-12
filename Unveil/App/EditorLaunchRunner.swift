@@ -53,9 +53,32 @@ final class EditorLaunchRunner {
                 case "state":
                     engine.recordState(event: "run-state")
 
+                case "disk":
+                    Self.printDiskSpace()
+                    exit(0)
+
                 default:
                     print("unknown -UnveilRun value: \(command)")
             }
+        }
+    }
+
+    /// printDiskSpace prints the volume's free bytes, as iPadOS reports them to apps, so an agent can
+    /// see what a device run costs in storage (`-UnveilRun disk`, then the process ends).
+    private static func printDiskSpace() {
+        let keys: Set<URLResourceKey> = [
+            .volumeTotalCapacityKey,
+            .volumeAvailableCapacityKey,
+            .volumeAvailableCapacityForImportantUsageKey,
+        ]
+
+        do {
+            let values = try URL.homeDirectory.resourceValues(forKeys: keys)
+            print("disk: total \(values.volumeTotalCapacity ?? -1)"
+                + " available \(values.volumeAvailableCapacity ?? -1)"
+                + " important \(values.volumeAvailableCapacityForImportantUsage ?? -1)")
+        } catch {
+            print("disk: unreadable: \(error.localizedDescription)")
         }
     }
 
