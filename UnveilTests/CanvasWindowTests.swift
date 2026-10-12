@@ -14,7 +14,7 @@ import UIKit
 /// The canvas is 20 x 15 points and the preview 64 x 43 pixels of a 640 x 427 photo, so at fit the
 /// preview is enough (0.625 screen pixels per preview pixel at 2x) and at 100 % the canvas wants a
 /// window of the photo's own pixels, capped at the sink's 64 pixels.
-@Suite(.serialized)
+@Suite(.serialized, .exclusiveWindow)
 @MainActor
 struct CanvasWindowTests {
 
