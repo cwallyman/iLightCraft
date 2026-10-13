@@ -39,7 +39,16 @@ nonisolated struct HomePanelGeometry: Equatable, Sendable {
         isExpanded : Bool,
         translation: CGFloat
     ) -> CGFloat {
-        let raw = restingOffset(isExpanded: isExpanded) + translation
+        offset(from: restingOffset(isExpanded: isExpanded), translation: translation)
+    }
+
+    /// offset(from:translation:) is the same from any starting offset inside the range, for a
+    /// drag that catches the panel while it is still snapping.
+    func offset(
+        from start : CGFloat,
+        translation: CGFloat
+    ) -> CGFloat {
+        let raw = start + translation
 
         if raw < 0 {
             return -Self.rubberBanded(-raw)
@@ -58,15 +67,25 @@ nonisolated struct HomePanelGeometry: Equatable, Sendable {
         translation: CGFloat,
         velocity   : CGFloat
     ) -> Bool {
-        let released  = offset(isExpanded: isExpanded, translation: translation)
-        let projected = released + velocity * Self.projectionSeconds
+        settlesExpanded(
+            released : offset(isExpanded: isExpanded, translation: translation),
+            velocity : velocity
+        )
+    }
 
-        return projected < travel / 2
+    /// settlesExpanded(released:velocity:) is the same from the offset the finger let go at.
+    func settlesExpanded(
+        released: CGFloat,
+        velocity: CGFloat
+    ) -> Bool {
+        released + velocity * Self.projectionSeconds < travel / 2
     }
 
     /// snapVelocity is the release velocity in the unit SwiftUI's spring expects: the fraction of
     /// the remaining distance per second. It is capped at the spring's angular frequency, the
-    /// largest start a critically damped spring takes without overshooting the detent.
+    /// largest start a critically damped spring takes without overshooting the detent, and a
+    /// release moving away from the detent starts from rest: the finger's speed is not carried
+    /// on past a rubber-banded end (or the panel would sail on, then swing back).
     func snapVelocity(
         from released: CGFloat,
         to target    : CGFloat,
@@ -77,7 +96,7 @@ nonisolated struct HomePanelGeometry: Equatable, Sendable {
 
         let frequency = 2 * Double.pi / Self.snapDuration
 
-        return min(max(Double(velocity) / distance, -frequency), frequency)
+        return min(max(Double(velocity) / distance, 0), frequency)
     }
 
     /// rubberBanded maps a pull past an end to the displayed distance: about half the pull at

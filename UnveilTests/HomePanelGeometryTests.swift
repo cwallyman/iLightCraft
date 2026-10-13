@@ -57,7 +57,8 @@ struct HomePanelGeometryTests {
 
         #expect(geometry.snapVelocity(from: 300, to: 0, velocity: -600) == 2)
         #expect(geometry.snapVelocity(from: 300, to: 0, velocity: -100_000) == frequency)
-        #expect(geometry.snapVelocity(from: 300, to: 0, velocity: 100_000) == -frequency)
+        #expect(geometry.snapVelocity(from: 300, to: 0, velocity: 100_000) == 0)
+        #expect(geometry.snapVelocity(from: 461, to: 400, velocity: 1_300) == 0)
         #expect(geometry.snapVelocity(from: 0.5, to: 0, velocity: -600) == 0)
     }
 }

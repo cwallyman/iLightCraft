@@ -11,5 +11,7 @@
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Unveil shows your photo library so you can open a photo to edit.</string>
 </dict>
 </plist>

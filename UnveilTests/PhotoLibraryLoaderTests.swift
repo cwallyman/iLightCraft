@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import Photos
 import Testing
 import UniformTypeIdentifiers
 @testable import Unveil
@@ -11,121 +12,102 @@ import UniformTypeIdentifiers
 @MainActor
 struct PhotoLibraryLoaderTests {
 
-    /// preservedFileOutlivesTheProvider catches a loader that returns the provider's borrowed
-    /// URL, or discards the app's imported file together with the temporary selection.
+    /// aRAWPairOpensItsRAW catches a choice that takes the JPEG of a RAW+JPEG pair, which Photos
+    /// keeps as the photo while the RAW is only the alternate.
     @Test
-    func preservedFileOutlivesTheProvider() async throws {
-        let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { removeFixtures(at: directory) }
+    func aRAWPairOpensItsRAW() {
+        let kinds = [
+            kind(.photo, .jpeg),
+            kind(.alternatePhoto, "com.fuji.raw-image")
+        ]
 
-        let bytes     = Data([1, 2, 3, 4])
-        let sourceURL = directory.appending(path: "photo.png")
-        try bytes.write(to: sourceURL)
-
-        let provider  = try #require(NSItemProvider(contentsOf: sourceURL))
-        let loader    = PhotoLibraryLoader(stagingDirectory: directory.appending(path: "Staging"))
-        let pickedURL = try await loader.loadPhoto(from: provider)
-        try FileManager.default.removeItem(at: sourceURL)
-
-        #expect(try Data(contentsOf: pickedURL) == bytes)
-        #expect(pickedURL.pathExtension == "png")
-
-        let importer = PhotoImporter(importsDirectory: directory.appending(path: "Imports"))
-        let imported = try importer.importCopy(of: pickedURL)
-        try await loader.discardPhoto(at: pickedURL)
-
-        #expect(!FileManager.default.fileExists(atPath: pickedURL.path))
-        #expect(try Data(contentsOf: imported.url) == bytes)
+        #expect(PhotoResourceChoice.preferredIndex(in: kinds) == 1)
+        #expect(PhotoResourceChoice.isRAW(kinds))
     }
 
-    /// rawRepresentationIsPreserved catches a picker adapter that takes a JPEG preview when
-    /// the provider also offers the RAW that the editor can develop itself.
+    /// aProRAWOpensItsOriginal catches a choice that skips a ProRAW: its DNG is the photo itself.
     @Test
-    func rawRepresentationIsPreserved() async throws {
-        let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { removeFixtures(at: directory) }
+    func aProRAWOpensItsOriginal() {
+        let kinds = [
+            kind(.photo, "com.adobe.raw-image"),
+            kind(.fullSizePhoto, .jpeg)
+        ]
 
-        let jpegURL = directory.appending(path: "preview.jpg")
-        let rawURL  = directory.appending(path: "original.RAF")
-        try Data([1]).write(to: jpegURL)
-        try Data([7, 8, 9]).write(to: rawURL)
-
-        let provider = NSItemProvider()
-        provider.registerFileRepresentation(
-            forTypeIdentifier : UTType.jpeg.identifier,
-            fileOptions       : [],
-            visibility        : .all
-        ) { completion in
-            completion(jpegURL, false, nil)
-            return nil
-        }
-        provider.registerFileRepresentation(
-            forTypeIdentifier : UTType.rawImage.identifier,
-            fileOptions       : [],
-            visibility        : .all
-        ) { completion in
-            completion(rawURL, false, nil)
-            return nil
-        }
-
-        let loader    = PhotoLibraryLoader(stagingDirectory: directory.appending(path: "Staging"))
-        let pickedURL = try await loader.loadPhoto(from: provider)
-
-        #expect(try Data(contentsOf: pickedURL) == Data([7, 8, 9]))
-        #expect(pickedURL.pathExtension == "RAF")
+        #expect(PhotoResourceChoice.preferredIndex(in: kinds) == 0)
+        #expect(PhotoResourceChoice.isRAW(kinds))
     }
 
-    /// nonImageSelectionIsRejected catches a loader that sends an unrelated representation
-    /// into the photo importer instead of reporting the selection error.
+    /// anEditedPhotoOpensItsUneditedOriginal catches a choice that starts the editor from another
+    /// app's render instead of the camera's pixels.
     @Test
-    func nonImageSelectionIsRejected() async throws {
-        let provider = NSItemProvider(object: NSString(string: "text"))
-        let loader   = PhotoLibraryLoader()
+    func anEditedPhotoOpensItsUneditedOriginal() {
+        let kinds = [
+            kind(.fullSizePhoto, .jpeg),
+            kind(.photo, .heic),
+            kind(.adjustmentData, "com.apple.photo.adjustment")
+        ]
 
-        await #expect(throws: PhotoLibraryError.noImageRepresentation) {
-            try await loader.loadPhoto(from: provider)
+        #expect(PhotoResourceChoice.preferredIndex(in: kinds) == 1)
+        #expect(!PhotoResourceChoice.isRAW(kinds))
+    }
+
+    /// onlyTheRenderIsStillOpenable and nothingStillIsRejected cover the fallbacks: a render when
+    /// it is the only still image, nothing at all for a video.
+    @Test
+    func onlyTheRenderIsStillOpenable() {
+        #expect(PhotoResourceChoice.preferredIndex(in: [kind(.fullSizePhoto, .jpeg)]) == 0)
+    }
+
+    @Test
+    func nothingStillIsRejected() {
+        #expect(PhotoResourceChoice.preferredIndex(in: [kind(.video, .quickTimeMovie)]) == nil)
+    }
+
+    /// theBadgeNamesTheFormat catches a badge that says "RAW" for every RAW format, shows a
+    /// lowercase or empty name, or one format under two names (JPG and JPEG).
+    @Test
+    func theBadgeNamesTheFormat() {
+        #expect(PhotoResourceChoice.formatName(fileName: "DSCF0267.raf", typeIdentifier: "com.fuji.raw-image") == "RAF")
+        #expect(PhotoResourceChoice.formatName(fileName: "IMG_1361.DNG", typeIdentifier: "com.adobe.raw-image") == "DNG")
+        #expect(PhotoResourceChoice.formatName(fileName: "photo", typeIdentifier: "com.adobe.raw-image") == "DNG")
+        #expect(PhotoResourceChoice.formatName(fileName: "IMG_0042.jpg", typeIdentifier: "public.jpeg") == "JPEG")
+        #expect(PhotoResourceChoice.formatName(fileName: "IMG_0042.HEIC", typeIdentifier: "public.heic") == "HEIC")
+        #expect(PhotoResourceChoice.formatName(fileName: "photo", typeIdentifier: "public.png") == "PNG")
+        #expect(PhotoResourceChoice.formatName(fileName: "photo", typeIdentifier: "not.a.type") == nil)
+    }
+
+    /// aVanishedPhotoIsReported catches a loader that fails with a file error, or crashes, when
+    /// the photo was deleted between the tap and the load.
+    @Test
+    func aVanishedPhotoIsReported() async {
+        let loader = PhotoLibraryLoader()
+
+        await #expect(throws: PhotoLibraryError.photoUnavailable) {
+            try await loader.loadPhoto(assetIdentifier: "no-such-asset/L0/001")
         }
     }
 
-    /// repeatedSelectionsReuseTheImportedCopy catches staging names that defeat the importer's
-    /// content-based identity and create another permanent RAW every time Photos is opened.
+    /// discardRemovesTheWholeSelection catches a discard that leaves the selection's private
+    /// directory behind, one per photo ever opened.
     @Test
-    func repeatedSelectionsReuseTheImportedCopy() async throws {
-        let directory = URL.temporaryDirectory.appending(path: UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { removeFixtures(at: directory) }
+    func discardRemovesTheWholeSelection() async throws {
+        let staging   = URL.temporaryDirectory.appending(path: UUID().uuidString)
+        let selection = staging.appending(path: UUID().uuidString)
+        let staged    = selection.appending(path: "IMG_0001.DNG")
+        try FileManager.default.createDirectory(at: selection, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: staged)
+        defer { try? FileManager.default.removeItem(at: staging) }
 
-        let sourceURL = directory.appending(path: "photo.png")
-        try Data([1, 2, 3, 4]).write(to: sourceURL)
+        try await PhotoLibraryLoader(stagingDirectory: staging).discardPhoto(at: staged)
 
-        let provider = try #require(NSItemProvider(contentsOf: sourceURL))
-        let loader   = PhotoLibraryLoader(stagingDirectory: directory.appending(path: "Staging"))
-        let importer = PhotoImporter(importsDirectory: directory.appending(path: "Imports"))
-
-        let firstSelection = try await loader.loadPhoto(from: provider)
-        let firstImport    = try importer.importCopy(of: firstSelection)
-        try await loader.discardPhoto(at: firstSelection)
-
-        let secondSelection = try await loader.loadPhoto(from: provider)
-        let secondImport    = try importer.importCopy(of: secondSelection)
-        try await loader.discardPhoto(at: secondSelection)
-
-        #expect(firstImport.isNew)
-        #expect(!secondImport.isNew)
-        #expect(firstImport.url == secondImport.url)
-        #expect(
-            !FileManager.default.fileExists(atPath: secondSelection.deletingLastPathComponent().path)
-        )
+        #expect(!FileManager.default.fileExists(atPath: selection.path))
     }
 
-    /// removeFixtures reports cleanup failures so a test never silently leaves temporary photos.
-    private func removeFixtures(at directory: URL) {
-        do {
-            try FileManager.default.removeItem(at: directory)
-        } catch {
-            Issue.record(error)
-        }
+    private func kind(_ type: PHAssetResourceType, _ contentType: UTType) -> PhotoResourceChoice.Kind {
+        PhotoResourceChoice.Kind(type: type, typeIdentifier: contentType.identifier)
+    }
+
+    private func kind(_ type: PHAssetResourceType, _ typeIdentifier: String) -> PhotoResourceChoice.Kind {
+        PhotoResourceChoice.Kind(type: type, typeIdentifier: typeIdentifier)
     }
 }

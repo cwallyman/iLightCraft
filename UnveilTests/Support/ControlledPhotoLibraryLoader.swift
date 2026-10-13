@@ -16,7 +16,7 @@ final class ControlledPhotoLibraryLoader: PhotoLibraryLoading {
 
     private var continuation: CheckedContinuation<Result<URL, PhotoLibraryError>, Never>?
 
-    func loadPhoto(from provider: NSItemProvider) async throws(PhotoLibraryError) -> URL {
+    func loadPhoto(assetIdentifier: String) async throws(PhotoLibraryError) -> URL {
         loadCount += 1
         let result = await withCheckedContinuation { continuation = $0 }
         return try result.get()
