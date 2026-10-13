@@ -7,7 +7,8 @@ import SwiftUI
 
 /// HomeBackground is the home's decorative backdrop: black, a soft purple glow, a few still
 /// contour lines (HomeContours), the "Unveil" title centered in the upper half and five photo
-/// cards floating at different depths.
+/// cards floating at different depths. The system launch view's own title is left empty: it is
+/// leading-aligned, and ours is centered.
 ///
 /// The cards live in FloatingCardsView, whose Core Animation layers float on the render server,
 /// so nothing here is evaluated per frame. They move only while `isMoving` (home shown, panel not

@@ -50,7 +50,7 @@ struct EditorSessionTests {
         let previous = model.openPhoto
         engine.failNextOpen = .engine("Open failed")
 
-        let task = Task { await session.importLibraryPhoto(from: NSItemProvider()) }
+        let task = Task { await session.importLibraryPhoto(assetIdentifier: "asset") }
         try await waitUntil(seconds: 3) { loader.loadCount == 1 }
         #expect(session.isImporting)
 
@@ -75,10 +75,10 @@ struct EditorSessionTests {
         )
         let loader = ControlledPhotoLibraryLoader()
         let session = EditorSession(viewModel: model, libraryLoader: loader)
-        let task = Task { await session.importLibraryPhoto(from: NSItemProvider()) }
+        let task = Task { await session.importLibraryPhoto(assetIdentifier: "asset") }
         try await waitUntil(seconds: 3) { loader.loadCount == 1 }
 
-        await session.importLibraryPhoto(from: NSItemProvider())
+        await session.importLibraryPhoto(assetIdentifier: "asset")
         #expect(loader.loadCount == 1)
         loader.complete(.failure(.noImageRepresentation))
         await task.value
@@ -89,7 +89,7 @@ struct EditorSessionTests {
         session.dismissAlert()
         #expect(session.presentedAlert == nil)
 
-        let retry = Task { await session.importLibraryPhoto(from: NSItemProvider()) }
+        let retry = Task { await session.importLibraryPhoto(assetIdentifier: "asset") }
         try await waitUntil(seconds: 3) { loader.loadCount == 2 }
         let selected = URL(filePath: "/tmp/retry.RAF")
         loader.complete(.success(selected))
@@ -119,7 +119,7 @@ struct EditorSessionTests {
         #expect(model.isPhotoOpen)
         #expect(!session.canZoom)
 
-        let task = Task { await session.importLibraryPhoto(from: NSItemProvider()) }
+        let task = Task { await session.importLibraryPhoto(assetIdentifier: "asset") }
         try await waitUntil(seconds: 3) { loader.loadCount == 1 }
         loader.complete(.success(URL(filePath: "/tmp/library.RAF")))
         await task.value
@@ -145,7 +145,7 @@ struct EditorSessionTests {
         #expect(session.presentedAlert?.message == "Open failed")
         session.dismissAlert()
 
-        let task = Task { await session.importLibraryPhoto(from: NSItemProvider()) }
+        let task = Task { await session.importLibraryPhoto(assetIdentifier: "asset") }
         try await waitUntil(seconds: 3) { loader.loadCount == 1 }
         loader.complete(.failure(.noImageRepresentation))
         await task.value
@@ -225,11 +225,11 @@ struct EditorSessionTests {
         )
         let loader = ControlledPhotoLibraryLoader()
         let session = EditorSession(viewModel: model, libraryLoader: loader)
-        let task = Task { await session.importLibraryPhoto(from: NSItemProvider()) }
+        let task = Task { await session.importLibraryPhoto(assetIdentifier: "asset") }
         try await waitUntil(seconds: 3) { loader.loadCount == 1 }
 
         await session.open(pickedURL: URL(filePath: "/tmp/second.RAF"))
-        await session.importLibraryPhoto(from: NSItemProvider())
+        await session.importLibraryPhoto(assetIdentifier: "asset")
         #expect(engine.calls.isEmpty)
         #expect(loader.loadCount == 1)
         #expect(session.isImporting)
@@ -251,7 +251,7 @@ struct EditorSessionTests {
         )
         let loader  = ControlledPhotoLibraryLoader()
         let session = EditorSession(viewModel: model, libraryLoader: loader)
-        let task    = Task { await session.importLibraryPhoto(from: NSItemProvider()) }
+        let task    = Task { await session.importLibraryPhoto(assetIdentifier: "asset") }
         try await waitUntil(seconds: 3) { loader.loadCount == 1 }
 
         loader.complete(.success(URL(filePath: "/tmp/\(name)")))

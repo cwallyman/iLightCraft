@@ -3,15 +3,19 @@
 //  Unveil
 //
 
-/// PhotoLibraryError separates an unavailable image from failures while loading or preserving
-/// the picker file, so the editor can report the failure without losing the current photo.
+/// PhotoLibraryError separates a photo that is gone or has no image from failures while copying
+/// it out of the library, so the editor can report the failure without losing the current photo.
 nonisolated enum PhotoLibraryError: Error, Equatable {
 
+    case photoUnavailable
     case noImageRepresentation
     case fileOperationFailed(String)
 
     var message: String {
         switch self {
+            case .photoUnavailable:
+                return "The photo is no longer in the library."
+
             case .noImageRepresentation:
                 return "The selected item does not contain a supported image."
 

@@ -176,23 +176,24 @@ final class EditorSession<
         await openAndPresent(pickedURL)
     }
 
-    /// importLibraryPhoto holds the staged file through the regular importer, even on a failed
-    /// open. Cleanup failures are logged separately and never replace the editing error.
-    func importLibraryPhoto(from provider: NSItemProvider) async {
+    /// importLibraryPhoto copies a library photo to a staging file and holds it through the
+    /// regular importer, even on a failed open. Cleanup failures are logged separately and never
+    /// replace the editing error.
+    func importLibraryPhoto(assetIdentifier: String) async {
         guard !isImporting else { return }
 
         isImporting = true
         defer { isImporting = false }
 
         do throws(PhotoLibraryError) {
-            let pickedURL = try await libraryLoader.loadPhoto(from: provider)
+            let pickedURL = try await libraryLoader.loadPhoto(assetIdentifier: assetIdentifier)
             await openAndPresent(pickedURL, title: Self.title(ofStagedPhoto: pickedURL))
 
             do throws(PhotoLibraryError) {
                 try await libraryLoader.discardPhoto(at: pickedURL)
             } catch {
                 let logger = Logger(subsystem: "com.eliorodr2104.unveil", category: "PhotoLibrary")
-                logger.error("Deleting the picker file failed: \(error.message, privacy: .public)")
+                logger.error("Deleting the library copy failed: \(error.message, privacy: .public)")
             }
         } catch {
             show(EditorAlert(title: "Unable to Open Photo", message: error.message))
@@ -206,7 +207,7 @@ final class EditorSession<
         }
     }
 
-    /// title(ofStagedPhoto:) is the picker file's name when it reads like one (IMG_0042), and
+    /// title(ofStagedPhoto:) is the library file's name when it reads like one (IMG_0042), and
     /// "Photo" when it is only a generated identifier.
     private static func title(ofStagedPhoto url: URL) -> String {
         let name = url.deletingPathExtension().lastPathComponent

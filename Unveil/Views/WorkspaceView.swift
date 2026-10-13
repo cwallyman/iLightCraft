@@ -45,7 +45,7 @@ struct WorkspaceView<
                 isActive      : !isEditorShown,
                 isImporting   : session.isImporting,
                 onPickFile    : { url in Task { await session.open(pickedURL: url) } },
-                onPickPhoto   : { provider in Task { await session.importLibraryPhoto(from: provider) } }
+                onPickPhoto   : { identifier in Task { await session.importLibraryPhoto(assetIdentifier: identifier) } }
             )
             .opacity(isEditorShown ? 0 : 1)
             .scaleEffect(!isEditorShown || reduceMotion ? 1 : 0.96)

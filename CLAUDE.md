@@ -2,7 +2,7 @@
 
 iPad RAW editor (iPadOS 26+): SwiftUI editor shell and panels, UIKit/Metal canvas and system adapters, and a Rust engine in `Engine/` (the vendored LightCraft workspace plus the `Engine/ffi` bridge).
 
-`UnveilApp` is the SwiftUI entry point and presents `ContentView` in a `WindowGroup`. `ContentView` retains an `EditorWorkspace`, which composes one `CanvasView`, `EditorSession` and `EditorDiagnostics` for `EditorView`. `AppDelegate` remains only as a service-startup adapter through `UIApplicationDelegateAdaptor`; there is no custom scene delegate or root hosting controller. SwiftUI owns navigation, the home screen, the editor's toolbar (title menu, zoom pill, Undo/Redo, More menu), the trailing tool rail with its adjust card, and alerts. `EditorCanvas` bridges the stable native view; frame delivery remains `EngineManager` → `FrameSink` → `CanvasView`, outside observable UI state. Low-level lifecycle notifications and the Photos item-provider adapter remain native.
+`UnveilApp` is the SwiftUI entry point and presents `ContentView` in a `WindowGroup`. `ContentView` retains an `EditorWorkspace`, which composes one `CanvasView`, `EditorSession` and `EditorDiagnostics` for `EditorView`. `AppDelegate` remains only as a service-startup adapter through `UIApplicationDelegateAdaptor`; there is no custom scene delegate or root hosting controller. SwiftUI owns navigation, the editor's toolbar (title menu, zoom pill, Undo/Redo, More menu), the trailing tool rail with its adjust card, and alerts. `EditorCanvas` bridges the stable native view; frame delivery remains `EngineManager` → `FrameSink` → `CanvasView`, outside observable UI state. The home is the system document launch view (`DocumentLaunch`), whose Files sheet the system browser draws in its own process, plus our PhotoKit library panel (`PhotosPanel`), which `PanelController` moves in UIKit like a sheet. Low-level lifecycle notifications remain native.
 
 ## Read first
 
@@ -18,6 +18,9 @@ export PATH="/opt/homebrew/opt/rustup/bin:$PATH"    # before any cargo command
 scripts/build-xcframework.sh [--cpu apple-m1]       # engine XCFramework + Config/UnveilEngine.xcconfig
 scripts/test-app.sh                                 # app unit tests on the first iPad simulator
 ```
+
+The `UnveilUITests` scheme drives the home panel with real touches on the iPad; its runner needs a provisioning
+profile, which Xcode creates the first time the scheme is run from Xcode with the team signed in.
 
 Device runs, the golden export and the measurements are in `Docs/Baseline/` (`build-ios.md`,
 `device-run.md`, `equivalence.md`, `measurements.md`).
