@@ -56,5 +56,18 @@ struct WorkspaceView<
             reduceMotion ? .easeInOut(duration: 0.25) : .smooth(duration: 0.35),
             value: isEditorShown
         )
+        .confirmationDialog("This photo changed in Apple Photos", isPresented: Binding(
+            get: { session.conflictedAssetIdentifier != nil },
+            set: { if !$0 { session.conflictedAssetIdentifier = nil } }
+        ), titleVisibility: .visible) {
+            if let identifier = session.conflictedAssetIdentifier {
+                Button("Reload Latest Photos Version") {
+                    Task { await session.reloadLatestPhotosVersion(identifier: identifier) }
+                }
+            }
+            Button("Keep Local Edit", role: .cancel) { session.conflictedAssetIdentifier = nil }
+        } message: {
+            Text("Your local edit is retained. Reload keeps a separate local version and opens the latest Photos item. You can export the local version from Export Photos.")
+        }
     }
 }

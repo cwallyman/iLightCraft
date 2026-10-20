@@ -40,6 +40,7 @@ nonisolated final class FrameSink: @unchecked Sendable {
     static let bufferCount = 3
 
     let buffers: (any MTLBuffer, any MTLBuffer, any MTLBuffer)
+    private let hdrBuffers = Mutex<[(any MTLBuffer)]?>(nil)
 
     /// maxPixels is the most a frame may measure on either side: the long edge the buffers fit.
     let maxPixels: Int
@@ -98,7 +99,8 @@ nonisolated final class FrameSink: @unchecked Sendable {
     init(device: some MTLDevice, maxPixels: Int) {
         precondition(maxPixels > 0, "FrameSink: maxPixels must be positive")
 
-        let alignment = device.minimumLinearTextureAlignment(for: .rgba8Unorm)
+        let alignment = max(device.minimumLinearTextureAlignment(for: .rgba8Unorm),
+                            device.minimumLinearTextureAlignment(for: .rgba16Float))
         let length    = Self.alignUp(maxPixels * 4, to: alignment) * maxPixels
 
         guard let first  = device.makeBuffer(length: length, options: .storageModeShared),
@@ -127,8 +129,11 @@ nonisolated final class FrameSink: @unchecked Sendable {
     }
 
     /// buffer(at:) is the shared buffer a ReadyFrame's `bufferIndex` names.
-    func buffer(at index: Int) -> any MTLBuffer {
-        switch index {
+    func buffer(at index: Int, hdr: Bool = false) -> any MTLBuffer {
+        if hdr, let buffer = hdrBuffers.withLock({ $0?.indices.contains(index) == true ? $0?[index] : nil }) {
+            return buffer
+        }
+        return switch index {
             case 0 : buffers.0
             case 1 : buffers.1
             default: buffers.2
@@ -157,7 +162,8 @@ nonisolated final class FrameSink: @unchecked Sendable {
         replacesWindow: Bool = false,
         nativeWidth   : Int = 0,
         nativeHeight  : Int = 0,
-        histogram     : FrameHistogram? = nil
+        histogram     : FrameHistogram? = nil,
+        linearRGBA16  : UnsafePointer<UInt16>? = nil
     ) {
         guard width > 0, height > 0, stride >= width * 4 else {
             logger.error("Dropped a malformed frame: \(width)x\(height), stride \(stride)")
@@ -178,15 +184,23 @@ nonisolated final class FrameSink: @unchecked Sendable {
 
         guard let target else { return }
 
-        let bytesPerRow = Self.alignUp(width * 4, to: rowAlignment)
+        let isHDR = linearRGBA16 != nil
+        if isHDR, !prepareHDRBuffers() {
+            receiveFailure(FrameFailure(generation: generation, isWindow: window != nil,
+                                        message: "Not enough memory for HDR display. Your edits are retained."))
+            return
+        }
+        let bytesPerPixel = isHDR ? 8 : 4
+        let bytesPerRow = Self.alignUp(width * bytesPerPixel, to: rowAlignment)
 
         copyRows(
-            from        : rgba,
+            from        : linearRGBA16.map(UnsafeRawPointer.init) ?? rgba,
             to          : target,
             width       : width,
             height      : height,
-            stride      : stride,
-            bytesPerRow : bytesPerRow
+            stride      : isHDR ? width * 8 : stride,
+            bytesPerRow : bytesPerRow,
+            hdr         : isHDR
         )
 
         let frame = ReadyFrame(
@@ -198,7 +212,8 @@ nonisolated final class FrameSink: @unchecked Sendable {
             isDraft     : isDraft,
             window      : window,
             nativeWidth : nativeWidth,
-            nativeHeight: nativeHeight
+            nativeHeight: nativeHeight,
+            isHDR       : isHDR
         )
 
         let (wake, hear) = state.withLock { current in
@@ -283,13 +298,31 @@ nonisolated final class FrameSink: @unchecked Sendable {
         width       : Int,
         height      : Int,
         stride      : Int,
-        bytesPerRow : Int
+        bytesPerRow : Int,
+        hdr         : Bool = false
     ) {
-        let destination = buffer(at: index).contents()
-        let rowBytes    = width * 4
+        let destination = buffer(at: index, hdr: hdr).contents()
+        let rowBytes    = width * (hdr ? 8 : 4)
 
         for row in 0 ..< height {
             (destination + row * bytesPerRow).copyMemory(from: source + row * stride, byteCount: rowBytes)
+        }
+    }
+
+    /// Allocated once when HDR is first used, off the main actor; allocation failure becomes an editor error.
+    private func prepareHDRBuffers() -> Bool {
+        hdrBuffers.withLock { existing in
+            if existing != nil { return true }
+            let length = Self.alignUp(maxPixels * 8, to: rowAlignment) * maxPixels
+            let available = ProcessAvailableMemory().availableBytes()
+            if available > 0 && UInt64(length * Self.bufferCount) > available / 2 { return false }
+            var result: [any MTLBuffer] = []
+            for _ in 0..<Self.bufferCount {
+                guard let buffer = buffers.0.device.makeBuffer(length: length, options: .storageModeShared) else { return false }
+                result.append(buffer)
+            }
+            existing = result
+            return true
         }
     }
 

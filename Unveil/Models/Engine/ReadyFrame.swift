@@ -20,4 +20,5 @@ nonisolated struct ReadyFrame: Equatable, Sendable {
     let window      : FrameWindow?   // Placement of a window frame; nil for a whole-frame preview.
     let nativeWidth : Int
     let nativeHeight: Int
+    var isHDR: Bool = false
 }

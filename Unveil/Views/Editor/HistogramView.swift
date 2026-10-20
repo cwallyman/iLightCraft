@@ -28,6 +28,9 @@ struct HistogramView<Engine: EngineDriving, Importer: PhotoImporting>: View {
     @Binding
     var clipping: ClippingOverlay
 
+    var fixedPlotHeight    : CGFloat? = nil
+    var showsCaptureSummary: Bool = true
+
     @Environment(\.accessibilityReduceMotion)
     private var reduceMotion
 
@@ -65,7 +68,7 @@ struct HistogramView<Engine: EngineDriving, Importer: PhotoImporting>: View {
                     )
                 }
 
-            if let capture = viewModel.captureSummary {
+            if showsCaptureSummary, let capture = viewModel.captureSummary {
                 Text(capture)
                     .font(.caption)
                     .monospacedDigit()
@@ -79,7 +82,7 @@ struct HistogramView<Engine: EngineDriving, Importer: PhotoImporting>: View {
     /// plot steps the glide on each tick of its timeline, paused while the glide rests, and follows
     /// every new histogram (see the type doc).
     private func plot(_ histogram: FrameHistogram?) -> some View {
-        ZStack {
+        let content = ZStack {
             // Gives the plot its size before the first histogram arrives.
             Color.clear
 
@@ -101,7 +104,14 @@ struct HistogramView<Engine: EngineDriving, Importer: PhotoImporting>: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .aspectRatio(plotAspect, contentMode: .fit)
+
+        return Group {
+            if let fixedPlotHeight {
+                content.frame(height: fixedPlotHeight)
+            } else {
+                content.aspectRatio(plotAspect, contentMode: .fit)
+            }
+        }
         .background(.black.opacity(0.35), in: .rect(cornerRadius: cornerRadius))
         .clipShape(.rect(cornerRadius: cornerRadius))
         .onChange(of: histogram?.generation, initial: true) {

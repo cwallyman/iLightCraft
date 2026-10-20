@@ -69,6 +69,7 @@ pub struct UVFrame {
     pub status: i32,
     pub error: *const c_char,
     pub histogram: *const UVHistogram,
+    pub linear_rgba16: *const u16,
 }
 
 /// UVHistogram of uv.h: the engine's histogram of a whole frame, 256 bins per channel and for
@@ -171,7 +172,40 @@ impl FrameCallback {
             None => Some(UVHistogram::of(rendered)),
             Some(_) => whole_frame.map(UVHistogram::of),
         };
+        let linear = rendered.deep.as_ref().and_then(|deep| {
+            let lightcraft_engine::pipeline::DeepSamples::F32(samples) = &deep.samples else {
+                return None;
+            };
+            let count = image.width.checked_mul(image.height)?;
+            if samples.len() != count.checked_mul(3)? {
+                return None;
+            }
+            let mut packed = Vec::new();
+            if packed.try_reserve_exact(count.checked_mul(4)?).is_err() {
+                return None;
+            }
+            for rgb in samples.as_chunks::<3>().0 {
+                packed.extend(rgb.map(|v| {
+                    half::f16::from_f32(if v.is_finite() { v.clamp(0.0, 32.0) } else { 0.0 }).to_bits()
+                }));
+                packed.push(half::f16::ONE.to_bits());
+            }
+            Some(packed)
+        });
+        if rendered.deep.is_some() && linear.is_none() {
+            self.call_failure(
+                generation,
+                draft,
+                delivery,
+                Failure::new(
+                    UVStatus::UV_ERR_IO,
+                    "Not enough memory to transfer HDR pixels; edits are retained",
+                ),
+            );
+            return;
+        }
         let frame = UVFrame {
+            linear_rgba16: linear.as_ref().map_or(std::ptr::null(), |v| v.as_ptr()),
             rgba: rgba.as_ptr(),
             width,
             height,
@@ -203,6 +237,7 @@ impl FrameCallback {
         // A message with a NUL cannot cross as a C string: blank it out rather than lose it.
         let message = CString::new(failure.message.replace('\0', " ")).unwrap_or_default();
         let frame = UVFrame {
+            linear_rgba16: std::ptr::null(),
             rgba: std::ptr::null(),
             width: 0,
             height: 0,
@@ -594,6 +629,28 @@ impl Engine {
             _ => {}
         }
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if command == "unveil.restore" {
+                let text = params
+                    .get("settingsJSON")
+                    .and_then(Value::as_str)
+                    .filter(|s| s.len() <= 16 * 1024 * 1024)
+                    .ok_or_else(|| Failure::invalid("missing or oversized settings"))?;
+                let settings: Value =
+                    serde_json::from_str(text).map_err(|e| Failure::invalid(e.to_string()))?;
+                return self
+                    .session
+                    .execute(
+                        "develop.merge",
+                        &json!({"settings": settings, "label": "Restore Photos Edit"}),
+                    )
+                    .map_err(Failure::engine);
+            }
+            if matches!(
+                command,
+                "unveil.export" | "unveil.cropPreview" | "unveil.hdrExport"
+            ) {
+                return crate::native_commands::run(&mut self.session, command, params);
+            }
             self.session.execute(command, params).map_err(Failure::engine)
         }))
         .unwrap_or_else(|p| {
@@ -713,6 +770,17 @@ impl Engine {
                 }
             }
         };
+        if self.session.develop_of(active).is_some_and(|s| s.hdr.enabled) {
+            job.request.depth = lightcraft_engine::pipeline::OutputDepth::F32Hdr;
+            job.key ^= 0x4844_5200;
+            job.cache = None;
+            job.view_cache = None;
+            if request.before {
+                let mut settings = (*job.settings).clone();
+                settings.hdr.enabled = true;
+                job.settings = Arc::new(settings);
+            }
+        }
         if request.draft {
             job = job.draft();
         }

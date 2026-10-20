@@ -11,11 +11,18 @@ nonisolated struct DevelopMergeSettings: Encodable, Equatable, Sendable {
 
     let detail: Detail?
     let optics: Optics?
+    var hdr: HDR? = nil
+
+    struct HDR: Encodable, Equatable, Sendable {
+
+        let enabled: Bool
+        let max_ev: Double
+    }
 
     /// none changes nothing: a photo whose import look is the reset look.
     static let none = DevelopMergeSettings(detail: nil, optics: nil)
 
-    var isEmpty: Bool { detail == nil && optics == nil }
+    var isEmpty: Bool { detail == nil && optics == nil && hdr == nil }
 
     struct Detail: Encodable, Equatable, Sendable {
 

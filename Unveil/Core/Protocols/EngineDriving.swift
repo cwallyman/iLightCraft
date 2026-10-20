@@ -19,6 +19,9 @@ nonisolated protocol EngineDriving: AnyObject, Sendable {
     var frames: FrameSink { get }
 
     func openPhoto(at fileURL: URL) async throws(EngineError) -> PhotoID
+    func openPhoto(at fileURL: URL, initialSettings: Data?, versionKey: String?) async throws(EngineError) -> PhotoID
+    func hdrEnabled() async throws(EngineError) -> Bool
+    func setHDR(_ enabled: Bool) async throws(EngineError)
 
     /// Makes a photo of the library the active one again, without importing anything.
     func select(_ photo: PhotoID) async throws(EngineError)
@@ -28,6 +31,9 @@ nonisolated protocol EngineDriving: AnyObject, Sendable {
     /// The current value of each develop control of the active photo, as the engine holds it: the
     /// photo's saved settings, or the as-shot values for a first open.
     func currentValues() async throws(EngineError) -> [DevelopAdjustmentKind: Double]
+
+    func cropSettings() async throws(EngineError) -> CropSettings
+    func setCropSettings(_ settings: CropSettings) async throws(EngineError)
 
     /// The engine's own "edited" flag for `photo`: its settings differ from what import gave it.
     func isEdited(_ photo: PhotoID) async throws(EngineError) -> Bool
@@ -75,4 +81,24 @@ nonisolated protocol EngineDriving: AnyObject, Sendable {
     func suspend() throws(EngineError)
     func resume() throws(EngineError)
     func setMemoryBudget(bytes: UInt64)
+}
+
+extension EngineDriving {
+
+    func openPhoto(at fileURL: URL, initialSettings: Data?, versionKey: String?) async throws(EngineError) -> PhotoID {
+        guard initialSettings == nil else { throw .engine("This adapter cannot restore Photos settings") }
+        return try await openPhoto(at: fileURL)
+    }
+
+    func hdrEnabled() async throws(EngineError) -> Bool { false }
+
+    func setHDR(_ enabled: Bool) async throws(EngineError) {
+        throw .engine("HDR editing is unavailable in this adapter")
+    }
+
+    func cropSettings() async throws(EngineError) -> CropSettings { CropSettings() }
+
+    func setCropSettings(_ settings: CropSettings) async throws(EngineError) {
+        throw .engine("Crop editing is unavailable in this engine adapter")
+    }
 }

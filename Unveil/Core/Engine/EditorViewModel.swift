@@ -60,6 +60,8 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     /// compares with the photo's import look), read after open and after every committed change.
     /// A drag does not read it: the status catches up when the slider is released.
     private(set) var isEdited = false
+    private(set) var cropSettings = CropSettings()
+    private(set) var hdrEnabled = false
 
     /// undoStack and redoStack are the snapshots from before each committed edit, newest last. Undo
     /// takes one off the first, redo off the second; both are per open photo and in memory.
@@ -222,7 +224,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     ///
     /// A stepper burst still waiting for its timer is committed first, on the photo it edited.
     @discardableResult
-    func open(pickedURL: URL, title: String? = nil) async -> Bool {
+    func open(pickedURL: URL, title: String? = nil, initialSettings: Data? = nil, versionKey: String? = nil) async -> Bool {
         commitPendingNudge()
 
         let signpost = Signposts.beginOpen()
@@ -251,7 +253,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             // The copy is deleted only if no photo came back: once the engine has an id its record
             // points at the copy (a new import, or an existing photo relinked to it).
             do {
-                photo = try await engine.openPhoto(at: copy.url)
+                photo = try await engine.openPhoto(at: copy.url, initialSettings: initialSettings, versionKey: versionKey)
             } catch {
                 await Self.rollBack(engine: engine, to: previous, discarding: copy.isNew ? copy.url : nil)
                 throw error
@@ -262,6 +264,8 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
                 info    = try await engine.photoInfo(of: photo)
                 edited  = try await engine.isEdited(photo)
                 asShot  = try await engine.isWhiteBalanceAsShot()
+                self.cropSettings = try await engine.cropSettings()
+                self.hdrEnabled = try await engine.hdrEnabled()
             } catch {
                 await Self.rollBack(engine: engine, to: previous, discarding: nil)
                 throw error
@@ -281,6 +285,8 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             self.photoSize       = info.size
             self.developDefaults = info.developDefaults
             self.cameraDefaults  = info.cameraDefaultsMerge
+            let nativeHDR = await Task.detached { (try? NativeImageInfo.read(for: copy.url))?.hdr == true }.value
+            if nativeHDR { self.cameraDefaults.hdr = .init(enabled: true, max_ev: 3) }
             self.captureSummary  = info.capture?.summary
             self.histogram       = nil
             self.isShowingBefore = false
@@ -454,6 +460,38 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         guard isPhotoOpen else { return }
 
         await enqueue {
+            try self.requestFrames(draft: false)
+        }
+    }
+
+    /// applyCrop joins the same ordered edit chain as sliders, so undo restores geometry and color together.
+    func applyCrop(_ settings: CropSettings) async {
+        commitPendingNudge()
+        await enqueue { [engine] in
+            guard self.isPhotoOpen else { return }
+            try await engine.setCropSettings(settings)
+            try await self.reloadValues()
+            self.commitEdit()
+            self.visibleWindow = nil
+            engine.releaseWindows()
+            try self.requestFrames(draft: false)
+        }
+    }
+
+    /// finishPendingEdits waits for coalesced slider edits before a crop preview or export reads settings.
+    func finishPendingEdits() async {
+        commitPendingNudge()
+        _ = await pending?.value
+    }
+
+    func setHDR(_ enabled: Bool) async {
+        commitPendingNudge()
+        await enqueue { [engine] in
+            try await engine.setHDR(enabled)
+            try await self.reloadValues()
+            self.commitEdit()
+            self.visibleWindow = nil
+            engine.releaseWindows()
             try self.requestFrames(draft: false)
         }
     }
@@ -653,7 +691,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
     /// current is the snapshot of what the engine holds now, as far as the model has sent or read.
     private var current: EditSnapshot {
-        EditSnapshot(values: sent, isWhiteBalanceAsShot: sentAsShot)
+        EditSnapshot(values: sent, isWhiteBalanceAsShot: sentAsShot, crop: cropSettings, hdrEnabled: hdrEnabled)
     }
 
     /// noteSet records that a `set` of `kind` landed. The engine's `develop.set` of temperature or
@@ -720,6 +758,18 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     ) async throws(EngineError) {
         let target = snapshot.values
 
+        if hdrEnabled != snapshot.hdrEnabled {
+            try await engine.setHDR(snapshot.hdrEnabled)
+            hdrEnabled = snapshot.hdrEnabled
+        }
+
+        if cropSettings != snapshot.crop {
+            try await engine.setCropSettings(snapshot.crop)
+            cropSettings = try await engine.cropSettings()
+            visibleWindow = nil
+            engine.releaseWindows()
+        }
+
         if snapshot.isWhiteBalanceAsShot {
             let numbersDiffer = [DevelopAdjustmentKind.temperature, .tint].contains { sent[$0] != target[$0] }
 
@@ -757,6 +807,8 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         values     = Self.defaultValues.merging(engineValues) { _, engineValue in engineValue }
         sent       = values
         sentAsShot = try await engine.isWhiteBalanceAsShot()
+        cropSettings = try await engine.cropSettings()
+        hdrEnabled = try await engine.hdrEnabled()
 
         try await reloadEdited()
     }
@@ -828,5 +880,14 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             case .copyFailed(let text):
                 return "Could not copy the file: \(text)"
         }
+    }
+}
+
+extension EditorViewModel where Engine: EngineDiagnosing {
+
+    /// Native output commands run after the editor's queued adjustments and never block the main actor.
+    func photoCommand(_ command: String, params: some Encodable & Sendable) async throws(EngineError) -> String {
+        await finishPendingEdits()
+        return try await engine.diagnostic(command, params: params)
     }
 }

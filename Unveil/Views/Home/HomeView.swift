@@ -9,7 +9,7 @@ import SwiftUI
 /// backdrop, the system Files sheet, and a floating source picker just above the sheet's top
 /// edge. Choosing Photos hides the Files sheet and shows PhotosPanel, our own library browser,
 /// in its place. It owns no session state; picks go to the caller, which presents the editor once
-/// the open succeeds. It asks for photo library access as soon as it first appears.
+/// the open succeeds. It asks for photo library access when the Photos source is selected.
 ///
 /// The picker fades out the moment either panel is dragged and stays out while it is expanded
 /// (PickerFader), so it never sits over a moving panel's edge. HomeView tracks both expansions so
@@ -58,7 +58,8 @@ struct HomeView: View {
         self.onPickPhoto    = onPickPhoto
         self.startsExpanded = launchOptions.startsHomeExpanded && !launchOptions.startsHomeOnPhotos
 
-        _source           = State(initialValue: launchOptions.startsHomeOnPhotos ? .photos : .files)
+        _source = State(initialValue: launchOptions.startsHomeOnPhotos
+                        || UserDefaults.standard.string(forKey: "UnveilPreferredLibrary") == "photos" ? .photos : .files)
         _isPhotosExpanded = State(initialValue: launchOptions.startsHomeExpanded && launchOptions.startsHomeOnPhotos)
     }
 
@@ -78,7 +79,7 @@ struct HomeView: View {
                 fader.setExpanded(expanded, for: .files)
             },
             onDragging     : { isDragging in fader.setDragging(isDragging, for: .files) },
-            background     : HomeBackground(isMoving: isActive && !isCovered),
+            background     : HomeBackground(isMoving: isActive && !isCovered, panelTop: sheetLayout?.restingTop),
             foreground     : foreground
         )
         .ignoresSafeArea()
@@ -90,7 +91,10 @@ struct HomeView: View {
             }
         }
         .environment(\.colorScheme, .dark)
-        .task { await library.requestAccess() }
+        .task(id: source) {
+            UserDefaults.standard.set(source == .photos ? "photos" : "files", forKey: "UnveilPreferredLibrary")
+            if source == .photos { await library.requestAccess() }
+        }
     }
 
     /// foreground is what the launch view puts in front of the title and behind the Files sheet:

@@ -13,49 +13,49 @@ import UIKit
 @MainActor
 struct EditorViewTests {
 
-    /// cardKeepsCanvasAndClosesOnTap verifies native touch routing and canvas identity while the
-    /// adjust card opens and closes: the card floats over the canvas and never resizes it.
-    @Test
-    func cardKeepsCanvasAndClosesOnTap() async throws {
-        let fixture = try Fixture()
+    /// dockedCardReservesPhotoSpace checks actual hosted canvas bounds on phone and tablet layouts.
+    /// Opening and closing the dock must resize the same Metal view without covering its center.
+    @Test(arguments: [true, false])
+    func dockedCardReservesPhotoSpace(compact: Bool) async throws {
+        let fixture = try Fixture(compact: compact)
         defer { fixture.window.isHidden = true }
         await fixture.model.open(pickedURL: URL(filePath: "/tmp/photo.RAF"))
         try await waitUntil(seconds: 3) { fixture.canvasReceivesCenterTouch }
         let size = fixture.canvas.bounds.size
 
         fixture.session.showPanel(.color)
-        try await Task.sleep(for: .milliseconds(500))
-        #expect(fixture.session.isCardOpen)
-        #expect(fixture.session.selectedGroup == .color)
-        #expect(findCanvas(in: fixture.host.view) === fixture.canvas)
-        #expect(fixture.canvas.bounds.size == size)
-
-        fixture.canvas.onSingleTap?()
         try await waitUntil(seconds: 3) {
-            !fixture.session.isCardOpen && fixture.canvasReceivesCenterTouch
+            compact ? fixture.canvas.bounds.height < size.height - 200
+                : fixture.canvas.bounds.width < size.width - 200
         }
+        #expect(fixture.session.isCardOpen)
         #expect(findCanvas(in: fixture.host.view) === fixture.canvas)
-        #expect(fixture.canvas.bounds.size == size)
+        #expect(fixture.canvasReceivesCenterTouch)
+        if compact {
+            #expect(abs(fixture.canvas.bounds.width - size.width) < 1)
+            #expect(fixture.canvas.bounds.height > size.height * 0.45)
+        } else {
+            #expect(abs(fixture.canvas.bounds.height - size.height) < 1)
+            #expect(fixture.canvas.bounds.width > size.width * 0.6)
+        }
+
+        fixture.session.select(.move)
+        try await waitUntil(seconds: 3) { fixture.canvas.bounds.size == size }
+        #expect(findCanvas(in: fixture.host.view) === fixture.canvas)
     }
 
-    /// touchDownClosesTheCardAtOnce checks that a touch-down closes the card without waiting for the
-    /// double-tap window, and that one on a closed card leaves it closed.
+    /// touchingThePhotoKeepsTheDockOpen allows panning, zooming and before/after while editing.
     @Test
-    func touchDownClosesTheCardAtOnce() async throws {
+    func touchingThePhotoKeepsTheDockOpen() async throws {
         let fixture = try Fixture()
         defer { fixture.window.isHidden = true }
         await fixture.model.open(pickedURL: URL(filePath: "/tmp/photo.RAF"))
         try await waitUntil(seconds: 3) { fixture.canvasReceivesCenterTouch }
-
         fixture.session.showPanel(.light)
-        try await waitUntil(seconds: 3) { fixture.canvas.onTouchDown != nil }
+        try await Task.sleep(for: .milliseconds(300))
+        fixture.canvas.onSingleTap?()
+        fixture.canvas.touchesBegan([], with: nil)
         #expect(fixture.session.isCardOpen)
-
-        fixture.canvas.touchesBegan([], with: nil)
-        #expect(!fixture.session.isCardOpen)
-
-        fixture.canvas.touchesBegan([], with: nil)
-        #expect(!fixture.session.isCardOpen)
     }
 
     /// adjustmentFailureIsVisibleWhileCardIsOpen checks that the card does not hide an editing
@@ -242,6 +242,49 @@ struct EditorViewTests {
         #expect(height(at: .accessibility3, offered: 780) == 780)
     }
 
+    /// compactCardFitsPhone checks the real SwiftUI layout at small phone widths and short heights.
+    @Test
+    func compactCardFitsPhone() {
+        let model = EditorViewModel(
+            engine        : FakeEngine(),
+            importer      : FakeImporter(),
+            previewPixels : 1024
+        )
+        for width: CGFloat in [296, 351, 378] {
+            let card = AdjustCard(
+                viewModel     : model,
+                group         : .constant(.light),
+                clipping      : .constant([]),
+                width         : width,
+                isCompact     : true,
+                histogramHeight: 48
+            )
+            let size = UIHostingController(rootView: card)
+                .sizeThatFits(in: CGSize(width: width, height: 280))
+            #expect(size.width <= width + 1)
+            #expect(size.height <= 281)
+            #expect(size.height > 100)
+        }
+    }
+
+    @Test
+    func miniHistogramKeepsItsHeight() {
+        let model = EditorViewModel(
+            engine        : FakeEngine(),
+            importer      : FakeImporter(),
+            previewPixels : 1024
+        )
+        let plot = HistogramView(
+            viewModel          : model,
+            clipping           : .constant([]),
+            fixedPlotHeight    : 48,
+            showsCaptureSummary: false
+        )
+        let size = UIHostingController(rootView: plot).sizeThatFits(in: CGSize(width: 330, height: 400))
+        #expect(abs(size.height - 48) < 1)
+        #expect(abs(size.width - 330) < 1)
+    }
+
     /// theHistogramPlotIsThreeToOne measures the histogram offered the card's inner width: its
     /// height is a third of it, with or without a histogram yet.
     @Test
@@ -326,7 +369,7 @@ struct EditorViewTests {
         let host   : UIHostingController<AnyView>
         let window : UIWindow
 
-        init(hostsWorkspace: Bool = false) throws {
+        init(hostsWorkspace: Bool = false, compact: Bool = false) throws {
             let engine = FakeEngine()
             let model = EditorViewModel(
                 engine        : engine,
@@ -352,7 +395,11 @@ struct EditorViewTests {
                     launchOptions : MeasurementLaunchOptions(arguments: [])
                 ))
                 : AnyView(EditorView(session: session, canvas: canvas, diagnostics: diagnostics))
-            let host = UIHostingController(rootView: root)
+            let host = UIHostingController(rootView: AnyView(
+                root
+                    .environment(\.horizontalSizeClass, compact ? .compact : .regular)
+                    .frame(width: compact ? 390 : 1024, height: compact ? 700 : 768)
+            ))
             let scene = try #require(
                 UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
             )

@@ -39,6 +39,7 @@ struct CanvasStyle {
     float  gridOpacity;
     uint   nearest;
     uint   clipping;
+    uint   hdr;
 };
 
 fragment float4 canvasFragment(
@@ -66,11 +67,14 @@ fragment float4 canvasFragment(
     // Clipping is a property of one pixel: test the nearest texel, never a bilinear blend of several.
     if (style.clipping != 0u) {
         float3 texel = image.sample(nearest, in.textureCoordinate).rgb;
-        if ((style.clipping & 2u) != 0u && any(texel > 254.5 / 255.0)) {
+        if ((style.clipping & 2u) != 0u && any(texel > (style.hdr != 0u ? 7.999 : 254.5 / 255.0))) {
             color.rgb = float3(1.0, 0.0, 0.0);
         } else if ((style.clipping & 1u) != 0u && any(texel < 0.5 / 255.0)) {
             color.rgb = float3(0.0, 0.0, 1.0);
         }
+    }
+    if (style.hdr == 0u) {
+        color.rgb = select(color.rgb / 12.92, pow((color.rgb + 0.055) / 1.055, float3(2.4)), color.rgb > 0.04045);
     }
     return color;
 }

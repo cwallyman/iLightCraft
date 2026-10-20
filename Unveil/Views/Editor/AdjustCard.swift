@@ -5,7 +5,7 @@
 
 import SwiftUI
 
-/// AdjustCard is the floating glass card left of the tool rail: the photo's histogram with its
+/// AdjustCard is the docked editing panel beside or below the photo: the photo's histogram with its
 /// clipping toggles, a carousel of one page per AdjustmentGroup, and at the bottom a strip that
 /// names the pages. The histogram stays put while the pages slide under it.
 ///
@@ -32,7 +32,10 @@ struct AdjustCard<Engine: EngineDriving, Importer: PhotoImporting>: View {
     @Binding
     var clipping: ClippingOverlay
 
-    private let width       : CGFloat = 340
+    var width               : CGFloat = 340
+    var showsHistogram      : Bool = true
+    var isCompact           : Bool = false
+    var histogramHeight     : CGFloat? = nil
     private let cornerRadius: CGFloat = 28
 
     @Environment(\.accessibilityReduceMotion)
@@ -47,9 +50,16 @@ struct AdjustCard<Engine: EngineDriving, Importer: PhotoImporting>: View {
     var body: some View {
         VStack(spacing: 0) {
 
-            HistogramView(viewModel: viewModel, clipping: $clipping)
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
+            if showsHistogram {
+                HistogramView(
+                    viewModel          : viewModel,
+                    clipping           : $clipping,
+                    fixedPlotHeight    : histogramHeight,
+                    showsCaptureSummary: !isCompact
+                )
+                    .padding(.horizontal, 16)
+                    .padding(.top, isCompact ? 10 : 16)
+            }
 
             pages
 
@@ -71,7 +81,7 @@ struct AdjustCard<Engine: EngineDriving, Importer: PhotoImporting>: View {
             ForEach(AdjustmentGroup.allCases) { page in
                 let isSelected = page == group
 
-                AdjustmentPanel(viewModel: viewModel, group: page)
+                AdjustmentPanel(viewModel: viewModel, group: page, isCompact: isCompact)
                     .offset(x: reduceMotion ? 0 : CGFloat(page.rawValue - group.rawValue) * width)
                     .opacity(isSelected ? 1 : 0)
                     .allowsHitTesting(isSelected)
@@ -100,8 +110,9 @@ struct AdjustCard<Engine: EngineDriving, Importer: PhotoImporting>: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                         .foregroundStyle(isSelected ? .primary : .secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, isCompact ? 6 : 8)
+                        .frame(minHeight: isCompact ? 44 : nil)
+                        .padding(.vertical, isCompact ? 0 : 6)
                         .background {
                             if isSelected {
                                 Capsule()
@@ -121,8 +132,8 @@ struct AdjustCard<Engine: EngineDriving, Importer: PhotoImporting>: View {
         .padding(4)
         .background(stripFill, in: .capsule)
         .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 16)
+        .padding(.top, isCompact ? 4 : 12)
+        .padding(.bottom, isCompact ? 8 : 16)
         .contentShape(Rectangle())
         .highPriorityGesture(
             DragGesture(minimumDistance: 12).onEnded { swipe in

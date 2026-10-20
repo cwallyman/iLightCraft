@@ -7,3 +7,11 @@ Engine/target/
 DerivedData*/
 *.trace
 .superpowers/sdd/*/worktrees/
+
+# Local signing material, personal camera files and device backups
+LocalVerification/
+*.mobileprovision
+*.p12
+*.p8
+.env
+.env.local

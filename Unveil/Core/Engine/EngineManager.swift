@@ -39,6 +39,7 @@ nonisolated final class EngineManager:
 
     private let session  : OpaquePointer
     private let maxPixels: Int
+    private let photosLinksURL: URL
     private let queue    = DispatchQueue(label: "com.unveil.engine-manager", qos: .userInitiated)
 
     /// SessionHandle carries the session pointer to the queue that frees it in deinit.
@@ -212,6 +213,7 @@ nonisolated final class EngineManager:
 
         self.session   = session
         self.maxPixels = maxPixels
+        self.photosLinksURL = dataDirectory.appending(path: "photos-links.json")
         self.frames    = FrameSink(device: device, maxPixels: maxPixels)
     }
 
@@ -241,13 +243,27 @@ nonisolated final class EngineManager:
     /// A file the engine cannot read still returns UV_OK, with the reason in `failed`: that is
     /// how an unreadable file becomes an error here.
     func openPhoto(at fileURL: URL) async throws(EngineError) -> PhotoID {
+        try await openPhoto(at: fileURL, initialSettings: nil, versionKey: nil)
+    }
+
+    func openPhoto(at fileURL: URL, initialSettings: Data?, versionKey: String?) async throws(EngineError) -> PhotoID {
         try await onQueue { () throws(EngineError) -> PhotoID in
+            var links: [String: UInt64] = [:]
+            if versionKey != nil, FileManager.default.fileExists(atPath: self.photosLinksURL.path) {
+                do { links = try JSONDecoder().decode([String: UInt64].self, from: Data(contentsOf: self.photosLinksURL)) }
+                catch { throw .io("Cannot read the Photos edit index; local edits retained.") }
+            }
+            if let versionKey, let id = links[versionKey] {
+                _ = try self.execute("photo.relink", RelinkRequest(id: id, path: fileURL.path(percentEncoded: false)))
+                _ = try self.execute("library.select", SelectRequest(ids: [id], active: id))
+                return PhotoID(rawValue: id)
+            }
             let request = ImportRequest(paths: [fileURL.path(percentEncoded: false)])
             let report  = try self.decode(ImportReport.self, from: self.execute("library.import", request))
 
             let existing = report.restored?.first ?? report.duplicates.first?.existing
 
-            guard let id = report.imported.first ?? existing
+            guard var id = report.imported.first ?? existing
             else {
                 if let failure = report.failed.first {
                     throw .engine(failure.dropFirst().first ?? "the engine could not import the file")
@@ -260,7 +276,32 @@ nonisolated final class EngineManager:
                 _ = try self.execute("photo.relink", relink)
             }
 
+            if versionKey != nil && report.imported.isEmpty {
+                _ = try self.execute("library.select", SelectRequest(ids: [id], active: id))
+                struct CopyResult: Decodable { let ids: [UInt64] }
+                let result = try self.decode(CopyResult.self, from: self.execute("photo.virtualCopy", IDsRequest(ids: [id])))
+                guard let copy = result.ids.first else { throw .engine("Cannot preserve a separate Photos editing version") }
+                id = copy
+            }
             _ = try self.execute("library.select", SelectRequest(ids: [id], active: id))
+            if !report.imported.isEmpty || versionKey != nil {
+                if versionKey != nil { _ = try self.execute("develop.reset", IDsRequest(ids: [id])) }
+                if let initialSettings {
+                    _ = try self.execute("unveil.restore", ["settingsJSON": String(decoding: initialSettings, as: UTF8.self)])
+                } else {
+                    do {
+                        if try NativeImageInfo.read(for: fileURL)?.hdr == true {
+                            _ = try self.execute("develop.merge", HDRMerge(enabled: true))
+                        }
+                    } catch let error as EngineError { throw error }
+                    catch { throw .io(error.localizedDescription) }
+                }
+            }
+            if let versionKey {
+                links[versionKey] = id
+                do { try JSONEncoder().encode(links).write(to: self.photosLinksURL, options: .atomic) }
+                catch { throw .io("The Photos edit opened, but its local index could not be saved. Local data retained.") }
+            }
             return PhotoID(rawValue: id)
         }
     }
@@ -299,6 +340,45 @@ nonisolated final class EngineManager:
             }
 
             return values
+        }
+    }
+
+    func cropSettings() async throws(EngineError) -> CropSettings {
+        try await onQueue { () throws(EngineError) -> CropSettings in
+            try self.decode(CropSettings.self, from: self.execute("develop.get", [String: String]()))
+        }
+    }
+
+    nonisolated private struct HDRMerge: Encodable, Sendable {
+
+        let settings: Settings
+        struct Settings: Encodable, Sendable { let hdr: HDR }
+        struct HDR: Encodable, Sendable { let enabled: Bool }
+        init(enabled: Bool) { settings = Settings(hdr: HDR(enabled: enabled)) }
+    }
+
+    func hdrEnabled() async throws(EngineError) -> Bool {
+        struct Settings: Decodable { struct HDR: Decodable { let enabled: Bool }; let hdr: HDR? }
+        return try await onQueue { () throws(EngineError) -> Bool in
+            try self.decode(Settings.self, from: self.execute("develop.get", [String: String]())).hdr?.enabled ?? false
+        }
+    }
+
+    func setHDR(_ enabled: Bool) async throws(EngineError) {
+        try await onQueue { () throws(EngineError) in
+            _ = try self.execute("develop.merge", HDRMerge(enabled: enabled))
+        }
+    }
+
+    func setCropSettings(_ settings: CropSettings) async throws(EngineError) {
+        struct Merge: Encodable, Sendable { let settings: CropSettings }
+        struct Constrain: Encodable, Sendable { let rect: [Double]; let angle: Double }
+        try await onQueue { () throws(EngineError) in
+            _ = try self.execute("develop.merge", Merge(settings: settings))
+            let r = settings.crop.geometry.rect
+            _ = try self.execute("crop.set", Constrain(
+                rect: [r.x0, r.y0, r.x1, r.y1], angle: settings.crop.geometry.angle
+            ))
         }
     }
 
@@ -500,7 +580,8 @@ nonisolated final class EngineManager:
             replacesWindow: info.fallback,
             nativeWidth   : Int(info.native_width),
             nativeHeight  : Int(info.native_height),
-            histogram     : info.histogram.map { EngineManager.histogram(of: $0.pointee, frame: info) }
+            histogram     : info.histogram.map { EngineManager.histogram(of: $0.pointee, frame: info) },
+            linearRGBA16  : info.linear_rgba16
         )
     }
 

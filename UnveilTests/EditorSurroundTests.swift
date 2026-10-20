@@ -19,8 +19,9 @@ struct EditorSurroundTests {
 
         #expect(EditorSurround.gray > 0.05 && EditorSurround.gray < 0.2)
         #expect(canvas.backgroundColor == EditorSurround.uiColor)
-        #expect(EditorSurround.metalClearColor.red == EditorSurround.gray)
-        #expect(EditorSurround.metalClearColor.green == EditorSurround.gray)
-        #expect(EditorSurround.metalClearColor.blue == EditorSurround.gray)
+        let linear = pow((EditorSurround.gray + 0.055) / 1.055, 2.4)
+        #expect(EditorSurround.metalClearColor.red == linear)
+        #expect(EditorSurround.metalClearColor.green == linear)
+        #expect(EditorSurround.metalClearColor.blue == linear)
     }
 }

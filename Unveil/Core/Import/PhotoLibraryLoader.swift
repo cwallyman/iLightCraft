@@ -8,10 +8,8 @@ import os
 import Photos
 import UniformTypeIdentifiers
 
-/// PhotoLibraryLoader copies one library photo out of Photos as a file, never as a decoded
-/// UIImage and never whole into Data: Photos writes the chosen resource straight to a staging
-/// file, downloading it from iCloud when needed. The editor's regular importer then owns the
-/// lasting copy, and the caller discards the staging file.
+/// PhotoLibraryLoader opens a versioned Photos editing source, downloading from iCloud when needed.
+/// Durable sources retain the PhotoKit revision and complete adjustment payload for same-item saves.
 nonisolated struct PhotoLibraryLoader: PhotoLibraryLoading {
 
     private let stagingDirectory: URL
@@ -25,55 +23,22 @@ nonisolated struct PhotoLibraryLoader: PhotoLibraryLoading {
         self.stagingDirectory = stagingDirectory
     }
 
-    /// loadPhoto writes the asset's best resource (PhotoResourceChoice: the RAW when there is
-    /// one) into a directory of its own under its original file name, so importing the same photo
-    /// again reaches the importer's existing content hash and does not create another copy.
+    /// loadPhoto delegates content editing to PhotoKit; RAW originals go through Apple's native decoder.
     @MainActor
     func loadPhoto(assetIdentifier: String) async throws(PhotoLibraryError) -> URL {
-        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil).firstObject else {
-            throw .photoUnavailable
-        }
-
-        let resources = PHAssetResource.assetResources(for: asset)
-        let kinds     = resources.map { PhotoResourceChoice.Kind(type: $0.type, typeIdentifier: $0.uniformTypeIdentifier) }
-        guard let index = PhotoResourceChoice.preferredIndex(in: kinds) else {
-            throw .noImageRepresentation
-        }
-
-        let resource           = resources[index]
-        let selectionDirectory = stagingDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
-        let fileName           = resource.originalFilename.isEmpty
-            ? "photo.\(UTType(resource.uniformTypeIdentifier)?.preferredFilenameExtension ?? "image")"
-            : resource.originalFilename
-        let destination = selectionDirectory.appending(path: fileName)
-
         do {
-            try FileManager.default.createDirectory(at: selectionDirectory, withIntermediateDirectories: true)
+            return try await ApplePhotosEditor.prepare(identifier: assetIdentifier)
+        } catch let error as PhotoLibraryError {
+            throw error
         } catch {
             throw .fileOperationFailed(error.localizedDescription)
         }
-
-        let options = PHAssetResourceRequestOptions()
-        options.isNetworkAccessAllowed = true
-
-        let failure: String? = await withCheckedContinuation { continuation in
-            PHAssetResourceManager.default().writeData(for: resource, toFile: destination, options: options) { error in
-                continuation.resume(returning: error?.localizedDescription)
-            }
-        }
-
-        if let failure {
-            Self.removeQuietly(selectionDirectory)
-            throw .fileOperationFailed(failure)
-        }
-
-        return destination
     }
 
-    /// discardPhoto removes the selection's private directory off the main actor, including any
-    /// staged file. Its URL must be one returned by loadPhoto; the lasting import lives elsewhere.
+    /// Durable editing sources stay on device. Legacy temporary selections are discarded off the main actor.
     @concurrent
     func discardPhoto(at url: URL) async throws(PhotoLibraryError) {
+        if FileManager.default.fileExists(atPath: url.appendingPathExtension("photos.json").path) { return }
         do {
             try FileManager.default.removeItem(at: url.deletingLastPathComponent())
         } catch {

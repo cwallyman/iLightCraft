@@ -171,6 +171,12 @@ final class EditorLaunchRunner {
 
             print("measure: first full frame")
 
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-UnveilHDR") {
+                await viewModel.setHDR(true)
+            }
+            #endif
+
             let firstFrameAt = ContinuousClock.now
 
             if options.reportsMemoryMap {

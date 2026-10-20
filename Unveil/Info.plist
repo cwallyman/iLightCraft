@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleName</key>
+	<string>iLightCraft</string>
+	<key>CFBundleDisplayName</key>
+	<string>iLightCraft</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -12,6 +16,8 @@
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Unveil shows your photo library so you can open a photo to edit.</string>
+	<string>iLightCraft opens selected photos and saves your edits back when you choose Save to Apple Photos. Originals are preserved.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>iLightCraft saves an exported photo to your library when you choose Save Image.</string>
 </dict>
 </plist>

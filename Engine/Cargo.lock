@@ -3947,6 +3947,8 @@ name = "unveil-ffi"
 version = "0.1.0"
 dependencies = [
  "dhat",
+ "half",
+ "lightcraft-codecs",
  "lightcraft-engine",
  "lightcraft-gpu",
  "log",

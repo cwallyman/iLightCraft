@@ -1,9 +1,9 @@
-// uv.h: C ABI of the Unveil engine bridge. Version 6.
+// uv.h: C ABI of the Unveil engine bridge. Version 7.
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
 
-#define UV_ABI_VERSION 6
+#define UV_ABI_VERSION 7
 
 typedef enum UVStatus {
     UV_OK                    =  0,
@@ -64,6 +64,8 @@ typedef struct UVFrame {
     int32_t        status;
     const char    *error;
     const UVHistogram *histogram;
+    /// Optional packed linear-sRGB RGBA16F; width * 8 bytes per row, SDR white = 1.
+    const uint16_t *linear_rgba16;
 } UVFrame;
 
 /// Called on the engine thread; `frame` and its pixels are valid only during the call.

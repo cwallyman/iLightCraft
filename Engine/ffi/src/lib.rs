@@ -7,6 +7,7 @@ pub mod delta_e;
 mod diagnostics;
 mod last_error;
 mod memory_budget;
+mod native_commands;
 mod panic_guard;
 mod preview_scheduler;
 mod preview_stages;
@@ -22,5 +23,5 @@ pub use status::UVStatus;
 /// It returns a constant and cannot fail, so it skips the panic guard.
 #[unsafe(no_mangle)]
 pub extern "C" fn uv_abi_version() -> u32 {
-    6
+    7
 }

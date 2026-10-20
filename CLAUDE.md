@@ -30,7 +30,8 @@ Device runs, the golden export and the measurements are in `Docs/Baseline/` (`bu
 - `Engine/crates` is upstream code: change it only with an Apache-2.0 §4(b) notice in the file and an entry in
   `Engine/CHANGES.md`, keep upstream rustfmt for those files (`max_width = 150`, edition 2024), and benchmark
   every change against the v0 baseline (commit `fc020cd`, measurements in `Docs/Baseline/`).
-- `lightcraft-engine` is used without features; never call `with_default_face_models` or `with_default_denoise_models`.
+- `lightcraft-engine` is used without features. The app bridge enables `lightcraft-codecs/heif`
+  for HEIC still-image decoding; never call `with_default_face_models` or `with_default_denoise_models`.
 - Commits are made only by the coordinator: workers never stage, commit or push.
 - Branches are `elio/<feature>` (a fix: `elio/<feature>-fix`); a finished feature is merged into `main`
   with a merge commit and its branch deleted.

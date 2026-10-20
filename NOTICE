@@ -1,7 +1,11 @@
 Unveil
 Copyright 2026 the Unveil authors. Licensed under the Apache License, Version 2.0 (LICENSE).
 
-The home screen's photo cards are renders of CC0 RAW files from https://raw.pixls.us (Docs/Baseline/raw-set.md).
+iLightCraft's winking lynx derives from the LightCraft project owner's original app icon,
+licensed MIT OR Apache-2.0. The wink adaptation was requested by Christopher Wallace.
+See assets/ATTRIBUTION.md and Docs/Branding/UPSTREAM-ARTWORK-LICENSE.txt.
+Retained sample photo assets (not displayed on home) are CC0 RAW renders from
+https://raw.pixls.us (Docs/Baseline/raw-set.md).
 
 Engine/ contains LightCraft (https://github.com/storytold/lightcraft), commit c435d143,
 used under the Apache License 2.0. Its NOTICE follows.

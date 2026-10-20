@@ -67,6 +67,18 @@ nonisolated struct ImportStore<Catalog: ImportCatalogReading>: Sendable {
             keptNames.insert(openCopy.lastPathComponent)
         }
 
+        do {
+            for name in Array(keptNames) {
+                let url = importsDirectory.appending(path: name)
+                if let info = try NativeImageInfo.read(for: url) {
+                    keptNames.insert(info.originalFileName)
+                    keptNames.insert(name + ".native.json")
+                }
+            }
+        } catch {
+            return .nothing
+        }
+
         let entries: [URL]
         do {
             entries = try FileManager.default.contentsOfDirectory(

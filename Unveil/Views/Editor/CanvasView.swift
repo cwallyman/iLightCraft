@@ -65,7 +65,7 @@ final class CanvasView: UIView {
     nonisolated static let vertexFunctionName   = "canvasVertex"
     nonisolated static let fragmentFunctionName = "canvasFragment"
 
-    private static let drawablePixelFormat = MTLPixelFormat.bgra8Unorm
+    private static let drawablePixelFormat = MTLPixelFormat.rgba16Float
     private static let logger              = Logger(subsystem: "com.eliorodr2104.unveil", category: "CanvasView")
 
     // any: Metal vends its objects only as protocol existentials, there is no concrete type to name.
@@ -311,6 +311,7 @@ final class CanvasView: UIView {
 
         func fits(_ frame: ReadyFrame) -> Bool {
             width == frame.width && height == frame.height && bytesPerRow == frame.bytesPerRow
+                && texture.pixelFormat == (frame.isHDR ? .rgba16Float : .rgba8Unorm)
         }
     }
 
@@ -322,6 +323,7 @@ final class CanvasView: UIView {
         var gridOpacity: Float
         var nearest    : UInt32
         var clipping   : UInt32
+        var hdr        : UInt32 = 0
     }
 
     /// CrossThreadState is what the engine thread and Metal's completion thread touch: only atomics,
@@ -594,11 +596,17 @@ final class CanvasView: UIView {
         let began    = recorder.now
         let outcome  = FrameTimingProbe.shared.measure("Tick") { drawIfDirty(link, update: update) }
 
+        #if targetEnvironment(simulator)
+        let drawableID: Int? = nil
+        #else
+        let drawableID = outcome.drew ? update.drawable.drawableID : nil
+        #endif
+
         recorder.update(
             began          : began,
             target         : update.targetPresentationTimestamp,
             zoom           : canvasTransform.zoom,
-            drawable       : outcome.drew ? update.drawable.drawableID : nil,
+            drawable       : drawableID,
             windowInFlight : began > 0 && isWindowInFlight,
             proxy          : scrollProxy.contentOffset,
             offset         : canvasTransform.offset,
@@ -779,6 +787,7 @@ final class CanvasView: UIView {
     ) {
         var corners = SIMD4<Float>(lowHalf: quad.min, highHalf: quad.max)
         var style   = style
+        style.hdr = texture.pixelFormat == .rgba16Float ? 1 : 0
 
         encoder.setVertexBytes(&corners, length: MemoryLayout<SIMD4<Float>>.stride, index: 0)
         encoder.setFragmentBytes(&style, length: MemoryLayout<CanvasStyle>.stride, index: 0)
@@ -888,9 +897,11 @@ final class CanvasView: UIView {
     /// texture(for:) returns the cached texture over the buffer holding `frame`, making a new one
     /// only when that buffer's frame changed size or stride.
     private func texture(for frame: ReadyFrame) -> (any MTLTexture)? {
+        #if !targetEnvironment(simulator)
         if let cached = cachedTextures[frame.bufferIndex], cached.fits(frame) {
             return cached.texture
         }
+        #endif
 
         let made = FrameTimingProbe.shared.measure("MakeTexture") { Self.makeTexture(for: frame, in: frames) }
 
@@ -916,9 +927,9 @@ final class CanvasView: UIView {
     /// alignment and `height * bytesPerRow` fits the buffer, because FrameSink only publishes frames
     /// within its `maxPixels` and sized the buffers for that worst case.
     nonisolated static func makeTexture(for frame: ReadyFrame, in frames: FrameSink) -> (any MTLTexture)? {
-        let buffer     = frames.buffer(at: frame.bufferIndex)
+        let buffer     = frames.buffer(at: frame.bufferIndex, hdr: frame.isHDR)
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat : .rgba8Unorm,
+            pixelFormat : frame.isHDR ? .rgba16Float : .rgba8Unorm,
             width       : frame.width,
             height      : frame.height,
             mipmapped   : false
@@ -926,7 +937,20 @@ final class CanvasView: UIView {
         descriptor.storageMode = .shared
         descriptor.usage       = .shaderRead
 
+        #if targetEnvironment(simulator)
+        // The simulator rejects shared buffer textures. Copy into a shared texture each frame;
+        // unlike the device's zero-copy view, a previous texture cannot see new buffer contents.
+        guard let texture = buffer.device.makeTexture(descriptor: descriptor) else { return nil }
+        texture.replace(
+            region      : MTLRegionMake2D(0, 0, frame.width, frame.height),
+            mipmapLevel : 0,
+            withBytes   : buffer.contents(),
+            bytesPerRow : frame.bytesPerRow
+        )
+        return texture
+        #else
         return buffer.makeTexture(descriptor: descriptor, offset: 0, bytesPerRow: frame.bytesPerRow)
+        #endif
     }
 
     // MARK: - Gestures
@@ -1572,7 +1596,8 @@ final class CanvasView: UIView {
 
         metalLayer.device          = device
         metalLayer.pixelFormat     = Self.drawablePixelFormat
-        metalLayer.colorspace      = CGColorSpace(name: CGColorSpace.sRGB)
+        metalLayer.colorspace      = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)
+        metalLayer.wantsExtendedDynamicRangeContent = true
         metalLayer.framebufferOnly = true
         metalLayer.isOpaque        = true
     }

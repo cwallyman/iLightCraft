@@ -45,6 +45,10 @@ final class EditorSession<
 
     private(set) var isEditorPresented: Bool = false
     private(set) var isImporting      : Bool = false
+    private(set) var photoContext: PhotoEditContext?
+    private(set) var isSavingPhotos = false
+    var conflictedAssetIdentifier: String?
+    var photosStatus: String?
 
     /// onPhotoOpened runs after each successful open, for work that follows one (the import sweep).
     @ObservationIgnored
@@ -173,7 +177,7 @@ final class EditorSession<
         isImporting = true
         defer { isImporting = false }
 
-        await openAndPresent(pickedURL)
+        if await openAndPresent(pickedURL) { photoContext = nil }
     }
 
     /// importLibraryPhoto copies a library photo to a staging file and holds it through the
@@ -187,7 +191,19 @@ final class EditorSession<
 
         do throws(PhotoLibraryError) {
             let pickedURL = try await libraryLoader.loadPhoto(assetIdentifier: assetIdentifier)
-            await openAndPresent(pickedURL, title: Self.title(ofStagedPhoto: pickedURL))
+            let context: PhotoEditContext?
+            do { context = try PhotoEditContext.read(for: pickedURL) }
+            catch { throw .fileOperationFailed(error.localizedDescription) }
+            let title = context?.displayName.map { URL(filePath: $0).deletingPathExtension().lastPathComponent }
+                ?? Self.title(ofStagedPhoto: pickedURL)
+            if await openAndPresent(pickedURL, title: title, initialSettings: context?.initialSettings,
+                                    versionKey: context.map { $0.assetIdentifier + "/" + $0.sourceFile }) {
+                photoContext = context
+                if let copy = viewModel.openCopyURL {
+                    do { photoContext?.rawDecoderVersion = try NativeImageInfo.read(for: copy)?.rawDecoderVersion ?? context?.rawDecoderVersion }
+                    catch { throw .fileOperationFailed(error.localizedDescription) }
+                }
+            }
 
             do throws(PhotoLibraryError) {
                 try await libraryLoader.discardPhoto(at: pickedURL)
@@ -196,15 +212,22 @@ final class EditorSession<
                 logger.error("Deleting the library copy failed: \(error.message, privacy: .public)")
             }
         } catch {
-            show(EditorAlert(title: "Unable to Open Photo", message: error.message))
+            if error == .externalChange {
+                conflictedAssetIdentifier = assetIdentifier
+            } else {
+                show(EditorAlert(title: "Unable to Open Photo", message: error.message))
+            }
         }
     }
 
-    private func openAndPresent(_ pickedURL: URL, title: String? = nil) async {
-        if await viewModel.open(pickedURL: pickedURL, title: title) {
+    @discardableResult
+    private func openAndPresent(_ pickedURL: URL, title: String? = nil, initialSettings: Data? = nil, versionKey: String? = nil) async -> Bool {
+        if await viewModel.open(pickedURL: pickedURL, title: title, initialSettings: initialSettings, versionKey: versionKey) {
             isEditorPresented = true
             onPhotoOpened?()
+            return true
         }
+        return false
     }
 
     /// title(ofStagedPhoto:) is the library file's name when it reads like one (IMG_0042), and
@@ -213,5 +236,50 @@ final class EditorSession<
         let name = url.deletingPathExtension().lastPathComponent
 
         return name.isEmpty || UUID(uuidString: name) != nil ? "Photo" : name
+    }
+}
+
+extension EditorSession where Engine: EngineDiagnosing {
+
+    func saveToPhotos() async {
+        guard !isSavingPhotos, let context = photoContext, let photo = viewModel.openPhoto else { return }
+        isSavingPhotos = true
+        photosStatus = "Rendering full-resolution photo…"
+        defer { isSavingPhotos = false }
+        let hdr = viewModel.hdrEnabled
+        let file = URL.temporaryDirectory.appending(path: "photos-save-\(UUID())").appendingPathExtension(hdr ? "tiff" : "jpg")
+        defer { try? FileManager.default.removeItem(at: file) }
+        do {
+            await viewModel.finishPendingEdits()
+            let settings = try await viewModel.photoCommand("develop.get", params: [String: String]())
+            if hdr {
+                _ = try await viewModel.photoCommand("unveil.hdrExport", params: ["path": file.path(percentEncoded: false)])
+            } else {
+                _ = try await viewModel.photoCommand("unveil.export", params: PhotosExportRequest(
+                    id: photo.rawValue, path: file.path(percentEncoded: false)
+                ))
+            }
+            let result = try await ApplePhotosEditor.save(context: context, rendered: file, settings: Data(settings.utf8), hdr: hdr)
+            photoContext = result.0
+            photosStatus = result.1 ?? "Saved to the same Apple Photos item. Original preserved."
+        } catch PhotoLibraryError.externalChange {
+            conflictedAssetIdentifier = context.assetIdentifier
+            photosStatus = "Photos changed; local edit retained."
+        } catch {
+            photosStatus = "Save stopped; local edit retained."
+            show(EditorAlert(title: "Unable to Save to Photos", message: (error as? EngineError)?.message
+                             ?? (error as? PhotoLibraryError)?.message ?? error.localizedDescription))
+        }
+    }
+
+    func reloadLatestPhotosVersion(identifier: String? = nil) async {
+        guard let identifier = identifier ?? conflictedAssetIdentifier else { return }
+        do {
+            try ApplePhotosEditor.archiveWorkingVersion(identifier: identifier)
+            conflictedAssetIdentifier = nil
+            await importLibraryPhoto(assetIdentifier: identifier)
+        } catch {
+            show(EditorAlert(title: "Unable to Reload Photo", message: error.localizedDescription))
+        }
     }
 }

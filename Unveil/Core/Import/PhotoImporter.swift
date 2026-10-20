@@ -4,8 +4,11 @@
 //
 
 import CryptoKit
+import CoreImage
 import Foundation
+import ImageIO
 import Synchronization
+import UniformTypeIdentifiers
 
 /// PhotoImporter copies a picked file into `Application Support/Imports/<sha256>-<name>`.
 ///
@@ -61,6 +64,8 @@ nonisolated struct PhotoImporter: PhotoImporting {
             try imports.setResourceValues(noBackup)
 
             let hash = try Self.contentHash(of: pickedURL)
+            let context = try PhotoEditContext.read(for: pickedURL)
+            let requestedDecoder = context?.rawDecoderVersion
             OpenTimeline.mark("hash-end")
             let copy = imports.appending(path: "\(hash)-\(pickedURL.lastPathComponent)")
 
@@ -72,7 +77,7 @@ nonisolated struct PhotoImporter: PhotoImporting {
                 return true
             }
             if isReused {
-                return (copy, false)
+                return try preparedCopy(of: copy, hash: hash, requestedDecoder: requestedDecoder, sourceIsRAW: context?.sourceIsRAW == true)
             }
 
             // A new copy needs no lock: the sweep lists the folder, and this file is not in it yet.
@@ -81,12 +86,44 @@ nonisolated struct PhotoImporter: PhotoImporting {
             try Self.markUsedNow(partial)
             try fileManager.moveItem(at: partial, to: copy)
 
-            return (copy, true)
+            let result = try preparedCopy(of: copy, hash: hash, requestedDecoder: requestedDecoder, sourceIsRAW: context?.sourceIsRAW == true)
+            return (result.url, result.url == copy ? true : result.isNew)
         } catch let error as CocoaError where error.code == .fileReadNoPermission {
             throw .accessDenied(pickedURL)
         } catch {
             throw .copyFailed(error.localizedDescription)
         }
+    }
+
+    /// Apple RAW decoding never substitutes an embedded JPEG; HDR gain maps expand before Rust sees the pixels.
+    private func preparedCopy(of original: URL, hash: String, requestedDecoder: String?, sourceIsRAW: Bool) throws -> (url: URL, isNew: Bool) {
+        let decoder = CGImageSourceCreateWithURL(original as CFURL, nil)
+        let identifier = decoder.flatMap { CGImageSourceGetType($0) } as String?
+        let raw = sourceIsRAW || NativeImagePipeline.isRAW(fileName: original.lastPathComponent, typeIdentifier: identifier)
+        let image = raw ? nil : CIImage(contentsOf: original, options: [.expandToHDR: true])
+        let properties = decoder.flatMap { CGImageSourceCopyPropertiesAtIndex($0, 0, nil) as? [CFString: Any] }
+        let hdr = raw || (image?.contentHeadroom ?? 1) > 1
+            || (properties?[kCGImagePropertyIsFloat] as? Bool == true)
+            || image?.colorSpace?.name == CGColorSpace.itur_2100_PQ
+            || image?.colorSpace?.name == CGColorSpace.itur_2100_HLG
+        guard raw || hdr else { return (original, false) }
+
+        let versionKey = requestedDecoder.map { SHA256.hash(data: Data($0.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined() }
+        let output = importsDirectory.appending(path: "\(hash)-linear-v2\(versionKey.map { "-" + $0 } ?? "").tiff")
+        if FileManager.default.fileExists(atPath: output.path) {
+            guard try NativeImageInfo.read(for: output) != nil else {
+                throw PhotoImportError.copyFailed("The decoded image cache is incomplete; original retained.")
+            }
+            try Self.markUsedNow(output)
+            return (output, false)
+        }
+        let partial = URL.temporaryDirectory.appending(path: "raw-decode-\(UUID()).tiff")
+        defer { try? FileManager.default.removeItem(at: partial) }
+        let version = try NativeImagePipeline.prepare(source: original, destination: partial, raw: raw, decoderVersion: requestedDecoder)
+        let info = NativeImageInfo(originalFileName: original.lastPathComponent, rawDecoderVersion: version, hdr: hdr)
+        try JSONEncoder().encode(info).write(to: output.appendingPathExtension("native.json"), options: .atomic)
+        try FileManager.default.moveItem(at: partial, to: output)
+        return (output, true)
     }
 
     /// markUsedNow sets the copy's modification date to now. copyItem keeps the source's date, so a

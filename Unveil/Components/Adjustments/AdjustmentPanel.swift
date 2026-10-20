@@ -26,6 +26,7 @@ struct AdjustmentPanel<Engine: EngineDriving, Importer: PhotoImporting>: View {
 
     let viewModel: EditorViewModel<Engine, Importer>
     let group    : AdjustmentGroup
+    var isCompact: Bool = false
 
     @State
     private var isDragging = false
@@ -33,12 +34,14 @@ struct AdjustmentPanel<Engine: EngineDriving, Importer: PhotoImporting>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
 
-            Text(group.title)
-                .font(.title3.weight(.semibold))
-                .accessibilityAddTraits(.isHeader)
-                .padding(.horizontal, 16)
-                .padding(.top, 20)
-                .padding(.bottom, 20)
+            if !isCompact {
+                Text(group.title)
+                    .font(.title3.weight(.semibold))
+                    .accessibilityAddTraits(.isHeader)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 20)
+                    .padding(.bottom, 20)
+            }
 
             RowsHeight {
                 ScrollView {
@@ -52,7 +55,7 @@ struct AdjustmentPanel<Engine: EngineDriving, Importer: PhotoImporting>: View {
     }
 
     private var rows: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: isCompact ? 4 : 16) {
 
             ForEach(group.kinds, id: \.self) { kind in
                 AdjustmentSlider(
@@ -63,12 +66,14 @@ struct AdjustmentPanel<Engine: EngineDriving, Importer: PhotoImporting>: View {
                     onEditingChanged : { editingChanged(kind, isEditing: $0) },
                     onCommit         : { commit(kind, to: $0) },
                     onNudge          : { nudge(kind, by: $0) },
-                    onReset          : { Task.immediate { await viewModel.reset(kind) } }
+                    onReset          : { Task.immediate { await viewModel.reset(kind) } },
+                    isCompact        : isCompact
                 )
                 .equatable()
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 12)
+        .padding(.top, isCompact ? 8 : 0)
     }
 
     /// drag sends one new slider value of a drag in progress.

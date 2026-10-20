@@ -16,6 +16,9 @@ import SwiftUI
 /// collapsed) lets the panel's own drag take vertical swipes, while taps still open photos.
 struct PhotosBrowser: View {
 
+    @Environment(\.horizontalSizeClass)
+    private var horizontalSizeClass
+
     @Bindable
     var library: PhotoLibraryStore
 
@@ -32,23 +35,37 @@ struct PhotosBrowser: View {
     // MARK: Toolbar
 
     private var toolbar: some View {
-        ZStack {
-            CapsulePicker(
-                label     : "Photos Scope",
-                options   : [("Recents", PhotoLibraryStore.Scope.recents), ("Albums", .albums)],
-                selection : $library.scope
-            )
-
-            HStack(spacing: 10) {
-                leadingItems
-                Spacer(minLength: 0)
-                trailingItems
+        VStack(spacing: 8) {
+            if horizontalSizeClass == .compact {
+                scopePicker
+                HStack {
+                    leadingItems
+                    Spacer()
+                    trailingItems
+                }
+            } else {
+                ZStack {
+                    scopePicker
+                    HStack(spacing: 10) {
+                        leadingItems
+                        Spacer(minLength: 0)
+                        trailingItems
+                    }
+                }
             }
         }
-        .padding(.horizontal, 28)
+        .padding(.horizontal, horizontalSizeClass == .compact ? 16 : 28)
         .padding(.top, 12)
         .padding(.bottom, 8)
         .opacity(library.access == .denied ? 0 : 1)
+    }
+
+    private var scopePicker: some View {
+        CapsulePicker(
+            label     : "Photos Scope",
+            options   : [("Recents", PhotoLibraryStore.Scope.recents), ("Albums", .albums)],
+            selection : $library.scope
+        )
     }
 
     @ViewBuilder
@@ -130,7 +147,7 @@ struct PhotosBrowser: View {
                 ContentUnavailableView {
                     Label("No Access to Photos", systemImage: "photo.on.rectangle")
                 } description: {
-                    Text("Allow Unveil to read your photo library in Settings.")
+                    Text("Allow iLightCraft to read your photo library in Settings.")
                 } actions: {
                     Button("Open Settings") {
                         if let url = URL(string: UIApplication.openSettingsURLString) {

@@ -40,6 +40,7 @@ struct AdjustmentSlider: View {
     let onCommit        : (Double) -> Void
     let onNudge         : (Double) -> Void
     let onReset         : () -> Void
+    var isCompact       : Bool = false
 
     /// DragState is a drag in progress. `position` is the unrounded value the finger has reached,
     /// so slow motion below one step still accumulates; the binding gets it snapped to the step.
@@ -117,7 +118,7 @@ struct AdjustmentSlider: View {
                     .foregroundStyle(isAtDefault ? .secondary : .primary)
                     .popover(isPresented: $isEntryShown) { entryField }
             }
-            .font(.subheadline)
+            .font(isCompact ? .caption : .subheadline)
 
             HStack(spacing: 0) {
 
@@ -453,6 +454,6 @@ extension AdjustmentSlider: Equatable {
     /// Two rows are equal when they draw the same. The closures are left out: the panel makes new
     /// ones on every pass, with the same behavior, and comparing them would never say equal.
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.kind == rhs.kind && lhs.value == rhs.value && lhs.defaultValue == rhs.defaultValue
+        lhs.kind == rhs.kind && lhs.value == rhs.value && lhs.defaultValue == rhs.defaultValue && lhs.isCompact == rhs.isCompact
     }
 }

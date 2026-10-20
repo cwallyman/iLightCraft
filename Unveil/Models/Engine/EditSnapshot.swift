@@ -10,4 +10,6 @@ struct EditSnapshot: Equatable {
 
     let values              : [DevelopAdjustmentKind: Double]
     let isWhiteBalanceAsShot: Bool
+    var crop: CropSettings = CropSettings()
+    var hdrEnabled: Bool = false
 }
