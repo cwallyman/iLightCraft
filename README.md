@@ -7,6 +7,8 @@ The app uses LightCraft amber-yellow (`#F2A516`) and a floating winking lynx abo
 **Development status:** HEIC, export and crop milestones received user acceptance. RAW/HDR
 and Apple Photos editing are implemented; ARW routing and a Photos save crash have been
 corrected and delivered to iPhone. Their complete device round trips still need confirmation.
+Priority 4 now has a first native **on-device tools** implementation for items 18–23. Several advanced
+subfeatures and real-output acceptance remain; see the [implementation/acceptance table](Docs/Verification/priority4-on-device.md).
 This is not a claim of Lightroom parity or App Store readiness.
 
 ## Documentation
@@ -29,6 +31,10 @@ This is not a claim of Lightroom parity or App Store readiness.
 | Export | JPEG/PNG/TIFF, quality/size/color/depth options, metadata/location policy, sharpening, text watermark and batch sharing | UI reviewed and milestone accepted; detailed output checks remain |
 | RAW/HDR | Apple full-resolution RAW decode, gain-map expansion, float working copies, EDR canvas and HDR TIFF/HEIC export | Builds and synthetic HDR preview reviewed; physical camera/HDR checks pending |
 | Photos saving | Explicit same-item save, complete adjustment settings, revision checks and local-version recovery | Callback crash corrected and installed; save/reopen/conflict acceptance pending |
+| On-device masks/removal | Subject/background/people/object masks, exposure/combine/refine; brush-based patch healing; saved settings/undo | Simulator screen reviewed; selection/removal quality and persistence acceptance pending |
+| AI enhancement/Lens Blur | Optional pinned local Core ML RGB denoise/2× enhancement and depth-based TIFF blur copies | Builds passed; actual model inference/quality pending; no sensor-domain Raw Details |
+| Library analysis | Local labels/OCR/face count, imported-photo index, keyword/local label-text vector search | No identity recognition or joint image-text model; bounded private index |
+| Photo merge | Ordered HDR/panorama/HDR-panorama jobs, deghost/projection/crop, cancel/memory guard and new DNG | Builds passed; real source/output acceptance pending |
 | Branding | iLightCraft name, yellow accents, winking lynx icon and floating home logo | Simulator reviewed; iPhone update installed and launched |
 
 An engine capability is not automatically an exposed or verified native app feature.
@@ -40,7 +46,10 @@ An engine capability is not automatically an exposed or verified native app feat
 3. Use **More > Crop & Rotate** for crop handles, presets, rotation and straightening.
 4. Use **More > HDR Editing** to control HDR processing; native RAW/HDR imports enable it by default.
 5. Use **Export** for output options, batch selection and the system share sheet/Save to Files.
-6. For an image opened from Photos, choose **More > Save to Apple Photos** to request a save to that item.
+6. Use **More > On-device Tools** for Masks, Remove, Library Analysis, Merge, Lens Blur and AI Enhancement.
+   Depth/enhancement models download only when you choose Download; photos stay on device. Lens Blur
+   and enhancement create rendered copies. RGB enhancement requires explicitly disabling HDR Editing.
+7. For an image opened from Photos, choose **More > Save to Apple Photos** to request a save to that item.
    If Photos changed externally, keep the local edit or use **Reload Latest Photos Version**.
 
 Local drafts and Photos saves are separate. Adjusting a photo does not automatically write back
@@ -75,7 +84,8 @@ Existing wrapper/prototype libraries are separate; no automatic migration or del
 ## Next steps
 
 First confirm the installed **ARW import and Photos save fixes**, including full-resolution
-output, original preservation, saved settings, relaunch and conflict recovery. Then continue:
+output, original preservation, saved settings, relaunch and conflict recovery. The user moved **Priority 4 (items 18–23)** ahead of the core-tools queue. Finish its missing subfeatures
+and acceptance checks, then resume the remaining priorities:
 
 1. **Core tools:** tone curves, advanced color, optics/perspective, local masks, healing,
    presets/batch editing and versions/history.
@@ -89,14 +99,14 @@ output, original preservation, saved settings, relaunch and conflict recovery. T
    privacy, signing and packaging.
 
 The [next-steps checklist](Docs/NEXT-STEPS.md) includes every remaining roadmap item and
-acceptance work. These future features are planned, not delivered.
+acceptance work. Priority 4 is partially implemented; remaining subfeatures stay unchecked.
 
 ## Verification and limitations
 
 - Native engine builds passed for device, simulator and Mac Catalyst. Recent iPhone and simulator
   app builds passed; the latest update was signed, installed and launched on the paired iPhone 17 Pro.
   Successful build/install/launch does not establish successful Photos saving.
-- Simulator crop, export, synthetic HDR and branding captures were visually inspected. Captures
+- Simulator crop, export, synthetic HDR, branding and Priority 4 tool-screen captures were visually inspected. Captures
   and backups remain local. An SDR screenshot cannot prove real EDR brightness.
 - The initial HEIC phase completed a Rust bridge suite before testing was paused. Subsequent
   suites and benchmarks are **saved, not run**, at the user's request to conserve credits.
@@ -121,4 +131,5 @@ build products, provisioning material, real camera fixtures, personal libraries 
 excluded. Never commit personal media or signing credentials.
 
 Licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE), [asset attribution](assets/ATTRIBUTION.md)
-and the vendored engine's notices for component terms.
+and the vendored engine's notices for component terms. Optional model sources, exact revisions, SHA-256
+pins, license texts and privacy/output limits are documented in the [model catalog](Docs/Models/README.md).

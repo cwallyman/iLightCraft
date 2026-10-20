@@ -12,4 +12,5 @@ struct EditSnapshot: Equatable {
     let isWhiteBalanceAsShot: Bool
     var crop: CropSettings = CropSettings()
     var hdrEnabled: Bool = false
+    var advancedSettingsJSON: String? = nil
 }

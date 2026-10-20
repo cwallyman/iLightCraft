@@ -241,6 +241,15 @@ final class EditorSession<
 
 extension EditorSession where Engine: EngineDiagnosing {
 
+    /// openMergedCopy breaks the single-asset Photos link before a composite becomes active.
+    func openMergedCopy(_ photo: PhotoID, source: URL, merged: Bool = true) async -> Bool {
+        photoContext = nil
+        let opened = await viewModel.openCatalogResult(photo, source: source)
+        photosStatus = opened ? (merged ? "Merged copy opened. Source Photos items are unchanged." : "Local draft opened. Use the Photos browser for same-item Photos editing.") : "The local catalog copy could not be opened."
+        return opened
+    }
+
+
     func saveToPhotos() async {
         guard !isSavingPhotos, let context = photoContext, let photo = viewModel.openPhoto else { return }
         isSavingPhotos = true

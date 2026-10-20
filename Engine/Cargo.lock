@@ -3949,6 +3949,8 @@ dependencies = [
  "dhat",
  "half",
  "lightcraft-codecs",
+ "lightcraft-denoise-core",
+ "lightcraft-develop",
  "lightcraft-engine",
  "lightcraft-gpu",
  "log",

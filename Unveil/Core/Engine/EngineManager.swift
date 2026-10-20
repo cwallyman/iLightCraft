@@ -747,3 +747,26 @@ nonisolated final class EngineManager:
         return String(cString: message)
     }
 }
+
+
+extension EngineManager {
+    /// advancedSettingsJSON preserves settings outside the basic sliders in native undo snapshots.
+    func advancedSettingsJSON() async throws(EngineError) -> String? {
+        let text = try await diagnostic("develop.get", params: [String: String]())
+        do {
+            guard let object = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else {
+                throw EngineError.engine("Cannot read advanced settings")
+            }
+            let keys: Set<String> = ["masks", "spots", "red_eye", "lens_blur", "enhance"]
+            let subset = object.filter { keys.contains($0.key) }
+            let bytes = try JSONSerialization.data(withJSONObject: subset, options: [.sortedKeys])
+            guard let json = String(data: bytes, encoding: .utf8) else { throw EngineError.engine("Cannot encode advanced settings") }
+            return json
+        } catch let error as EngineError { throw error }
+        catch { throw .engine(error.localizedDescription) }
+    }
+
+    func restoreAdvancedSettings(_ json: String) async throws(EngineError) {
+        _ = try await diagnostic("unveil.restore", params: ["settingsJSON": json])
+    }
+}

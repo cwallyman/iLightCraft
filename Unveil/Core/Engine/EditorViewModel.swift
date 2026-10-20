@@ -30,6 +30,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     private(set) var values      : [DevelopAdjustmentKind: Double]
     private(set) var openPhoto   : PhotoID?
     private(set) var openCopyURL : URL?
+    private var advancedSettingsJSON: String?
 
     /// errorMessages are the errors raised and not yet acknowledged, oldest first: a second error
     /// while the first is on screen waits behind it. `errorMessage` is the one to show now.
@@ -266,6 +267,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
                 asShot  = try await engine.isWhiteBalanceAsShot()
                 self.cropSettings = try await engine.cropSettings()
                 self.hdrEnabled = try await engine.hdrEnabled()
+                self.advancedSettingsJSON = try await engine.advancedSettingsJSON()
             } catch {
                 await Self.rollBack(engine: engine, to: previous, discarding: nil)
                 throw error
@@ -691,7 +693,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
     /// current is the snapshot of what the engine holds now, as far as the model has sent or read.
     private var current: EditSnapshot {
-        EditSnapshot(values: sent, isWhiteBalanceAsShot: sentAsShot, crop: cropSettings, hdrEnabled: hdrEnabled)
+        EditSnapshot(values: sent, isWhiteBalanceAsShot: sentAsShot, crop: cropSettings, hdrEnabled: hdrEnabled, advancedSettingsJSON: advancedSettingsJSON)
     }
 
     /// noteSet records that a `set` of `kind` landed. The engine's `develop.set` of temperature or
@@ -757,6 +759,10 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         using engine: Engine
     ) async throws(EngineError) {
         let target = snapshot.values
+        if advancedSettingsJSON != snapshot.advancedSettingsJSON, let json = snapshot.advancedSettingsJSON {
+            try await engine.restoreAdvancedSettings(json)
+            advancedSettingsJSON = json
+        }
 
         if hdrEnabled != snapshot.hdrEnabled {
             try await engine.setHDR(snapshot.hdrEnabled)
@@ -809,6 +815,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
         sentAsShot = try await engine.isWhiteBalanceAsShot()
         cropSettings = try await engine.cropSettings()
         hdrEnabled = try await engine.hdrEnabled()
+        advancedSettingsJSON = try await engine.advancedSettingsJSON()
 
         try await reloadEdited()
     }
@@ -884,6 +891,63 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 }
 
 extension EditorViewModel where Engine: EngineDiagnosing {
+
+    /// openCatalogResult selects a saved local draft without re-decoding its linear DNG as sensor RAW.
+    func openCatalogResult(_ photo: PhotoID, source: URL) async -> Bool {
+        await finishPendingEdits()
+        let previous = openPhoto
+        var opened = false
+        await enqueue { [engine] in
+            do throws(EngineError) {
+                try await engine.select(photo)
+                let info = try await engine.photoInfo(of: photo)
+                let values = try await engine.currentValues()
+                let asShot = try await engine.isWhiteBalanceAsShot()
+                let crop = try await engine.cropSettings()
+                let hdr = try await engine.hdrEnabled()
+                let advanced = try await engine.advancedSettingsJSON()
+                let edited = try await engine.isEdited(photo)
+                self.openPhoto = photo
+                self.openCopyURL = source
+                self.photoTitle = source.deletingPathExtension().lastPathComponent
+                self.photoType = info.format
+                self.photoSize = info.size
+                self.developDefaults = info.developDefaults
+                self.cameraDefaults = info.cameraDefaultsMerge
+                self.captureSummary = info.capture?.summary
+                self.values = Self.defaultValues.merging(values) { _, new in new }
+                self.sent = self.values; self.sentAsShot = asShot
+                self.cropSettings = crop; self.hdrEnabled = hdr; self.advancedSettingsJSON = advanced
+                self.isEdited = edited; self.wanted = [:]; self.isShowingBefore = false
+                self.visibleWindow = nil; self.histogram = nil
+                engine.releaseWindows()
+                self.histogramFloor = engine.frames.invalidate()
+                self.committed = self.current; self.undoStack = []; self.redoStack = []
+                try self.requestFrames(draft: false)
+                opened = true
+            } catch {
+                if self.openPhoto == previous, let previous { try? await engine.select(previous) }
+                throw error
+            }
+        }
+        return opened
+    }
+
+    /// performPhotoEdit serializes a non-slider edit and records all its saved settings for undo.
+    func performPhotoEdit(_ command: String, params: some Encodable & Sendable) async throws(EngineError) -> String {
+        commitPendingNudge()
+        var output: String?
+        await enqueue { [engine] in
+            guard self.isPhotoOpen, !self.isShowingBefore else { throw EngineError.engine("Open an editable photo first") }
+            let result = try await engine.diagnostic(command, params: params)
+            try await self.reloadValues()
+            self.commitEdit()
+            try self.requestFrames(draft: false)
+            output = result
+        }
+        guard let output else { throw .engine(errorMessages.last ?? "The edit could not be applied") }
+        return output
+    }
 
     /// Native output commands run after the editor's queued adjustments and never block the main actor.
     func photoCommand(_ command: String, params: some Encodable & Sendable) async throws(EngineError) -> String {

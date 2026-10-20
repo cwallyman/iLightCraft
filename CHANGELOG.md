@@ -1,8 +1,30 @@
 # iLightCraft change history
 
-Changes through 2026-10-19, relative to native Unveil `79be4e4`. First published implementation:
+Changes through 2026-10-20, relative to native Unveil `79be4e4`. First published implementation:
 [`2f71fe9`](https://github.com/cwallyman/iLightCraft/commit/2f71fe9ad954352cdf0eec2ab64f765f56c0f3bc).
 Implementation, delivery and acceptance are recorded separately.
+
+## Priority 4 on-device tools: U4.1–U4.6 (partial, 2026-10-20)
+
+- Added More > On-device Tools with Masks, Remove, Library Analysis, Merge, Lens Blur and AI Enhancement.
+- Added Vision subject/background/people/foreground-instance selections as bounded normalized engine masks;
+  exposure, combinations, inversion, deletion and edge refinement. Undo captures advanced saved settings.
+- Added brush-based content-aware patch healing using the existing full-resolution engine spot renderer.
+- Added local labels/OCR/face counts, a bounded private imported-photo index, cancellable indexing, keyword
+  and optional English label/OCR-vector search, opening saved drafts and clearing the index.
+- Added ordered-source HDR/panorama/HDR-panorama background jobs, deghost/projection/crop options,
+  estimated-memory rejection, cancellation on background, unique new DNGs and direct catalog opening.
+- Added user-triggered pinned/checksummed model installation with retained licenses and removal controls:
+  Depth Anything V2 Small F16 (Apache-2.0), Real-ESRGAN x4v3 variants (BSD-3-Clause).
+- Added local relative-depth focus/range/blur into a separate float TIFF. Added padded-tile RGB AI denoise
+  and 2× enhancement into separate opaque SDR PNGs; explicitly reject HDR mode instead of silently converting.
+- Kept derived copies and opened local drafts detached from prior Photos assets, preventing unrelated saves.
+- Saved Rust and Swift regression checks; no automated suites, benchmarks or model inference run by the agent.
+- Corrected roadmap numbering to include HEIC as item 1, making Priority 4 items 18–23. Hosted sharing stays item 24.
+- Full scope is not complete: sky/body-part/depth selections, adaptive presets, sensor RAW denoise/Raw Details,
+  editable blur/bokeh/refinement, generative/reflection/automatic distraction removal, identity recognition and
+  joint image-text search remain. Real model/merge/output/device acceptance is pending.
+- See [bounded evidence and acceptance](Docs/Verification/priority4-on-device.md) and [model provenance](Docs/Models/README.md).
 
 ## Apple platform foundation and layout
 

@@ -1,6 +1,6 @@
 # iLightCraft next steps
 
-Last updated: 2026-10-19. Development branch: `ipad-lightcraft`.
+Last updated: 2026-10-20. Development branch: `ipad-lightcraft`.
 The [full roadmap](Plans/2026-10-19-lightroom-priorities.md) defines task scope;
 the [change history](../CHANGELOG.md) records implementation so far.
 Unchecked implemented work still needs acceptance. Build, install, visual and physical evidence differ.
@@ -43,7 +43,10 @@ HEIC and export/crop already received general user acceptance; these are remaini
 
 ## 3. Remaining feature queue
 
-Finish reliability acceptance above, then add **tone curves** and **advanced color** next.
+The user moved **Priority 4 / items 18–23** ahead of tone curves and advanced color. Its first native
+on-device implementation is now available; finish the remaining subfeatures and device acceptance in
+[Priority 4 verification](Verification/priority4-on-device.md). Keep the six rows partial until their scope
+and acceptance are complete. The user's policy is on-device processing first; hosted sharing stays separate.
 All remaining agreed tasks are listed here; details and dependencies are in the full roadmap.
 
 | Priority | Task | Native work and acceptance target |
@@ -74,7 +77,7 @@ All remaining agreed tasks are listed here; details and dependencies are in the 
 | P5 | U5.6 Publishing/extensions | Publish queues, galleries, external-editor round trips and extension interfaces |
 | P5 | U5.7 Learning/community | Guided help, tutorials, shared edits and presets if hosting is adopted |
 
-These are plans, not delivered native features. Adaptive presets depend on semantic masks;
+P4 rows are partially implemented; the table describes full task scope. Other unchecked rows remain plans. Adaptive presets depend on semantic masks;
 face/semantic search depends on U4.5. Hosted work needs a service design. AI requires permissive
 model licenses, setup/download policies, resource budgets and clear failure/cancellation behavior.
 
@@ -89,6 +92,7 @@ to conserve credits. This documentation update does not resume testing.
 | Export/crop | `Engine/ffi/tests/native_output.rs`, `UnveilTests/CropSettingsTests.swift`, editor undo/layout tests |
 | RAW/HDR | `Engine/ffi/tests/hdr_output.rs`, `UnveilTests/NativeImagePipelineTests.swift`, ABI/canvas tests |
 | Photos | `UnveilTests/PhotosAdjustmentTests.swift`, importer/cleanup and saved-settings checks |
+| Priority 4 | `Engine/ffi/tests/computational.rs`, `UnveilTests/ComputationalToolsTests.swift`; real model/merge checks in verification notes |
 | Existing behavior | Existing editor, import, engine, canvas and memory tests |
 
 When requested, run the following from `Engine`:
@@ -97,6 +101,7 @@ When requested, run the following from `Engine`:
 cargo test --locked -p unveil-ffi --test heic
 cargo test --locked -p unveil-ffi --test native_output
 cargo test --locked -p unveil-ffi --test hdr_output
+cargo test --locked -p unveil-ffi --test computational
 cargo test --locked -p unveil-ffi --features test-hooks
 ```
 
@@ -129,3 +134,7 @@ Benchmarks and measured Lightroom rendering comparisons remain pending.
 
 The separate wrapper's archives/sync evidence do not establish native release readiness.
 No native App Store submission or automatic wrapper-library conversion has occurred.
+
+## Revision history
+
+- 2026-10-20: Moved Priority 4 ahead by user request; linked partial implementation, local model policy and saved checks.

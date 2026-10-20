@@ -20,6 +20,8 @@ nonisolated protocol EngineDriving: AnyObject, Sendable {
 
     func openPhoto(at fileURL: URL) async throws(EngineError) -> PhotoID
     func openPhoto(at fileURL: URL, initialSettings: Data?, versionKey: String?) async throws(EngineError) -> PhotoID
+    func advancedSettingsJSON() async throws(EngineError) -> String?
+    func restoreAdvancedSettings(_ json: String) async throws(EngineError)
     func hdrEnabled() async throws(EngineError) -> Bool
     func setHDR(_ enabled: Bool) async throws(EngineError)
 
@@ -84,6 +86,12 @@ nonisolated protocol EngineDriving: AnyObject, Sendable {
 }
 
 extension EngineDriving {
+
+    func advancedSettingsJSON() async throws(EngineError) -> String? { nil }
+
+    func restoreAdvancedSettings(_ json: String) async throws(EngineError) {
+        throw .engine("Advanced edit restoration is unavailable in this adapter")
+    }
 
     func openPhoto(at fileURL: URL, initialSettings: Data?, versionKey: String?) async throws(EngineError) -> PhotoID {
         guard initialSettings == nil else { throw .engine("This adapter cannot restore Photos settings") }

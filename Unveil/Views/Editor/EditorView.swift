@@ -32,6 +32,9 @@ struct EditorView<
     @State
     private var isCropShown = false
 
+    @State
+    private var isComputationalShown = false
+
     private let canvas     : CanvasView
     private let diagnostics: EditorDiagnostics<Engine, Importer>
 
@@ -126,6 +129,20 @@ struct EditorView<
             .sheet(isPresented: $isExportShown) {
                 PhotoExportSheet(model: session.viewModel)
             }
+            .sheet(isPresented: $isComputationalShown) {
+                ComputationalToolsSheet(model: session.viewModel, onMerged: { photo, source in
+                    if await session.openMergedCopy(photo, source: source) {
+                        isComputationalShown = false
+                    }
+                }, onRendered: { source in
+                    await session.open(pickedURL: source)
+                    isComputationalShown = false
+                }, onIndexed: { photo, source in
+                    if await session.openMergedCopy(photo, source: source, merged: false) {
+                        isComputationalShown = false
+                    }
+                })
+            }
             .sheet(isPresented: $isCropShown) {
                 PhotoCropSheet(model: session.viewModel)
                     .presentationDetents([.large])
@@ -133,6 +150,7 @@ struct EditorView<
             .onChange(of: session.isEditorPresented) { _, shown in
                 #if DEBUG
                 if shown {
+                    isComputationalShown = ProcessInfo.processInfo.arguments.contains("-UnveilShowComputational")
                     isCropShown = ProcessInfo.processInfo.arguments.contains("-UnveilShowCrop")
                     isExportShown = ProcessInfo.processInfo.arguments.contains("-UnveilShowExport")
                 }
@@ -295,6 +313,8 @@ struct EditorView<
                     set: { value in Task { await session.viewModel.setHDR(value) } }
                 ))
                 .disabled(!session.viewModel.isPhotoOpen || session.viewModel.isShowingBefore)
+                Button("On-device Tools", systemImage: "sparkles") { isComputationalShown = true }
+                    .disabled(!session.viewModel.isPhotoOpen || session.viewModel.isShowingBefore)
                 Button("Crop & Rotate", systemImage: "crop.rotate") { isCropShown = true }
                     .disabled(!session.viewModel.isPhotoOpen || session.viewModel.isShowingBefore)
                 if horizontalSizeClass == .compact {

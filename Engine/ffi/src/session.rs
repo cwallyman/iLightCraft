@@ -533,6 +533,7 @@ fn engine_main(
         worker,
         flags,
         suspend_waiter: None,
+        merge_jobs: Default::default(),
     };
     engine.publish_active();
     let _ = ready.send(Ok(()));
@@ -574,6 +575,7 @@ fn engine_main(
                 engine.release_windows();
             }
             Msg::Suspend { reply } => {
+                engine.merge_jobs.abandon();
                 engine.scheduler.clear_pending();
                 // Drop the stages (171 MB NEF, 153 MB RAF at 2360 px, measured on the Mac at the iPad budget)
                 // into the GPU pool, emptied by uv_suspend; a render in flight keeps its copy until it ends.
@@ -611,6 +613,7 @@ struct Engine {
     worker: RenderWorker,
     flags: Flags,
     suspend_waiter: Option<Sender<()>>,
+    merge_jobs: crate::merge_jobs::MergeJobs,
 }
 
 impl Engine {
@@ -629,6 +632,18 @@ impl Engine {
             _ => {}
         }
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if matches!(
+                command,
+                "unveil.mergeStart" | "unveil.mergeStatus" | "unveil.mergeCancel"
+            ) {
+                return self.merge_jobs.execute(&mut self.session, command, params);
+            }
+            if command == "unveil.unpackEnhancement" {
+                return crate::computational::unpack_enhancement(&self.session, params);
+            }
+            if command == "unveil.maskFromAlpha" {
+                return crate::computational::mask_from_alpha(&mut self.session, params);
+            }
             if command == "unveil.restore" {
                 let text = params
                     .get("settingsJSON")

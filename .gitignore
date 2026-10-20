@@ -15,3 +15,12 @@ LocalVerification/
 *.p8
 .env
 .env.local
+
+# Optional on-device model downloads are not source assets
+/Models/
+*.mlpackage/
+*.mlmodelc/
+*.mlpackage.zip
+*.onnx
+*.pth
+*.safetensors

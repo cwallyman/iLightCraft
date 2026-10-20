@@ -18,6 +18,8 @@ lightcraft-engine = { workspace = true }
 # Ship HEIC still-image decoding in every native app slice, without enabling AI models.
 lightcraft-codecs = { workspace = true, features = ["heif"] }
 lightcraft-gpu = { workspace = true }
+lightcraft-develop = { workspace = true }
+lightcraft-denoise-core = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
 half = "2.7.1"

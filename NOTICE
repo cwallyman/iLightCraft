@@ -53,3 +53,12 @@ also embed the fonts listed in https://github.com/storytold/craft-fonts/blob/mai
 (the Japanese fonts BIZ UDPGothic, BIZ UDMincho and Shippori Mincho; the web build embeds only BIZ
 UDPGothic Regular), under the SIL Open Font License 1.1. Release packages include each font's
 licence as OFL-<family>.txt.
+
+Native iLightCraft optional on-device models (2026-10-20)
+Depth Anything V2 Small by Lihe Yang and collaborators, Core ML conversion published by Apple,
+is separately downloaded under Apache-2.0. Real-ESRGAN by Xintao Wang and collaborators, Core ML
+conversion by VincentGOURBIN, is separately downloaded under BSD-3-Clause. Model weights are
+not bundled with this source or app. The specific offered variants, pinned revisions/SHA-256 values,
+source URLs and use limitations are in Docs/Models/README.md. License texts are retained in
+Unveil/Resources/Model-LICENSE-APACHE.txt and Model-LICENSE-BSD.txt and copied into installations.
+The native bridge does not enable RawNIND/GPL or face identity model downloads.
