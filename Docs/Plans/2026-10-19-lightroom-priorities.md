@@ -1,8 +1,11 @@
-# Unveil feature priorities
+# iLightCraft feature priorities
 
 Last updated: 2026-10-19. Scope: the native SwiftUI/Metal app on iPad, iPhone and Mac Catalyst.
 This is the implementation queue for the Lightroom comparison, not the vendored engine's feature checklist.
 An engine capability counts as delivered only after the native workflow is usable and verified.
+
+Start with [the current next steps](../NEXT-STEPS.md); implementation history is in
+[the changelog](../../CHANGELOG.md). Reliability fixes and device acceptance come before P2 tools.
 
 ## Priority 0: HEIC first
 
@@ -87,6 +90,7 @@ An engine capability counts as delivered only after the native workflow is usabl
 
 ## Delivery requirements
 
+At the user's request, save automated tests and benchmarks for manual use; do not run them automatically.
 Every user-facing task needs meaningful regression coverage, an actual app run and visual review,
 plus import/edit/export/reopen checks where relevant. Distinguish build, automated, simulator,
 Mac and physical-device evidence. Accessibility, touch/Pencil use, responsiveness, safe areas,
