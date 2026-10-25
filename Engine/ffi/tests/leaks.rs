@@ -1,7 +1,7 @@
 mod common;
 use common::*;
+use ilightcraft_ffi::*;
 use std::ffi::CString;
-use unveil_ffi::*;
 
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;

@@ -1,0 +1,6 @@
+coremltools==9.0
+numpy==2.5.4
+onnx==1.23.2
+onnx2torch==1.5.15
+torch==2.14.1
+torchvision==0.29.1

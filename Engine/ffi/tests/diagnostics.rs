@@ -1,7 +1,7 @@
 mod common;
 use common::*;
+use ilightcraft_ffi::*;
 use std::sync::Arc;
-use unveil_ffi::*;
 
 fn preview(s: &TestSession, frames: &Arc<Frames>, max: u32) {
     // SAFETY: s.raw is live; frames is declared before s by every caller, so it outlives the session.
@@ -34,25 +34,25 @@ fn the_diagnostics_are_off_until_enabled_and_then_count_loads_and_renders() {
     wait_for(&frames, 1);
 
     // Off: nothing is logged or counted, but the stage sizes of library.memory are there.
-    let loads = exec(&s, "unveil.loads", "{}").unwrap();
+    let loads = exec(&s, "ilightcraft.loads", "{}").unwrap();
     assert!(loads["loads"].as_array().unwrap().is_empty(), "{loads}");
-    let renders = exec(&s, "unveil.renders", "{}").unwrap();
+    let renders = exec(&s, "ilightcraft.renders", "{}").unwrap();
     assert_eq!(count(&renders, "render", "fit-full"), 0, "{renders}");
     assert_eq!(count(&renders, "deliver", "fit-full"), 0, "{renders}");
     let memory = exec(&s, "library.memory", "{}").unwrap();
-    assert!(memory["unveil"]["previewStages"]["cpu"].is_u64(), "{memory}");
-    assert!(memory["unveil"]["windowStages"]["gpu"].is_u64(), "{memory}");
+    assert!(memory["ilightcraft"]["previewStages"]["cpu"].is_u64(), "{memory}");
+    assert!(memory["ilightcraft"]["windowStages"]["gpu"].is_u64(), "{memory}");
 
     // On: a new import (probe) and a render of another size (the source is cached: no decode) are seen.
     assert_eq!(
-        exec(&s, "unveil.diagnostics", r#"{"enabled":true}"#).unwrap()["enabled"],
+        exec(&s, "ilightcraft.diagnostics", r#"{"enabled":true}"#).unwrap()["enabled"],
         true
     );
     let other = gradient_png(s.dir.path(), "second.png", 80, 50);
     import_png(&s, &other);
     preview(&s, &frames, 128);
     wait_for(&frames, 2);
-    let loads = exec(&s, "unveil.loads", "{}").unwrap();
+    let loads = exec(&s, "ilightcraft.loads", "{}").unwrap();
     let kinds: Vec<&str> = loads["loads"]
         .as_array()
         .unwrap()
@@ -61,26 +61,34 @@ fn the_diagnostics_are_off_until_enabled_and_then_count_loads_and_renders() {
         .collect();
     assert!(kinds.contains(&"probe"), "{kinds:?}");
     assert!(
-        exec(&s, "unveil.loads", "{}").unwrap()["loads"]
+        exec(&s, "ilightcraft.loads", "{}").unwrap()["loads"]
             .as_array()
             .unwrap()
             .is_empty(),
         "a read clears the log"
     );
-    let renders = exec(&s, "unveil.renders", r#"{"reset":true}"#).unwrap();
+    let renders = exec(&s, "ilightcraft.renders", r#"{"reset":true}"#).unwrap();
     assert!(count(&renders, "render", "fit-full") >= 1, "{renders}");
     assert!(count(&renders, "deliver", "fit-full") >= 1, "{renders}");
     assert_eq!(
-        count(&exec(&s, "unveil.renders", "{}").unwrap(), "render", "fit-full"),
+        count(
+            &exec(&s, "ilightcraft.renders", "{}").unwrap(),
+            "render",
+            "fit-full"
+        ),
         0
     );
 
     // Off again: the switch is the whole cost, and turning it off empties the log.
-    exec(&s, "unveil.diagnostics", r#"{"enabled":false}"#).unwrap();
+    exec(&s, "ilightcraft.diagnostics", r#"{"enabled":false}"#).unwrap();
     preview(&s, &frames, 64);
     wait_for(&frames, 3);
     assert_eq!(
-        count(&exec(&s, "unveil.renders", "{}").unwrap(), "render", "fit-full"),
+        count(
+            &exec(&s, "ilightcraft.renders", "{}").unwrap(),
+            "render",
+            "fit-full"
+        ),
         0
     );
 }

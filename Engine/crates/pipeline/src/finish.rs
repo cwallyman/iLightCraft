@@ -1,4 +1,4 @@
-// Modified for Unveil on 2026-10-19: backport bounded HDR rendering from the local LightCraft reference.
+// Modified for iLightCraft on 2026-10-19: backport bounded HDR rendering from the local LightCraft reference.
 //! The per-pixel stage: everything after the spatial planes are ready, in one parallel pass.
 
 use lightcraft_color::luminance_2020;
@@ -260,8 +260,6 @@ impl FinishParams {
             view: frame.view.map_or([0.0, 0.0, w as f32, h as f32], |v| [v.x as f32, v.y as f32, v.full_w as f32, v.full_h as f32]),
         }
     }
-
-
 }
 
 /// HDR tone map; a peak of one retains the existing SDR rendering.
@@ -274,14 +272,7 @@ pub fn base_tone(s: &DevelopSettings, info: &SourceInfo, peak: f32) -> ToneMap {
     }
 }
 
-pub(crate) fn finish(
-    p: &Prepared,
-    s: &DevelopSettings,
-    frame: &Frame,
-    info: &SourceInfo,
-    space: OutputSpace,
-    proof: Option<crate::Proof>,
-) -> Rgba8 {
+pub(crate) fn finish(p: &Prepared, s: &DevelopSettings, frame: &Frame, info: &SourceInfo, space: OutputSpace, proof: Option<crate::Proof>) -> Rgba8 {
     let (w, h) = (p.img.width, p.img.height);
     let mut fp = FinishParams::new(s, frame, info, w, h, p.px_per_long, p.air, space);
     fp.proof = proof.map(|pr| pr.params(space));

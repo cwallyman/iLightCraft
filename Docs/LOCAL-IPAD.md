@@ -4,7 +4,7 @@ Starting point: eliorodr2104/Unveil, commit 79be4e4 (native SwiftUI/Metal iPad a
 Its vendored LightCraft engine is pinned in Engine/UPSTREAM.md. The current LightCraft
 upstream is separately checked out in the parent folder for comparison.
 
-Unveil already supplies local photo import, a native editor, ten basic adjustment controls,
+iLightCraft already supplies local photo import, a native editor, ten basic adjustment controls,
 background handling, and a Rust C ABI bridge. This is an existing adaptation, rather than
 a newly created iPad port. Upstream baseline reports are author evidence, not local validation.
 The full desktop LightCraft interface is not exposed by this native interface.

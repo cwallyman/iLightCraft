@@ -16,7 +16,7 @@ Keep the saved tests for the user; do not resume expensive builds/tests unless r
 
 - `Engine/ffi/tests/heic.rs`: decoder included in the native build; malformed HEIC rejected and
   the engine session remains usable for another import.
-- `UnveilTests/HEICImportTests.swift`: runtime-generated Display P3 HEIC; upright and rotated
+- `iLightCraftTests/HEICImportTests.swift`: runtime-generated Display P3 HEIC; upright and rotated
   orientations; import, rendered dimensions, exposure pixel change, reopen and original-byte
   preservation; malformed input followed by a successful import.
 
@@ -29,29 +29,29 @@ No passing HEIC app workflow or visual result is claimed here.
 ## iPhone update
 
 The HEIC-enabled app and docked editor update built successfully and were development-signed,
-then installed on the paired iPhone 17 Pro as `com.cwallyman.UnveilNative` on 2026-10-19.
+then installed on the paired iPhone 17 Pro as `com.cwallyman.iLightCraft` on 2026-10-19.
 The existing app container was backed up under the parent workspace's local
 `LocalVerification/device-backups/iphone-before-heic-20261019` before installation.
 HEIC import/editing remains a hands-on check for the user; saved Swift tests were not run.
-Installation log: `/tmp/unveil-heic-iphone-install.log`.
+Installation log: `/tmp/ilightcraft-heic-iphone-install.log`.
 
 ## Commands for the user
 
 From `NativeReference/Engine`:
 
 ```sh
-cargo test --locked -p unveil-ffi --features test-hooks --test heic
+cargo test --locked -p ilightcraft-ffi --features test-hooks --test heic
 ```
 
 From `NativeReference`, rebuild the engine framework before running Swift tests:
 
 ```sh
 scripts/build-xcframework.sh
-xcodebuild test -project Unveil.xcodeproj -scheme Unveil \
+xcodebuild test -project iLightCraft.xcodeproj -scheme iLightCraft \
   -destination 'platform=iOS Simulator,id=5A52D08E-DD17-4C65-B84D-2170D3A2EC76' \
   -derivedDataPath DerivedData-HEIC CODE_SIGNING_ALLOWED=NO \
-  PRODUCT_BUNDLE_IDENTIFIER=com.cwallyman.UnveilNative \
-  -only-testing:UnveilTests/HEICImportTests
+  PRODUCT_BUNDLE_IDENTIFIER=com.cwallyman.iLightCraft \
+  -only-testing:iLightCraftTests/HEICImportTests
 ```
 
 Simulator identifiers can change; use `xcrun simctl list devices available` if necessary.
@@ -70,10 +70,10 @@ verification limitation, not evidence that decoding works or fails.
 
 ## Existing local logs
 
-- `/tmp/unveil-heic-before.log`: expected failing regression before enabling HEIC.
-- `/tmp/unveil-heic-fetch.log`: dependency download.
-- `/tmp/unveil-heic-rust.log`: Rust bridge suite attempt.
-- `/tmp/unveil-heic-xcframework.log`: native engine framework build attempt.
-- `/tmp/unveil-heic-fmt.log`: initial formatting check; the reported test formatting was corrected.
+- `/tmp/ilightcraft-heic-before.log`: expected failing regression before enabling HEIC.
+- `/tmp/ilightcraft-heic-fetch.log`: dependency download.
+- `/tmp/ilightcraft-heic-rust.log`: Rust bridge suite attempt.
+- `/tmp/ilightcraft-heic-xcframework.log`: native engine framework build attempt.
+- `/tmp/ilightcraft-heic-fmt.log`: initial formatting check; the reported test formatting was corrected.
 
-Priority queue: [Unveil feature priorities](../Plans/2026-10-19-lightroom-priorities.md).
+Priority queue: [iLightCraft feature priorities](../Plans/2026-10-19-lightroom-priorities.md).

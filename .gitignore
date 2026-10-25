@@ -24,3 +24,12 @@ LocalVerification/
 *.onnx
 *.pth
 *.safetensors
+
+# Generated pinned masking model packages; rebuild with scripts/build-mask-models.py.
+/iLightCraft/Resources/MaskModels/*.mlpackage/
+
+# Developer-specific identity for updating existing test containers
+/Config/DevelopmentIdentity.xcconfig
+
+# Ephemeral Xcode Cloud toolchains and model-conversion environment
+/.xcode-cloud/

@@ -121,3 +121,16 @@ fn targeted_adjustment_on_curve_and_mixer() {
     assert!(o.values().all(|v| v.as_f64().unwrap() < 0.0));
     assert!(s.execute("develop.targeted", &json!({"target": "nope", "x": 0.5, "y": 0.5, "delta": 1})).is_err());
 }
+
+#[test]
+fn point_color_uncropped_preview_ignores_saved_crop_for_sampling() {
+    let mut s = demo();
+    let before = s.execute("pointColor.pick", &json!({"x": 0.5, "y": 0.08, "space": "uncroppedPreview"})).unwrap();
+    s.execute("pointColor.delete", &json!({"index": 0})).unwrap();
+    s.execute("crop.set", &json!({"rect": [0.1, 0.4, 0.9, 0.95]})).unwrap();
+    let after = s.execute("pointColor.pick", &json!({"x": 0.5, "y": 0.08, "space": "uncroppedPreview"})).unwrap();
+    for key in ["lum", "chroma", "hue"] {
+        assert!((before[key].as_f64().unwrap() - after[key].as_f64().unwrap()).abs() < 1e-5);
+    }
+    assert!(s.execute("pointColor.pick", &json!({"x": 0.5, "y": 0.5, "space": "unknown"})).is_err());
+}

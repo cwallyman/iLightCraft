@@ -1,7 +1,7 @@
 # v0 — Motore LightCraft su iPad (baseline)
 
 **Data:** 9 ottobre 2026. **Stato:** bozza in revisione. **Sottoprogetto:** 1 di 3.
-**Nome del prodotto:** Unveil (deciso il 9 ottobre 2026). Prefisso della C ABI: `uv_`.
+**Nome del prodotto:** iLightCraft (deciso il 9 ottobre 2026). Prefisso della C ABI: `uv_`.
 
 ## 1. Contesto e decisioni prese
 
@@ -60,7 +60,7 @@
 
 ### 4.1 C ABI (`Engine/ffi/include/uv.h`, scritto a mano)
 
-Il prefisso `uv_` sta per Unveil.
+Il prefisso `uv_` sta per iLightCraft.
 
 ```c
 uint32_t    uv_abi_version(void);
@@ -91,14 +91,14 @@ void        uv_set_memory_budget(UVSession*, uint64_t bytes);
 - **Feature:** `lightcraft-engine` senza feature, quindi niente `sam`, `denoise` e `rawnind-model`.
 - **Lint:** `ffi` è membro del workspace ma non eredita i lint del workspace (`unsafe_code = "deny"`). Il crate dichiara i propri lint e `unsafe` resta confinato al bridge.
 - **Panic:** ogni funzione `extern "C"` passa da `panic_guard.rs` (`catch_unwind`). Un panic diventa un codice d'errore, mai un abort.
-- **Thread:** il thread `unveil-engine` possiede la `Session` ed esegue i comandi; un secondo thread `unveil-render` esegue `RenderJob::run`, così `uv_execute` aspetta solo il comando (millisecondi), mai un render. Il thread del motore è creato da Rust, con dimensione dello stack esplicita e QoS `USER_INITIATED`. La `Session` vive solo su questo thread. I comandi e le richieste arrivano tramite un canale.
+- **Thread:** il thread `ilightcraft-engine` possiede la `Session` ed esegue i comandi; un secondo thread `ilightcraft-render` esegue `RenderJob::run`, così `uv_execute` aspetta solo il comando (millisecondi), mai un render. Il thread del motore è creato da Rust, con dimensione dello stack esplicita e QoS `USER_INITIATED`. La `Session` vive solo su questo thread. I comandi e le richieste arrivano tramite un canale.
 - **PreviewScheduler:** è la versione ridotta del `Renderer` di `ui-egui`. Gestisce un render alla volta. Una richiesta che arriva durante un render sostituisce quella in attesa, e il numero di generazione cresce. Il render in corso non viene interrotto, a meno che il piano non trovi un modo di annullarlo in upstream. Usa i job builder di `Session` (`render_job`, la modalità `draft` durante il trascinamento) e chiama `session.accept(...)` per mettere in cache le sorgenti decodificate.
 - **Callback dei frame:** viene chiamata sul thread del motore. Il buffer `rgba` è valido **solo durante la callback**.
 - **Memoria:** `uv_set_memory_budget` chiama `memory::set_budget`. All'avvio `memory::set_release_hook` riceve `malloc_zone_pressure_relief`, che esiste anche su iOS.
 - **Sospensione e ripresa:** `uv_suspend` smette di accettare nuovi render e aspetta che finisca il lavoro GPU in corso. `uv_resume` chiama `lightcraft_gpu::reset_failures()`. Serve perché il motore marca la GPU come rotta per sempre dopo un errore del dispositivo.
 - **Percorsi:** si usano solo i percorsi espliciti sotto `data_dir`, mai quelli predefiniti basati su `$HOME`. Sidecar disattivati. Non vanno chiamati `with_default_face_models` e `with_default_denoise_models`.
 
-### 4.3 Lato Swift (`Unveil/`)
+### 4.3 Lato Swift (`iLightCraft/`)
 
 - **`EngineManager`** (`Core/Engine/`) è **l'unica porta verso il motore**. Nessun altro tipo chiama `uv_*`.
   - È l'unica implementazione di `EngineDriving` (`Core/Protocols/`). Possiede l'handle e offre `open(url:)`, `set(_:_:)` e `requestPreview(draft:)`.
@@ -177,9 +177,9 @@ Per ogni struttura o buffer sul percorso critico:
 ### 7.1 Struttura
 
 ```
-Unveil/
-├─ Unveil.xcodeproj
-├─ Unveil/
+iLightCraft/
+├─ iLightCraft.xcodeproj
+├─ iLightCraft/
 │  ├─ App/           AppDelegate, SceneDelegate, composizione dei servizi
 │  ├─ Core/          Engine/ Memory/ Lifecycle/ Import/ Diagnostics/
 │  │  ├─ Protocols/  un protocollo per file
@@ -189,10 +189,10 @@ Unveil/
 │  ├─ Views/         Editor/ Diagnostics/
 │  ├─ Components/    Adjustments/
 │  └─ Resources/
-├─ UnveilTests/
+├─ iLightCraftTests/
 ├─ Engine/           workspace Rust: crates/ (motore upstream incluso), assets/, ffi/ (include/, src/, tests/), UPSTREAM.md
 ├─ Frameworks/       XCFramework generato, ignorato da git
-├─ Config/           UnveilEngine.xcconfig (flag di link generati)
+├─ Config/           iLightCraftEngine.xcconfig (flag di link generati)
 ├─ scripts/          build-xcframework.sh, test-app.sh
 ├─ Docs/             Specs/ Plans/ Baseline/
 └─ CODE_STYLE.md  CLAUDE.md  LICENSE  NOTICE  README.md
@@ -233,4 +233,4 @@ Il riferimento è il `CODE_STYLE.md` di Cascade. Lo si riprende in `CODE_STYLE.m
 | Decisione | Quando |
 |---|---|
 | RAW di prova: **deciso** — campioni scaricati online a licenza libera (raw.pixls.us), scelti per varietà: Bayer e X-Trans, 24 e ~48 MP, più marche (ARW, NEF, CR3, RAF, DNG). Il download va confermato file per file | elenco nel piano |
-| Nome del prodotto: **deciso**, Unveil. Conflitti noti nel settore foto (unveil.camera, unveil.photo, Unveil – Personal Privacy); rischio accettato. Ricerca marchi rimandata alla pubblicazione | — |
+| Nome del prodotto: **deciso**, iLightCraft. Conflitti noti nel settore foto (ilightcraft.camera, ilightcraft.photo, iLightCraft – Personal Privacy); rischio accettato. Ricerca marchi rimandata alla pubblicazione | — |

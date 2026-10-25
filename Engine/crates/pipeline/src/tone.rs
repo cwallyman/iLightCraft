@@ -1,4 +1,4 @@
-// Modified for Unveil on 2026-10-19: backport bounded HDR rendering from the local LightCraft reference.
+// Modified for iLightCraft on 2026-10-19: backport bounded HDR rendering from the local LightCraft reference.
 //! The global tone map: scene luminance → display-linear luminance.
 //!
 //! Built in the log domain around middle grey (0.18): contrast scales log-exposure about grey,

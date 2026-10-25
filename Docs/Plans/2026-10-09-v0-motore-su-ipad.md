@@ -4,7 +4,7 @@
 
 **Goal:** far girare il motore LightCraft (incluso nel repository, invariato, senza AI) dentro un'app UIKit minimale su iPad M2, e produrre la baseline: immagini di riferimento, misure, profilazione e mappa delle strutture dati.
 
-**Architecture:** `Engine/` è un workspace Rust che contiene il motore upstream copiato al commit `c435d143de921e8dc724245065500bc191f91102` più il crate `ffi` (C ABI `uv_*`). Lo script di build produce `Frameworks/UnveilEngine.xcframework`. L'app Swift parla col motore solo tramite `EngineManager`; i frame arrivano in due `MTLBuffer` condivisi letti da un canvas Metal.
+**Architecture:** `Engine/` è un workspace Rust che contiene il motore upstream copiato al commit `c435d143de921e8dc724245065500bc191f91102` più il crate `ffi` (C ABI `uv_*`). Lo script di build produce `Frameworks/iLightCraftEngine.xcframework`. L'app Swift parla col motore solo tramite `EngineManager`; i frame arrivano in due `MTLBuffer` condivisi letti da un canvas Metal.
 
 **Tech Stack:** Rust 1.97.1 (edition 2024), wgpu 30 (dentro il motore), Swift 6.2, UIKit + SwiftUI, Metal, iPadOS 26, Xcode 27, Swift Testing.
 
@@ -17,7 +17,7 @@
 - `lightcraft-engine` **senza feature**: niente `sam`, `denoise`, `rawnind-model`. Mai chiamare `with_default_face_models` / `with_default_denoise_models`.
 - `cargo` non è nel `PATH`: ogni comando Rust si esegue con `export PATH="/opt/homebrew/opt/rustup/bin:$PATH"`.
 - Licenza: tutto il repository Apache-2.0. Nessun file in `docs/brand/` di upstream entra nel repository.
-- C ABI: prefisso `uv_`, header `Engine/ffi/include/uv.h`, modulo Clang `UnveilEngine`.
+- C ABI: prefisso `uv_`, header `Engine/ffi/include/uv.h`, modulo Clang `iLightCraftEngine`.
 - Commenti in inglese; `//` al massimo 2 righe; niente trattini lunghi (em-dash). `///` per la documentazione, nello stile antirez.
 - Swift: 4 spazi, un tipo per file, allineamento in colonne, generici vincolati e `some` (niente `any` senza un commento che lo giustifichi), `Mutex` (Synchronization) per lo stato condiviso, niente actor, nessun `DispatchSemaphore` sul main thread.
 - Rust (`Engine/ffi`): `rustfmt` con `max_width = 110`; ogni blocco `unsafe` ha un commento `// SAFETY:` (al massimo 2 righe). Niente `dyn` sul percorso critico.
@@ -72,7 +72,7 @@ Questa sezione vale per il coordinatore. I worker ricevono solo il proprio ticke
 - [ ] **Step 1: Inizializzare il repository**
 
 ```bash
-cd /Users/mac/Personal_Projects/Unveil
+cd /Users/mac/Personal_Projects/iLightCraft
 git init -b main
 ```
 
@@ -151,7 +151,7 @@ crates/ is listed in CHANGES.md next to this file, as Apache-2.0 section 4(b) re
 `NOTICE` (alla radice): una prima sezione
 
 ```text
-Unveil
+iLightCraft
 Copyright 2026 the Unveil authors. Licensed under the Apache License, Version 2.0 (LICENSE).
 
 Engine/ contains LightCraft (https://github.com/storytold/lightcraft), commit c435d143,
@@ -163,11 +163,11 @@ seguita dal contenuto integrale di `$TMP/upstream-NOTICE`.
 - [ ] **Step 6: Scrivere `CODE_STYLE.md`, `CLAUDE.md` e `README.md`**
 
 `CODE_STYLE.md` parte da una copia di `/Users/mac/Personal_Projects/Cascade/CODE_STYLE.md`, con queste modifiche:
-- sostituire "Cascade" con "Unveil" nel titolo e nell'introduzione;
+- sostituire "Cascade" con "iLightCraft" nel titolo e nell'introduzione;
 - riscrivere l'introduzione: editor RAW per iPad, UIKit + SwiftUI per i pannelli, motore Rust in `Engine/`, iPadOS 26 come minimo;
 - eliminare le sezioni "Plugin SDK", "Host seams" e "Activity and notice contracts", e la sottosezione "The plugin engine";
 - nel percorso critico, `InlineArray` e `Span` si usano **senza** controlli di versione (iPadOS 26);
-- aggiungere una sezione **"Unveil additions"** con le regole della spec §7.2:
+- aggiungere una sezione **"iLightCraft additions"** con le regole della spec §7.2:
   - `//` al massimo 2 righe;
   - orientamento ai protocolli statico;
   - prima lo stack;
@@ -175,7 +175,7 @@ seguita dal contenuto integrale di `$TMP/upstream-NOTICE`.
   - le regole Rust (`rustfmt` 110 solo per `Engine/ffi`, `// SAFETY:`, niente `dyn` sul percorso critico, codice upstream copiato non riformattato nella v0);
 - nel "Folder layout" usare l'albero della spec §7.1.
 
-`CLAUDE.md` (in inglese, al massimo 40 righe): cos'è il progetto, i link a spec, piano e `CODE_STYLE.md`, i comandi (`export PATH=…`, `cargo test -p unveil-ffi --features test-hooks`, `scripts/build-xcframework.sh`, `scripts/test-app.sh`), la regola "Engine/crates is upstream code: do not modify in v0", e la regola sui commit (solo il coordinatore).
+`CLAUDE.md` (in inglese, al massimo 40 righe): cos'è il progetto, i link a spec, piano e `CODE_STYLE.md`, i comandi (`export PATH=…`, `cargo test -p ilightcraft-ffi --features test-hooks`, `scripts/build-xcframework.sh`, `scripts/test-app.sh`), la regola "Engine/crates is upstream code: do not modify in v0", e la regola sui commit (solo il coordinatore).
 
 `README.md`: tre righe (nome, cosa fa, licenza).
 
@@ -208,7 +208,7 @@ git commit -F <messaggio>   # "Import the LightCraft engine at c435d14 and set u
 - Create: `Docs/Baseline/build-ios.md`
 
 **Interfaces:**
-- Produces: crate `unveil-ffi` (lib `unveil_ffi`, `crate-type = ["staticlib", "rlib"]`); `uv_abi_version() -> u32` che restituisce `1`.
+- Produces: crate `ilightcraft-ffi` (lib `ilightcraft_ffi`, `crate-type = ["staticlib", "rlib"]`); `uv_abi_version() -> u32` che restituisce `1`.
 
 - [ ] **Step 1: Aggiungere i target**
 
@@ -223,14 +223,14 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 
 ```toml
 [package]
-name = "unveil-ffi"
+name = "ilightcraft-ffi"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
 
 [lib]
-name = "unveil_ffi"
+name = "ilightcraft_ffi"
 crate-type = ["staticlib", "rlib"]
 
 [features]
@@ -259,7 +259,7 @@ max_width = 110
 `Engine/ffi/src/lib.rs`:
 
 ```rust
-//! unveil-ffi is the C ABI between the Unveil app and the LightCraft engine.
+//! ilightcraft-ffi is the C ABI between the iLightCraft app and the LightCraft engine.
 
 /// uv_abi_version lets the Swift side refuse a framework built for another header.
 #[unsafe(no_mangle)]
@@ -274,7 +274,7 @@ Aggiungere `"ffi"` a `members` in `Engine/Cargo.toml`. Se `png` non è in `[work
 
 ```bash
 cd Engine
-cargo tree -p unveil-ffi --target aarch64-apple-ios -e normal,build --prefix none \
+cargo tree -p ilightcraft-ffi --target aarch64-apple-ios -e normal,build --prefix none \
   | sort -u | grep -E '^(ring|ash|cc|libfuzzer-sys|rav1e|built|harfrust|objc2-metal|wgpu) ' | tee /tmp/deps.txt
 ```
 
@@ -284,10 +284,10 @@ Expected: le righe trovate vanno registrate. `ash` (Vulkan) **non** dovrebbe ess
 
 ```bash
 export IPHONEOS_DEPLOYMENT_TARGET=26.0
-cargo build -p unveil-ffi --release --target aarch64-apple-ios
-cargo build -p unveil-ffi --release --target aarch64-apple-ios-sim
-cargo build -p unveil-ffi --release
-ls -la target/aarch64-apple-ios/release/libunveil_ffi.a target/aarch64-apple-ios-sim/release/libunveil_ffi.a
+cargo build -p ilightcraft-ffi --release --target aarch64-apple-ios
+cargo build -p ilightcraft-ffi --release --target aarch64-apple-ios-sim
+cargo build -p ilightcraft-ffi --release
+ls -la target/aarch64-apple-ios/release/libilightcraft_ffi.a target/aarch64-apple-ios-sim/release/libilightcraft_ffi.a
 ```
 
 Expected: le due `.a` esistono. Registrare le dimensioni.
@@ -295,7 +295,7 @@ Expected: le due `.a` esistono. Registrare le dimensioni.
 - [ ] **Step 5: Ricavare le librerie native da collegare**
 
 ```bash
-cargo rustc -p unveil-ffi --release --target aarch64-apple-ios --crate-type staticlib -- --print native-static-libs 2>&1 \
+cargo rustc -p ilightcraft-ffi --release --target aarch64-apple-ios --crate-type staticlib -- --print native-static-libs 2>&1 \
   | grep 'native-static-libs' | tee /tmp/native-libs.txt
 ```
 
@@ -323,7 +323,7 @@ Il file contiene: comandi eseguiti, dipendenze del passo 3, dimensioni delle `.a
 - Produces (C, header completo, usato da tutti i ticket seguenti):
 
 ```c
-// uv.h: C ABI of the Unveil engine bridge. Version 1.
+// uv.h: C ABI of the iLightCraft engine bridge. Version 1.
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
@@ -367,7 +367,7 @@ void        uv_set_memory_budget(UVSession *session, uint64_t bytes);
 `module.modulemap`:
 
 ```text
-module UnveilEngine {
+module iLightCraftEngine {
     header "uv.h"
     export *
 }
@@ -394,7 +394,7 @@ Rispetto alla spec ci sono tre precisazioni:
 use std::ffi::{CStr, CString};
 use std::path::{Path, PathBuf};
 
-use unveil_ffi::*;
+use ilightcraft_ffi::*;
 
 /// TestSession owns a UVSession for one test and frees it on drop.
 pub struct TestSession {
@@ -441,7 +441,7 @@ pub mod tempdir_lite {
     impl Dir {
         pub fn new() -> Dir {
             let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-            let p = std::env::temp_dir().join(format!("unveil-ffi-{}-{n}", std::process::id()));
+            let p = std::env::temp_dir().join(format!("ilightcraft-ffi-{}-{n}", std::process::id()));
             std::fs::create_dir_all(&p).unwrap();
             Dir(p)
         }
@@ -459,7 +459,7 @@ pub mod tempdir_lite {
 mod common;
 use common::*;
 use std::ffi::CString;
-use unveil_ffi::*;
+use ilightcraft_ffi::*;
 
 #[test]
 fn abi_version_matches_header() {
@@ -505,7 +505,7 @@ Nota: `engine.commands` esiste nel protocollo di controllo. Se non è un comando
 
 ```bash
 export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
-cd Engine && cargo test -p unveil-ffi --features test-hooks
+cd Engine && cargo test -p ilightcraft-ffi --features test-hooks
 ```
 
 Expected: errori di compilazione (`uv_session_new` non definita).
@@ -549,7 +549,7 @@ pub fn guard<T>(fallback: T, f: impl FnOnce() -> Result<T, Failure>) -> T {
 
 - **`session.rs`:**
   - `UVSession { tx: mpsc::Sender<Msg>, thread: Option<JoinHandle<()>> }`.
-  - Il thread si chiama `unveil-engine`, ha stack di 8 MiB e imposta la QoS `USER_INITIATED` con `pthread_set_qos_class_self_np` (`extern "C"`, esiste su iOS e macOS).
+  - Il thread si chiama `ilightcraft-engine`, ha stack di 8 MiB e imposta la QoS `USER_INITIATED` con `pthread_set_qos_class_self_np` (`extern "C"`, esiste su iOS e macOS).
   - Il thread crea `lightcraft_engine::Session::new()`, applica `.with_fs()` se esiste su `Session` e chiama `open_library(data_dir, false)`.
   - Poi riceve `Msg::Execute { command, params, reply }` e `Msg::Shutdown`.
   - `uv_session_free` invia `Shutdown` e fa `join`.
@@ -564,7 +564,7 @@ pub fn guard<T>(fallback: T, f: impl FnOnce() -> Result<T, Failure>) -> T {
 - [ ] **Step 4: Eseguire i test**
 
 ```bash
-cd Engine && cargo test -p unveil-ffi --features test-hooks && cargo fmt -p unveil-ffi -- --check && cargo clippy -p unveil-ffi --features test-hooks -- -D warnings
+cd Engine && cargo test -p ilightcraft-ffi --features test-hooks && cargo fmt -p ilightcraft-ffi -- --check && cargo clippy -p ilightcraft-ffi --features test-hooks -- -D warnings
 ```
 
 Expected: tutti `PASS`, fmt pulito, clippy senza avvisi.
@@ -577,7 +577,7 @@ Expected: tutti `PASS`, fmt pulito, clippy senza avvisi.
 mod common;
 use common::*;
 use std::ffi::CString;
-use unveil_ffi::*;
+use ilightcraft_ffi::*;
 
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
@@ -606,7 +606,7 @@ fn execute_results_and_errors_do_not_leak() {
 }
 ```
 
-Comando: `cargo test -p unveil-ffi --features test-hooks --test leaks`. Expected: `PASS`.
+Comando: `cargo test -p ilightcraft-ffi --features test-hooks --test leaks`. Expected: `PASS`.
 
 - [ ] **Step 6: Il coordinatore fa il commit** ("Add the C ABI core: status codes, per-thread errors, panic guard and engine thread")
 
@@ -638,7 +638,7 @@ Comando: `cargo test -p unveil-ffi --features test-hooks --test leaks`. Expected
 mod common;
 use common::*;
 use std::ffi::{CStr, CString};
-use unveil_ffi::*;
+use ilightcraft_ffi::*;
 
 fn exec(s: &TestSession, cmd: &str, params: &str) -> Result<serde_json::Value, (i32, String)> {
     let c = CString::new(cmd).unwrap();
@@ -711,7 +711,7 @@ fn malformed_json_is_an_invalid_argument() {
 
 - [ ] **Step 2: Eseguire e verificare che falliscano**
 
-`cd Engine && cargo test -p unveil-ffi --features test-hooks --test commands`. Expected: `FAIL`, perché le funzioni di supporto (`photo_id_from_import`, `photo_ids_from_import`) mancano, oppure perché `UV_ERR_INVALID_ARGUMENT` non viene ancora restituito per il JSON non valido.
+`cd Engine && cargo test -p ilightcraft-ffi --features test-hooks --test commands`. Expected: `FAIL`, perché le funzioni di supporto (`photo_id_from_import`, `photo_ids_from_import`) mancano, oppure perché `UV_ERR_INVALID_ARGUMENT` non viene ancora restituito per il JSON non valido.
 
 - [ ] **Step 3: Implementare**
 
@@ -740,7 +740,7 @@ Aggiungere le due funzioni di supporto a `common/mod.rs` e scrivere `Docs/Baseli
 
 **Interfaces:**
 - Consumes: T3, T4 (`import_fixture` in `tests/common`; spostarla lì da `commands.rs`).
-- Produces: `uv_request_preview` funzionante. Callback sul thread `unveil-engine`, `stride = width * 4`, RGBA8 sRGB come lo produce `Rendered::image`.
+- Produces: `uv_request_preview` funzionante. Callback sul thread `ilightcraft-engine`, `stride = width * 4`, RGBA8 sRGB come lo produce `Rendered::image`.
 
 **Comportamento richiesto:**
 - `uv_request_preview` incrementa un `AtomicU64` (la prima generazione è 1) e invia `Msg::Preview { generation, max_pixels, draft, callback }`. Restituisce subito la generazione.
@@ -772,7 +772,7 @@ impl<R: Request> PreviewScheduler<R> {
 pub trait Request { fn generation(&self) -> u64; }
 ```
 
-- **Avvio di una richiesta:** il thread del motore costruisce il job con `session.render_job(active, max, max, false, true)` e applica `.draft()` se richiesto. Poi lo invia a `render_worker`, un thread `unveil-render` con stack di 8 MiB e QoS `USER_INITIATED`, che esegue `job.run()` e rimanda `Msg::RenderDone { generation, draft, photo, result, callback }`.
+- **Avvio di una richiesta:** il thread del motore costruisce il job con `session.render_job(active, max, max, false, true)` e applica `.draft()` se richiesto. Poi lo invia a `render_worker`, un thread `ilightcraft-render` con stack di 8 MiB e QoS `USER_INITIATED`, che esegue `job.run()` e rimanda `Msg::RenderDone { generation, draft, photo, result, callback }`.
 - **Arrivo di `RenderDone`:**
   1. `session.accept(&result)`;
   2. se `should_deliver` e `result.rendered` è `Ok`, si invoca la callback sul thread del motore con i pixel di `rendered.image`;
@@ -834,7 +834,7 @@ mod common;
 use common::*;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
-use unveil_ffi::*;
+use ilightcraft_ffi::*;
 
 #[derive(Default)]
 struct Frames { list: Mutex<Vec<(u64, bool, u32, u32, u32, usize)>>, cv: Condvar }
@@ -912,15 +912,15 @@ Spostare `exec` in `common/mod.rs` e aggiungere `exec_ok(&s, cmd, params)` (lo s
 
 - [ ] **Step 3: Verificare che falliscano**
 
-`cd Engine && cargo test -p unveil-ffi --features test-hooks`. Expected: errori di compilazione o `FAIL`.
+`cd Engine && cargo test -p ilightcraft-ffi --features test-hooks`. Expected: errori di compilazione o `FAIL`.
 
 - [ ] **Step 4: Implementare** seguendo il "Comportamento richiesto".
 
 - [ ] **Step 5: Eseguire i test 3 volte di fila**, per scoprire test instabili legati ai tempi:
 
 ```bash
-cd Engine && for i in 1 2 3; do cargo test -p unveil-ffi --features test-hooks || exit 1; done
-cargo fmt -p unveil-ffi -- --check && cargo clippy -p unveil-ffi --features test-hooks -- -D warnings
+cd Engine && for i in 1 2 3; do cargo test -p ilightcraft-ffi --features test-hooks || exit 1; done
+cargo fmt -p ilightcraft-ffi -- --check && cargo clippy -p ilightcraft-ffi --features test-hooks -- -D warnings
 ```
 
 Expected: tre `PASS` di fila.
@@ -965,7 +965,7 @@ fn release_memory() {
 mod common;
 use common::*;
 use std::sync::Arc;
-use unveil_ffi::*;
+use ilightcraft_ffi::*;
 
 #[test]
 fn suspended_session_refuses_previews_and_resume_restores_them() {
@@ -1026,10 +1026,10 @@ Nota: `memory::budget()` è globale al processo. I test che lo modificano vanno 
 **Partenza proposta:** Sonnet 5.5 medium. **Milestone:** M1.
 
 **Files:**
-- Create: `scripts/build-xcframework.sh`, `Config/UnveilEngine.xcconfig` (generato dallo script e committato)
+- Create: `scripts/build-xcframework.sh`, `Config/iLightCraftEngine.xcconfig` (generato dallo script e committato)
 
 **Interfaces:**
-- Produces: `Frameworks/UnveilEngine.xcframework` (ignorato da git) con le slice `ios-arm64` e `ios-arm64-simulator`, header e module map. `Config/UnveilEngine.xcconfig` contiene `OTHER_LDFLAGS` ricavati da `--print native-static-libs`.
+- Produces: `Frameworks/iLightCraftEngine.xcframework` (ignorato da git) con le slice `ios-arm64` e `ios-arm64-simulator`, header e module map. `Config/iLightCraftEngine.xcconfig` contiene `OTHER_LDFLAGS` ricavati da `--print native-static-libs`.
 - Opzione `--cpu apple-m1`, che aggiunge `-C target-cpu=apple-m1` (serve al confronto A/B di T15).
 
 - [ ] **Step 1: Scrivere lo script**
@@ -1048,20 +1048,20 @@ FLAGS=""
 
 cd "$ROOT/Engine"
 for T in aarch64-apple-ios aarch64-apple-ios-sim; do
-    RUSTFLAGS="$FLAGS" cargo build -p unveil-ffi --release --target "$T"
+    RUSTFLAGS="$FLAGS" cargo build -p ilightcraft-ffi --release --target "$T"
 done
 
-LIBS=$(RUSTFLAGS="$FLAGS" cargo rustc -p unveil-ffi --release --target aarch64-apple-ios \
+LIBS=$(RUSTFLAGS="$FLAGS" cargo rustc -p ilightcraft-ffi --release --target aarch64-apple-ios \
     --crate-type staticlib -- --print native-static-libs 2>&1 | sed -n 's/.*native-static-libs: //p' | tail -1)
 mkdir -p "$ROOT/Config"
 printf '// Generated by scripts/build-xcframework.sh. Do not edit.\nOTHER_LDFLAGS = $(inherited) %s\n' "$LIBS" \
-    > "$ROOT/Config/UnveilEngine.xcconfig"
+    > "$ROOT/Config/iLightCraftEngine.xcconfig"
 
-OUT="$ROOT/Frameworks/UnveilEngine.xcframework"
+OUT="$ROOT/Frameworks/iLightCraftEngine.xcframework"
 rm -rf "$OUT"
 xcodebuild -create-xcframework \
-    -library target/aarch64-apple-ios/release/libunveil_ffi.a     -headers ffi/include \
-    -library target/aarch64-apple-ios-sim/release/libunveil_ffi.a -headers ffi/include \
+    -library target/aarch64-apple-ios/release/libilightcraft_ffi.a     -headers ffi/include \
+    -library target/aarch64-apple-ios-sim/release/libilightcraft_ffi.a -headers ffi/include \
     -output "$OUT"
 echo "built $OUT${CPU:+ (target-cpu=$CPU)}"
 ```
@@ -1070,9 +1070,9 @@ echo "built $OUT${CPU:+ (target-cpu=$CPU)}"
 
 ```bash
 chmod +x scripts/build-xcframework.sh && scripts/build-xcframework.sh
-ls Frameworks/UnveilEngine.xcframework/ios-arm64/Headers Frameworks/UnveilEngine.xcframework/ios-arm64-simulator/Headers
-cat Config/UnveilEngine.xcconfig
-nm -gU Frameworks/UnveilEngine.xcframework/ios-arm64/libunveil_ffi.a | grep -E ' _uv_' | sort -u
+ls Frameworks/iLightCraftEngine.xcframework/ios-arm64/Headers Frameworks/iLightCraftEngine.xcframework/ios-arm64-simulator/Headers
+cat Config/iLightCraftEngine.xcconfig
+nm -gU Frameworks/iLightCraftEngine.xcframework/ios-arm64/libilightcraft_ffi.a | grep -E ' _uv_' | sort -u
 ```
 
 Expected:
@@ -1100,36 +1100,36 @@ L'autore fa il push. Gli si chiede anche se è il momento di creare il repositor
 **Passaggio umano.** È umano perché la firma richiede il tuo account; il resto si fa in 5 minuti nell'interfaccia di Xcode, ed è più affidabile che scrivere a mano un `project.pbxproj`.
 
 1. Xcode → File → New → Project → **iOS App**:
-   - Product Name `Unveil`, Organization Identifier a scelta (il bundle id diventa `<org>.Unveil`);
+   - Product Name `iLightCraft`, Organization Identifier a scelta (il bundle id diventa `<org>.iLightCraft`);
    - Interface **Storyboard**, Language **Swift**, Testing System **Swift Testing**, **Include Tests** attivo;
-   - percorso `/Users/mac/Personal_Projects/Unveil`, senza "Create Git repository".
-2. Target Unveil → General:
+   - percorso `/Users/mac/Personal_Projects/iLightCraft`, senza "Create Git repository".
+2. Target iLightCraft → General:
    - Supported Destinations: solo **iPad** (rimuovere iPhone e Mac);
    - Minimum Deployments **iPadOS 26.0**.
 3. Signing & Capabilities:
    - scegliere il Team;
    - **+ Capability**: solo *Increased Memory Limit*; *Extended Virtual Addressing* non è firmabile con il team personale e torna con un team a pagamento. Se la prima non è disponibile, annotarlo e proseguire: il coordinatore aggiorna la spec.
-4. Trascinare `Frameworks/UnveilEngine.xcframework` (eseguire prima `scripts/build-xcframework.sh`) nel target, con **Do Not Embed**.
-5. Project → Info → Configurations: per Debug e Release del target Unveil, impostare `Config/UnveilEngine.xcconfig` come file di configurazione.
+4. Trascinare `Frameworks/iLightCraftEngine.xcframework` (eseguire prima `scripts/build-xcframework.sh`) nel target, con **Do Not Embed**.
+5. Project → Info → Configurations: per Debug e Release del target iLightCraft, impostare `Config/iLightCraftEngine.xcconfig` come file di configurazione.
 6. Chiudere Xcode.
 
 **Poi il worker:**
 
 **Files:**
-- Delete: `Unveil/Main.storyboard`, `Unveil/ContentView.swift` (se presente)
-- Create/Modify: `Unveil/App/AppDelegate.swift`, `Unveil/App/SceneDelegate.swift`, `Unveil/Info.plist` (nessun `UIMainStoryboardFile`, nessun `UISceneStoryboardFile`)
+- Delete: `iLightCraft/Main.storyboard`, `iLightCraft/ContentView.swift` (se presente)
+- Create/Modify: `iLightCraft/App/AppDelegate.swift`, `iLightCraft/App/SceneDelegate.swift`, `iLightCraft/Info.plist` (nessun `UIMainStoryboardFile`, nessun `UISceneStoryboardFile`)
 - Create: `scripts/test-app.sh`
 - Create: le cartelle vuote della spec §7.1 (`Core/Engine`, `Core/Memory`, …) con un `.gitkeep`
 
 - [ ] **Step 1: Verificare che il progetto usi cartelle sincronizzate**
 
 ```bash
-grep -c PBXFileSystemSynchronizedRootGroup Unveil.xcodeproj/project.pbxproj
+grep -c PBXFileSystemSynchronizedRootGroup iLightCraft.xcodeproj/project.pbxproj
 ```
 
 Expected: ≥ 1. Se è 0, fermarsi e segnalarlo: senza cartelle sincronizzate ogni file nuovo tocca il `pbxproj` e il parallelismo salta.
 
-- [ ] **Step 2: `SceneDelegate` crea la finestra senza storyboard** e mostra un `UIViewController` con sfondo `.systemBackground` e una label "Unveil". L'editor arriva in T12.
+- [ ] **Step 2: `SceneDelegate` crea la finestra senza storyboard** e mostra un `UIViewController` con sfondo `.systemBackground` e una label "iLightCraft". L'editor arriva in T12.
 
 - [ ] **Step 3: `scripts/test-app.sh`**
 
@@ -1138,20 +1138,20 @@ Expected: ≥ 1. Se è 0, fermarsi e segnalarlo: senza cartelle sincronizzate og
 # Runs the app's unit tests on the first available iPad simulator.
 set -euo pipefail
 SIM=$(xcrun simctl list devices available | grep -m1 -oE 'iPad[^()]+\(([0-9A-F-]{36})\)' | grep -oE '[0-9A-F-]{36}')
-xcodebuild test -project Unveil.xcodeproj -scheme Unveil -destination "id=$SIM" \
+xcodebuild test -project iLightCraft.xcodeproj -scheme iLightCraft -destination "id=$SIM" \
     -derivedDataPath "${DERIVED_DATA:-DerivedData}" -quiet
 ```
 
-- [ ] **Step 4: Test di fumo**, in `UnveilTests/EngineLinkTests.swift`:
+- [ ] **Step 4: Test di fumo**, in `iLightCraftTests/EngineLinkTests.swift`:
 
 ```swift
 //
 //  EngineLinkTests.swift
-//  Unveil
+//  iLightCraft
 //
 
 import Testing
-import UnveilEngine
+import iLightCraftEngine
 
 struct EngineLinkTests {
 
@@ -1179,8 +1179,8 @@ Expected: `PASS`. Un errore di link (simbolo mancante di Metal, `objc` o `c++`) 
 **Partenza proposta:** Opus 5.5 high. **Milestone:** M2.
 
 **Files:**
-- Create: `Unveil/Core/Protocols/EngineDriving.swift`, `Unveil/Core/Engine/EngineManager.swift`, `Unveil/Core/Engine/FrameSink.swift`, `Unveil/Core/Errors/EngineError.swift`, `Unveil/Models/Engine/PhotoID.swift`, `Unveil/Models/Engine/ReadyFrame.swift`, `Unveil/Models/Engine/Enums/DevelopAdjustmentKind.swift`
-- Test: `UnveilTests/EngineErrorTests.swift`, `UnveilTests/FrameSinkTests.swift`, `UnveilTests/EngineManagerTests.swift`
+- Create: `iLightCraft/Core/Protocols/EngineDriving.swift`, `iLightCraft/Core/Engine/EngineManager.swift`, `iLightCraft/Core/Engine/FrameSink.swift`, `iLightCraft/Core/Errors/EngineError.swift`, `iLightCraft/Models/Engine/PhotoID.swift`, `iLightCraft/Models/Engine/ReadyFrame.swift`, `iLightCraft/Models/Engine/Enums/DevelopAdjustmentKind.swift`
+- Test: `iLightCraftTests/EngineErrorTests.swift`, `iLightCraftTests/FrameSinkTests.swift`, `iLightCraftTests/EngineManagerTests.swift`
 
 **Interfaces:**
 - Produces:
@@ -1260,7 +1260,7 @@ final class FrameSink: Sendable {
 
 **`EngineManager`:**
 - possiede l'handle `OpaquePointer` di `uv_session_new`, con `dataDirectory` = `Application Support/Engine`;
-- esegue tutte le chiamate `uv_execute` su una `DispatchQueue` seriale propria, `com.unveil.engine-manager` con QoS `.userInitiated`, e le espone come `async` con `withCheckedContinuation`;
+- esegue tutte le chiamate `uv_execute` su una `DispatchQueue` seriale propria, `com.cwallyman.ilightcraft.engine-manager` con QoS `.userInitiated`, e le espone come `async` con `withCheckedContinuation`;
 - `openPhoto` esegue `library.import` e poi `library.select`, con le forme documentate in T4;
 - il callback C è una funzione `@convention(c)` che riceve `Unmanaged<FrameSink>` come `ctx` e chiama `receive`;
 - `deinit` chiama `uv_session_free`.
@@ -1270,12 +1270,12 @@ final class FrameSink: Sendable {
 ```swift
 //
 //  EngineErrorTests.swift
-//  Unveil
+//  iLightCraft
 //
 
 import Testing
-import UnveilEngine
-@testable import Unveil
+import iLightCraftEngine
+@testable import iLightCraft
 
 struct EngineErrorTests {
 
@@ -1300,12 +1300,12 @@ struct EngineErrorTests {
 ```swift
 //
 //  FrameSinkTests.swift
-//  Unveil
+//  iLightCraft
 //
 
 import Metal
 import Testing
-@testable import Unveil
+@testable import iLightCraft
 
 struct FrameSinkTests {
 
@@ -1373,12 +1373,12 @@ struct FrameSinkTests {
 ```swift
 //
 //  EngineManagerTests.swift
-//  Unveil
+//  iLightCraft
 //
 
 import Testing
 import UIKit
-@testable import Unveil
+@testable import iLightCraft
 
 struct EngineManagerTests {
 
@@ -1430,7 +1430,7 @@ struct EngineManagerTests {
 }
 ```
 
-`waitUntil(seconds:_:)` va in `UnveilTests/Support/WaitUntil.swift`: interroga la condizione ogni 20 ms con `Task.sleep` e lancia un errore alla scadenza. `EngineManager.init(maxPixels:)` lancia `EngineError` se `uv_session_new` restituisce `NULL`.
+`waitUntil(seconds:_:)` va in `iLightCraftTests/Support/WaitUntil.swift`: interroga la condizione ogni 20 ms con `Task.sleep` e lancia un errore alla scadenza. `EngineManager.init(maxPixels:)` lancia `EngineError` se `uv_session_new` restituisce `NULL`.
 
 - [ ] **Step 2: Eseguire `scripts/test-app.sh`** → `FAIL`, perché i tipi non esistono ancora. **Step 3: Implementare.** **Step 4:** `scripts/test-app.sh` → `PASS`.
 
@@ -1445,10 +1445,10 @@ struct EngineManagerTests {
 **Partenza proposta:** Sonnet 5.5 high. **Milestone:** M2.
 
 **Files:**
-- Create: `Unveil/Core/Protocols/PhotoImporting.swift`, `Unveil/Core/Import/PhotoImporter.swift`, `Unveil/Core/Errors/PhotoImportError.swift`
-- Create: `Unveil/Core/Protocols/AvailableMemoryReading.swift`, `Unveil/Core/Memory/MemoryBudgetMonitor.swift`, `Unveil/Core/Memory/ProcessAvailableMemory.swift`
-- Create: `Unveil/Core/Lifecycle/EngineLifecycleObserver.swift`
-- Test: `UnveilTests/PhotoImporterTests.swift`, `UnveilTests/MemoryBudgetMonitorTests.swift`, `UnveilTests/EngineLifecycleObserverTests.swift`
+- Create: `iLightCraft/Core/Protocols/PhotoImporting.swift`, `iLightCraft/Core/Import/PhotoImporter.swift`, `iLightCraft/Core/Errors/PhotoImportError.swift`
+- Create: `iLightCraft/Core/Protocols/AvailableMemoryReading.swift`, `iLightCraft/Core/Memory/MemoryBudgetMonitor.swift`, `iLightCraft/Core/Memory/ProcessAvailableMemory.swift`
+- Create: `iLightCraft/Core/Lifecycle/EngineLifecycleObserver.swift`
+- Test: `iLightCraftTests/PhotoImporterTests.swift`, `iLightCraftTests/MemoryBudgetMonitorTests.swift`, `iLightCraftTests/EngineLifecycleObserverTests.swift`
 
 **Interfaces:**
 - Consumes: `EngineDriving` (T9).
@@ -1491,11 +1491,11 @@ final class EngineLifecycleObserver<Engine: EngineDriving> {
 ```swift
 //
 //  MemoryBudgetMonitorTests.swift
-//  Unveil
+//  iLightCraft
 //
 
 import Testing
-@testable import Unveil
+@testable import iLightCraft
 
 struct MemoryBudgetMonitorTests {
 
@@ -1525,12 +1525,12 @@ struct MemoryBudgetMonitorTests {
 ```swift
 //
 //  EngineLifecycleObserverTests.swift
-//  Unveil
+//  iLightCraft
 //
 
 import Testing
 import UIKit
-@testable import Unveil
+@testable import iLightCraft
 
 struct EngineLifecycleObserverTests {
 
@@ -1552,12 +1552,12 @@ struct EngineLifecycleObserverTests {
 ```swift
 //
 //  PhotoImporterTests.swift
-//  Unveil
+//  iLightCraft
 //
 
 import Foundation
 import Testing
-@testable import Unveil
+@testable import iLightCraft
 
 struct PhotoImporterTests {
 
@@ -1582,7 +1582,7 @@ struct PhotoImporterTests {
 }
 ```
 
-`FakeEngine` (`UnveilTests/Support/FakeEngine.swift`) implementa `EngineDriving`:
+`FakeEngine` (`iLightCraftTests/Support/FakeEngine.swift`) implementa `EngineDriving`:
 - registra `budgets: [UInt64]` e `lifecycle: [String]` sotto `Mutex`;
 - `frames` restituisce un `FrameSink` creato con il dispositivo di sistema;
 - gli altri metodi registrano la chiamata e non fanno altro.
@@ -1600,8 +1600,8 @@ struct PhotoImporterTests {
 **Partenza proposta:** Opus 5.5 high. **Milestone:** M2.
 
 **Files:**
-- Create: `Unveil/Views/Editor/CanvasView.swift`, `Unveil/Views/Editor/CanvasShaders.metal`, `Unveil/Models/Editor/CanvasTransform.swift`
-- Test: `UnveilTests/CanvasTransformTests.swift`
+- Create: `iLightCraft/Views/Editor/CanvasView.swift`, `iLightCraft/Views/Editor/CanvasShaders.metal`, `iLightCraft/Models/Editor/CanvasTransform.swift`
+- Test: `iLightCraftTests/CanvasTransformTests.swift`
 
 **Interfaces:**
 - Consumes: `FrameSink`, `ReadyFrame` (T9).
@@ -1639,12 +1639,12 @@ final class CanvasView: UIView {
 ```swift
 //
 //  CanvasTransformTests.swift
-//  Unveil
+//  iLightCraft
 //
 
 import CoreGraphics
 import Testing
-@testable import Unveil
+@testable import iLightCraft
 
 struct CanvasTransformTests {
 
@@ -1702,10 +1702,10 @@ Aggiungere a `CanvasTransform` anche `func imagePoint(at viewPoint: CGPoint, vie
 **Partenza proposta:** Sonnet 5.5 high. **Milestone:** M2.
 
 **Files:**
-- Create: `Unveil/Core/Engine/EditorViewModel.swift`, `Unveil/Views/Editor/EditorViewController.swift`, `Unveil/Components/Adjustments/AdjustmentPanel.swift`, `Unveil/Components/Adjustments/AdjustmentSlider.swift`
-- Create: `Unveil/Views/Diagnostics/DiagnosticsMenu.swift` (menu di debug, compilato solo in `DEBUG`)
-- Modify: `Unveil/App/SceneDelegate.swift`, `Unveil/App/AppDelegate.swift` (composizione dei servizi)
-- Test: `UnveilTests/EditorViewModelTests.swift`
+- Create: `iLightCraft/Core/Engine/EditorViewModel.swift`, `iLightCraft/Views/Editor/EditorViewController.swift`, `iLightCraft/Components/Adjustments/AdjustmentPanel.swift`, `iLightCraft/Components/Adjustments/AdjustmentSlider.swift`
+- Create: `iLightCraft/Views/Diagnostics/DiagnosticsMenu.swift` (menu di debug, compilato solo in `DEBUG`)
+- Modify: `iLightCraft/App/SceneDelegate.swift`, `iLightCraft/App/AppDelegate.swift` (composizione dei servizi)
+- Test: `iLightCraftTests/EditorViewModelTests.swift`
 
 **Interfaces:**
 - Consumes: T9, T10, T11.
@@ -1740,12 +1740,12 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 ```swift
 //
 //  EditorViewModelTests.swift
-//  Unveil
+//  iLightCraft
 //
 
 import Foundation
 import Testing
-@testable import Unveil
+@testable import iLightCraft
 
 @MainActor
 struct EditorViewModelTests {
@@ -1821,9 +1821,9 @@ Estendere `FakeEngine`:
 ```bash
 xcrun devicectl list devices
 DEVICE=<identifier dell'iPad>
-xcodebuild -project Unveil.xcodeproj -scheme Unveil -configuration Release \
+xcodebuild -project iLightCraft.xcodeproj -scheme iLightCraft -configuration Release \
     -destination "id=$DEVICE" -derivedDataPath DerivedData-device build
-xcrun devicectl device install app --device "$DEVICE" DerivedData-device/Build/Products/Release-iphoneos/Unveil.app
+xcrun devicectl device install app --device "$DEVICE" DerivedData-device/Build/Products/Release-iphoneos/iLightCraft.app
 xcrun devicectl device process launch --device "$DEVICE" <bundle id>
 ```
 
@@ -1847,7 +1847,7 @@ xcrun devicectl device process launch --device "$DEVICE" <bundle id>
 
 **Files:**
 - Create: `Engine/ffi/tests/golden.rs`, `Engine/ffi/examples/compare_golden.rs`, `Engine/ffi/src/delta_e.rs`
-- Create: `Unveil/Core/Diagnostics/GoldenExporter.swift`; Modify: `Unveil/Views/Diagnostics/DiagnosticsMenu.swift`
+- Create: `iLightCraft/Core/Diagnostics/GoldenExporter.swift`; Modify: `iLightCraft/Views/Diagnostics/DiagnosticsMenu.swift`
 - Create: `Docs/Baseline/raw-set.md`, `Docs/Baseline/equivalence.md`
 
 **Interfaces:**
@@ -1903,12 +1903,12 @@ mod tests {
 }
 ```
 
-  `delta_e` è `pub mod`, non esportato in C. `cargo test -p unveil-ffi delta_e` → prima `FAIL`, poi `PASS`.
+  `delta_e` è `pub mod`, non esportato in C. `cargo test -p ilightcraft-ffi delta_e` → prima `FAIL`, poi `PASS`.
 
-- [ ] **Step 3: `tests/golden.rs`.** Se `UNVEIL_RAW_DIR` non è impostata, stampa `skipped: UNVEIL_RAW_DIR not set` e passa. Altrimenti, per ogni RAW e ogni combinazione, esegue import, select, `develop.set` e `uv_request_preview(2048, false)`. Il PNG si scrive con il crate `png` in `Baseline/golden/mac/`.
+- [ ] **Step 3: `tests/golden.rs`.** Se `ILIGHTCRAFT_RAW_DIR` non è impostata, stampa `skipped: ILIGHTCRAFT_RAW_DIR not set` e passa. Altrimenti, per ogni RAW e ogni combinazione, esegue import, select, `develop.set` e `uv_request_preview(2048, false)`. Il PNG si scrive con il crate `png` in `Baseline/golden/mac/`.
 
 ```bash
-UNVEIL_RAW_DIR=Baseline/raw cargo test -p unveil-ffi --release --test golden -- --nocapture
+ILIGHTCRAFT_RAW_DIR=Baseline/raw cargo test -p ilightcraft-ffi --release --test golden -- --nocapture
 ```
 
   Expected: 25 PNG.
@@ -1930,7 +1930,7 @@ xcrun devicectl device copy from --device "$DEVICE" --domain-type appDataContain
 - [ ] **Step 5: `examples/compare_golden.rs`.** Per ogni coppia `mac/X.png` e `ipad/X.png` calcola media e 99° percentile del ΔE2000. Esce con codice 1 se una coppia supera **media 0,5** o **p99 2,0**, oppure se le dimensioni differiscono.
 
 ```bash
-cargo run -p unveil-ffi --release --example compare_golden -- Baseline/golden/mac Baseline/golden/ipad | tee Docs/Baseline/equivalence.md
+cargo run -p ilightcraft-ffi --release --example compare_golden -- Baseline/golden/mac Baseline/golden/ipad | tee Docs/Baseline/equivalence.md
 ```
 
   Expected: una tabella con 25 righe ed esito. Se una coppia fallisce, il coordinatore si ferma: è un dato della baseline, non un bug da correggere di nascosto.
@@ -1944,12 +1944,12 @@ cargo run -p unveil-ffi --release --example compare_golden -- Baseline/golden/ma
 **Partenza proposta:** Opus 5.5 medium. **Milestone:** M3.
 
 **Files:**
-- Create: `Unveil/Core/Diagnostics/Signposts.swift`, `Unveil/Core/Diagnostics/StressSweep.swift`, `Unveil/Core/Diagnostics/FootprintSampler.swift`
+- Create: `iLightCraft/Core/Diagnostics/Signposts.swift`, `iLightCraft/Core/Diagnostics/StressSweep.swift`, `iLightCraft/Core/Diagnostics/FootprintSampler.swift`
 - Modify: `EditorViewModel.swift`, `EngineManager.swift`, `CanvasView.swift` (solo signpost), `DiagnosticsMenu.swift`
 - Create: `Docs/Baseline/measurements.md`
 
 **Interfaces:**
-- **`Signposts`:** un `OSSignposter` (subsystem `com.unveil`, category `Engine`) con questi intervalli:
+- **`Signposts`:** un `OSSignposter` (subsystem `com.cwallyman.ilightcraft`, category `Engine`) con questi intervalli:
   - `OpenToFirstFrame`: da `open(pickedURL:)` al primo frame disegnato;
   - `SliderToFrame`: dalla chiamata a `requestPreview` al disegno del frame con la stessa generazione, con l'argomento `draft|full`.
 - **`FootprintSampler`:** ogni 2 s legge `phys_footprint` (`task_info` con `TASK_VM_INFO`), `os_proc_available_memory()` e `ProcessInfo.thermalState`, e li scrive in CSV in `Documents/measurements/<data>.csv`.
@@ -1964,15 +1964,15 @@ cargo run -p unveil-ffi --release --example compare_golden -- Baseline/golden/ma
 ```bash
 SIM=<id del simulatore iPad usato da scripts/test-app.sh>
 xcrun xctrace record --template 'Logging' --device "$SIM" --time-limit 20s --output /tmp/sim.trace \
-    --launch -- DerivedData/Build/Products/Debug-iphonesimulator/Unveil.app
+    --launch -- DerivedData/Build/Products/Debug-iphonesimulator/iLightCraft.app
 ```
 
 - [ ] **Step 2 (👤 iPad collegato): Registrare sull'M2**, con il RAW da 48 MP già aperto:
 
 ```bash
 mkdir -p Baseline/traces
-xcrun xctrace record --device "$DEVICE" --template 'Time Profiler' --attach Unveil --time-limit 60s --output Baseline/traces/time-48mp.trace
-xcrun xctrace record --device "$DEVICE" --template 'Metal System Trace' --attach Unveil --time-limit 30s --output Baseline/traces/metal-48mp.trace
+xcrun xctrace record --device "$DEVICE" --template 'Time Profiler' --attach iLightCraft --time-limit 60s --output Baseline/traces/time-48mp.trace
+xcrun xctrace record --device "$DEVICE" --template 'Metal System Trace' --attach iLightCraft --time-limit 30s --output Baseline/traces/metal-48mp.trace
 ```
 
   Durante la registrazione si usa "Prova di durata" oppure si muovono gli slider a mano. Infine si avvia la prova di durata completa da 10 minuti e si copia il CSV con `devicectl device copy from`.

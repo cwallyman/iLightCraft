@@ -4,7 +4,10 @@ use lightcraft_codecs::{DecodeOptions, Error, Format};
 
 #[test]
 fn native_app_includes_heic_decoder() {
-    assert!(Format::Heif.can_decode(), "Unveil must ship the HEIC decoder");
+    assert!(
+        Format::Heif.can_decode(),
+        "iLightCraft must ship the HEIC decoder"
+    );
 }
 
 #[test]

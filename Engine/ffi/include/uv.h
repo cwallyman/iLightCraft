@@ -1,4 +1,4 @@
-// uv.h: C ABI of the Unveil engine bridge. Version 7.
+// uv.h: C ABI of the iLightCraft engine bridge. Version 7.
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>

@@ -1,4 +1,4 @@
-//! The unveil-render thread runs RenderJob::run, so the engine thread never waits on pixels.
+//! The ilightcraft-render thread runs RenderJob::run, so the engine thread never waits on pixels.
 
 use std::sync::mpsc::{self, Sender};
 use std::thread::{self, JoinHandle};
@@ -34,18 +34,18 @@ pub(crate) struct RenderDone {
     pub callback: FrameCallback,
 }
 
-/// RenderWorker is the engine thread's handle on unveil-render. Dropping `tx` ends the thread.
+/// RenderWorker is the engine thread's handle on ilightcraft-render. Dropping `tx` ends the thread.
 pub(crate) struct RenderWorker {
     tx: Sender<Work>,
     thread: JoinHandle<()>,
 }
 
 impl RenderWorker {
-    /// spawn starts unveil-render, which answers every Work with a Msg::RenderDone on `done`.
+    /// spawn starts ilightcraft-render, which answers every Work with a Msg::RenderDone on `done`.
     pub fn spawn(done: Sender<Msg>) -> std::io::Result<RenderWorker> {
         let (tx, rx) = mpsc::channel::<Work>();
         let thread = thread::Builder::new()
-            .name("unveil-render".into())
+            .name("ilightcraft-render".into())
             .stack_size(8 << 20)
             .spawn(move || {
                 set_user_initiated_qos();

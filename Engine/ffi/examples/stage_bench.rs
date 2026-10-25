@@ -61,7 +61,7 @@ fn main() {
     if args.next().as_deref() == Some("--cpu") {
         lightcraft_engine::gpu::set_enabled(false);
     }
-    let dir = std::env::temp_dir().join(format!("unveil-stage-bench-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("ilightcraft-stage-bench-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     // SAFETY: single-threaded here, before the engine starts any thread; same rule as uv_session_new.
     unsafe { std::env::set_var("LIGHTCRAFT_CAMERA_PROFILES", dir.join("camera-profiles")) };

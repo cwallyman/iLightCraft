@@ -51,11 +51,11 @@ Files: replace EditorViewController with EditorView; create EditorCanvas, Editor
 
 ## Execution Notes
 
-- Baseline source and tests are preserved under `/tmp/unveil-swiftui-before` for migration-only review.
+- Baseline source and tests are preserved under `/tmp/ilightcraft-swiftui-before` for migration-only review.
 - CoreSimulator reports no available devices. Runtime tests cannot run until an iOS simulator runtime/device exists; compile both device app and simulator test targets instead.
 - Work stays in the current checkout to preserve the user's uncommitted editor work. No branch, staging or commit operations.
 - New session tests were compiled first and failed because EditorSession did not exist, then compiled successfully after implementation. This is compilation evidence only, not an executed test pass.
-- Verified `xcodebuild build-for-testing -project Unveil.xcodeproj -scheme Unveil -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/unveil-swiftui-build CODE_SIGNING_ALLOWED=NO -quiet` and a Release build with destination `generic/platform=iOS` and DerivedData `/tmp/unveil-swiftui-device`.
+- Verified `xcodebuild build-for-testing -project iLightCraft.xcodeproj -scheme iLightCraft -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/ilightcraft-swiftui-build CODE_SIGNING_ALLOWED=NO -quiet` and a Release build with destination `generic/platform=iOS` and DerivedData `/tmp/ilightcraft-swiftui-device`.
 - Engine, FrameSink, CanvasView, adjustment algorithms and existing unrelated edits match the pre-migration snapshot. No claim of improved frame time or memory use is made without device profiling.
 - Review left baseline diagnostic-gradient occlusion and Files-import concurrency unchanged; changing those behaviors is outside this migration.
 
@@ -63,7 +63,7 @@ Files: replace EditorViewController with EditorView; create EditorCanvas, Editor
 
 The user requested the conventional SwiftUI root after the initial editor-shell migration.
 
-- `UnveilApp: App` is now the sole `@main`, with a `WindowGroup` containing `ContentView`.
+- `iLightCraftApp: App` is now the sole `@main`, with a `WindowGroup` containing `ContentView`.
 - `AppDelegate` remains a `UIApplicationDelegateAdaptor` for process service startup; `SceneDelegate` and its Info.plist registration are removed.
 - `ContentView` retains `EditorWorkspace` in State. Composition waits for a nonzero initial window size and uses the local display scale, capped at 2560 pixels. Resizing does not recreate the workspace.
 - `EditorWorkspace` owns scene dependencies and the activation-refresh observer. `EditorLaunchRunner` preserves the launch diagnostics and measurement commands independently of view updates.

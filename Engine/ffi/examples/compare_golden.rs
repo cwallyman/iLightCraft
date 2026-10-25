@@ -1,7 +1,7 @@
 //! compare_golden <mac_dir> <ipad_dir>: CIEDE2000 between the PNGs of the two directories, as a Markdown
 //! table. Exit 1 if a pair is missing, differs in size, or has mean > 0.5 or p99 > 2.0.
+use ilightcraft_ffi::delta_e::{ciede2000, srgb8_to_lab};
 use std::path::Path;
-use unveil_ffi::delta_e::{ciede2000, srgb8_to_lab};
 
 const MAX_MEAN: f64 = 0.5;
 const MAX_P99: f64 = 2.0;

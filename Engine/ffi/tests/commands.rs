@@ -1,6 +1,6 @@
 mod common;
 use common::*;
-use unveil_ffi::*;
+use ilightcraft_ffi::*;
 
 #[test]
 fn import_select_and_set_exposure() {

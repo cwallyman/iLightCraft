@@ -1,4 +1,4 @@
-// Modified for Unveil on 2026-10-19: backport bounded HDR rendering from the local LightCraft reference.
+// Modified for iLightCraft on 2026-10-19: backport bounded HDR rendering from the local LightCraft reference.
 //! The develop settings schema. Every field has a neutral default; serde uses `#[serde(default)]` so
 //! older/newer files load (unknown fields are ignored, missing fields take defaults).
 
@@ -939,12 +939,18 @@ pub struct Hdr {
     pub max_ev: f64,
 }
 impl Default for Hdr {
-    fn default() -> Self { Self { enabled: false, max_ev: 3.0 } }
+    fn default() -> Self {
+        Self { enabled: false, max_ev: 3.0 }
+    }
 }
 impl Hdr {
-    pub fn is_default(&self) -> bool { *self == Self::default() }
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
     pub fn peak(&self) -> f32 {
-        if !self.enabled { return 1.0; }
+        if !self.enabled {
+            return 1.0;
+        }
         let stops = if self.max_ev.is_finite() { self.max_ev.clamp(0.0, 5.0) } else { 3.0 };
         (stops as f32).exp2()
     }

@@ -2,9 +2,9 @@
 
 mod common;
 use common::*;
+use ilightcraft_ffi::*;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
-use unveil_ffi::*;
 
 /// Shot is one delivered frame: its generation, whether it is a window, its histogram total and
 /// its pixels as tight RGBA rows.

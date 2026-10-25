@@ -2,11 +2,11 @@
 
 mod common;
 use common::*;
+use ilightcraft_ffi::delta_e::{ciede2000, srgb8_to_lab};
+use ilightcraft_ffi::*;
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
-use unveil_ffi::delta_e::{ciede2000, srgb8_to_lab};
-use unveil_ffi::*;
 
 /// Shot is one delivered frame: its UVFrame fields and its pixels as tight RGBA rows.
 #[derive(Clone, Debug)]
@@ -375,7 +375,7 @@ fn a_window_request_with_an_empty_size_is_an_invalid_argument() {
 /// RAW_MARGIN is the margin the app adds around the visible part of a window.
 const RAW_MARGIN: u32 = 32;
 
-/// raw_windows_match_the_whole_frame checks each RAW in UNVEIL_RAW_DIR at 100 %: the frame size the
+/// raw_windows_match_the_whole_frame checks each RAW in ILIGHTCRAFT_RAW_DIR at 100 %: the frame size the
 /// window reports is the whole-frame render's, and a window in the middle matches its crop within the
 /// spec's thresholds (mean ΔE2000 <= 0.5, p99 <= 2.0, see Docs/Baseline/equivalence.md) once its
 /// margin is left out: spatial stages see less around the window's edge, and a whole frame this
@@ -383,8 +383,8 @@ const RAW_MARGIN: u32 = 32;
 /// a skip note and passes. It prints the ΔE it measures.
 #[test]
 fn raw_windows_match_the_whole_frame() {
-    let Some(raw_dir) = std::env::var_os("UNVEIL_RAW_DIR") else {
-        println!("skipped: UNVEIL_RAW_DIR not set");
+    let Some(raw_dir) = std::env::var_os("ILIGHTCRAFT_RAW_DIR") else {
+        println!("skipped: ILIGHTCRAFT_RAW_DIR not set");
         return;
     };
     let mut raws: Vec<PathBuf> = std::fs::read_dir(&raw_dir)

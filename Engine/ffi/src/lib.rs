@@ -1,4 +1,4 @@
-//! unveil-ffi is the C ABI between the Unveil app and the LightCraft engine (include/uv.h).
+//! ilightcraft-ffi is the C ABI between the iLightCraft app and the LightCraft engine (include/uv.h).
 
 // Reference the engine so the staticlib links it and native-static-libs lists its frameworks.
 extern crate lightcraft_engine as _;

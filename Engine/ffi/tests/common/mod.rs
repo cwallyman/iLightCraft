@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 
-use unveil_ffi::*;
+use ilightcraft_ffi::*;
 
 /// TestSession owns a UVSession for one test and frees it on drop.
 pub struct TestSession {
@@ -121,7 +121,7 @@ pub extern "C" fn record(ctx: *mut std::ffi::c_void, frame: *const UVFrame) {
         ..
     } = *unsafe { &*frame };
     // A panic here aborts the test binary, which is the failure we want for a wrong thread.
-    assert_eq!(std::thread::current().name(), Some("unveil-engine"));
+    assert_eq!(std::thread::current().name(), Some("ilightcraft-engine"));
     // SAFETY: ctx is the Frames the test keeps alive in an Arc for the whole session.
     let frames = unsafe { &*(ctx as *const Frames) };
     assert!(!rgba.is_null());
@@ -157,7 +157,7 @@ pub mod tempdir_lite {
             // The clock ticks in microseconds on macOS, so parallel tests also need a counter.
             static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
             let seq = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let p = std::env::temp_dir().join(format!("unveil-ffi-{}-{n}-{seq}", std::process::id()));
+            let p = std::env::temp_dir().join(format!("ilightcraft-ffi-{}-{n}-{seq}", std::process::id()));
             std::fs::create_dir_all(&p).unwrap();
             Dir(p)
         }

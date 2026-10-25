@@ -22,10 +22,10 @@ Last updated: 2026-10-19. Roadmap tasks U1.1/U1.2 (user list items 2 and 3).
 From `Engine`:
 
 ```sh
-cargo test --locked -p unveil-ffi --test native_output
+cargo test --locked -p ilightcraft-ffi --test native_output
 ```
 
-Saved Swift tests: `UnveilTests/CropSettingsTests.swift` (orientation and settings round-trip).
+Saved Swift tests: `iLightCraftTests/CropSettingsTests.swift` (orientation and settings round-trip).
 Existing editor undo tests should also be run when testing is requested. No automated test suite
 was run for this change, following the user's request to leave testing to them.
 
@@ -45,7 +45,7 @@ was run for this change, following the user's request to leave testing to them.
 - Rust release engine framework built for iOS device, simulator and Mac Catalyst.
 - Final unsigned iOS device and simulator app builds passed; device app development-signed.
 - Current app container backed up before updating the paired iPhone 17 Pro. The update was
-  installed and launch confirmed by devicectl under `com.cwallyman.UnveilNative`.
+  installed and launch confirmed by devicectl under `com.cwallyman.iLightCraft`.
 - Simulator crop preview rendered the original generated color chart; screen captured and
   visually inspected. Corners, grid, rotation, flips, aspect and straighten controls are visible.
 - Export screen captured and visually inspected: file and finishing options, batch-photo
@@ -53,7 +53,7 @@ was run for this change, following the user's request to leave testing to them.
 - Physical crop gestures, actual exported file inspection, undo/redo and relaunch persistence
   remain user checks. Mac/iPad app runtime was not checked for this change.
 
-Logs: `/tmp/unveil-export-framework-final.log`, `/tmp/unveil-export-device-final.log`,
-`/tmp/unveil-export-sim.log`, `/tmp/unveil-export-iphone-install.log`,
-`/tmp/unveil-export-iphone-launch.log`. Screenshots are local-only in the parent workspace's
-`LocalVerification/unveil-crop-screen.png` and `LocalVerification/unveil-export-screen.png`.
+Logs: `/tmp/ilightcraft-export-framework-final.log`, `/tmp/ilightcraft-export-device-final.log`,
+`/tmp/ilightcraft-export-sim.log`, `/tmp/ilightcraft-export-iphone-install.log`,
+`/tmp/ilightcraft-export-iphone-launch.log`. Screenshots are local-only in the parent workspace's
+`LocalVerification/ilightcraft-crop-screen.png` and `LocalVerification/ilightcraft-export-screen.png`.

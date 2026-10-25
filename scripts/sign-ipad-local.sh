@@ -2,12 +2,14 @@
 # Sign a development build with the existing wildcard profile, without increased-memory access.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-APP="${IPAD_APP_PATH:-DerivedData-iPad/Build/Products/Debug-iphoneos/Unveil.app}"
+APP="${IPAD_APP_PATH:-DerivedData-iPad/Build/Products/Debug-iphoneos/iLightCraft.app}"
 PROFILE="${IPAD_PROFILE_PATH:-$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/6ae52616-380a-4ff8-b0da-23072a13046d.mobileprovision}"
 ENTITLEMENTS=$(mktemp -t lightcraft-entitlements)
 trap 'rm -f "$ENTITLEMENTS"' EXIT
 security cms -D -i "$PROFILE" > "$ENTITLEMENTS"
-python3 - "$ENTITLEMENTS" "${APPLE_TEAM_ID:-D58RZM4K8N}" "${IPAD_BUNDLE_ID:-com.cwallyman.LightCraftiPad}" <<'PY'
+BUNDLE="${IPAD_BUNDLE_ID:-}"
+[[ -n "$BUNDLE" ]] || BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")
+python3 - "$ENTITLEMENTS" "${APPLE_TEAM_ID:-D58RZM4K8N}" "$BUNDLE" <<'PY'
 import plistlib,sys
 path,team,bundle=sys.argv[1:]
 with open(path,'rb') as f: profile=plistlib.load(f)

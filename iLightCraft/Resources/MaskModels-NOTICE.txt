@@ -1,0 +1,11 @@
+SkySegSmall: Copyright (c) 2021 xiongzhu666. MIT; see Model-LICENSE-SKY.txt.
+Core ML conversion by Twist Labs, https://huggingface.co/twistlabs/fotometis-sky,
+revision 97dfe50bf3fe4dc02badea287512afaf4ce857c2. Package unmodified.
+
+SkinSeg: Google MediaPipe Selfie Multiclass, Copyright Google LLC. Apache-2.0;
+see Model-LICENSE-APACHE.txt. ONNX conversion by senty-au,
+https://huggingface.co/senty-au/selfie_multiclass_256x256-ONNX,
+revision 6db8421a7150ac20558f2c24675078eb3a1a04d0. Converted for iLightCraft to
+Core ML FP32 with onnx2torch/coremltools; input/output names changed.
+No retraining or photo uploads. Original model:
+https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/1/selfie_multiclass_256x256.tflite

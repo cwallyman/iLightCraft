@@ -11,11 +11,16 @@ Priority 4 now has a first native **on-device tools** implementation for items 1
 subfeatures and real-output acceptance remain; see the [implementation/acceptance table](Docs/Verification/priority4-on-device.md).
 This is not a claim of Lightroom parity or App Store readiness.
 
+Point Color, grading, optics, manual masks, repair refinements, presets/batch, versions/history and portable backup/restore now have native workflows. Physical acceptance is pending; [scope and limits](Docs/MISSING-FEATURES.md).
+
 ## Documentation
+
+- [App Store preparation](Docs/APP-STORE-READINESS.md): branding exceptions, Release packaging and remaining submission work.
+- [Xcode Cloud setup](Docs/XCODE-CLOUD.md): generated engine/model inputs and Apple/GitHub workflow setup.
 
 - [Next steps](Docs/NEXT-STEPS.md): immediate checks, every remaining feature and release work.
 - [Full prioritized roadmap](Docs/Plans/2026-10-19-lightroom-priorities.md): task IDs and detailed scope.
-- [Change history](CHANGELOG.md): all native iLightCraft changes since the Unveil baseline.
+- [Change history](CHANGELOG.md): all native iLightCraft changes since the upstream native baseline.
 - [Verification notes](Docs/Verification/): build, visual, device and saved-test evidence.
 - [Artwork attribution](assets/ATTRIBUTION.md), [engine modifications](Engine/CHANGES.md)
   and [engine upstream revision](Engine/UPSTREAM.md).
@@ -24,14 +29,16 @@ This is not a claim of Lightroom parity or App Store readiness.
 
 | Area | Native workflow | Evidence and limits |
 |---|---|---|
-| Layout | Compact iPhone/narrow-window adjustment dock; separate 292-point iPad/Mac side dock; compact histogram and Edit/Done | Builds and simulator visual review; device updates delivered |
+| Layout | iPhone portrait lower-half tools, landscape side tools; selectable left/right side on all devices; scrollable controls and pinch/pan canvas | App builds passed; installed without launch by request; adaptive layout hands-on checks pending |
 | Import | Files/Photos browser; HEIC/HEIF decoder enabled in shared Rust builds | HEIC milestone accepted; extended checks saved |
+| Tone Curves | RGB/red/green/blue point curves, drag/add/delete, precise coordinates, channel resets and undo | Mac/iOS builds passed; installed on Mac/iPad; Mac sheet visually reviewed; round-trip/output acceptance pending |
+| HSL / Profiles | Eight HSL color bands with Hue/Saturation/Luminance; 22 built-in profiles, Amount, search, favorites and recent choices | Mac/iOS builds passed; Mac dock visually reviewed; hands-on persistence/output acceptance pending |
 | Editing | Existing basic adjustments, undo/redo and before/after; added native crop controls | Export/crop milestone accepted |
 | Crop | Handles, positioning, ratio presets, rotation, flips and straightening | Preview reviewed; detailed gesture/persistence checks remain |
 | Export | JPEG/PNG/TIFF, quality/size/color/depth options, metadata/location policy, sharpening, text watermark and batch sharing | UI reviewed and milestone accepted; detailed output checks remain |
 | RAW/HDR | Apple full-resolution RAW decode, gain-map expansion, float working copies, EDR canvas and HDR TIFF/HEIC export | Builds and synthetic HDR preview reviewed; physical camera/HDR checks pending |
 | Photos saving | Explicit same-item save, complete adjustment settings, revision checks and local-version recovery | Callback crash corrected and installed; save/reopen/conflict acceptance pending |
-| On-device masks/removal | Subject/background/people/object masks, exposure/combine/refine; brush-based patch healing; saved settings/undo | Simulator screen reviewed; selection/removal quality and persistence acceptance pending |
+| On-device masks/removal | Subject/background/people/object masks, exposure/colorize/skin-tone controls/combine/refine; brush-based patch healing; saved settings/undo | Simulator screen reviewed; selection/removal quality and persistence acceptance pending |
 | AI enhancement/Lens Blur | Optional pinned local Core ML RGB denoise/2× enhancement and depth-based TIFF blur copies | Builds passed; actual model inference/quality pending; no sensor-domain Raw Details |
 | Library analysis | Local labels/OCR/face count, imported-photo index, keyword/local label-text vector search | No identity recognition or joint image-text model; bounded private index |
 | Photo merge | Ordered HDR/panorama/HDR-panorama jobs, deghost/projection/crop, cancel/memory guard and new DNG | Builds passed; real source/output acceptance pending |
@@ -43,17 +50,17 @@ An engine capability is not automatically an exposed or verified native app feat
 
 1. Choose **Files** or **Photos** and open a still image. Grant Photos access yourself when requested.
 2. Use **Edit/Done** to show or hide adjustments.
-3. Use **More > Crop & Rotate** for crop handles, presets, rotation and straightening.
+3. For Masks, Remove and Crop & Rotate, interact directly with the main photo; pinch to zoom and use two fingers to pan. Their panels contain the controls. Use **HSL Mixer** for eight color bands and **Profiles** for built-in looks and Amount (0–200%). Open these from the Mac/iPad toolbar or iPhone More menu. Use **Tone Curves** in the Mac/iPad toolbar (or iPhone **More**) for RGB and individual-channel curves. Tools open beside the photo on Mac/iPad and iPhone landscape; iPhone portrait uses a scrollable lower-half panel with the main photo available for pinch zoom. More > Settings > Controls side chooses Left or Right for side panels. Tap to add a point, drag it and release to update the photo; use the point selector and Input/Output sliders for precise changes.
+4. Use **More > Crop & Rotate** for crop handles, presets, rotation and straightening.
 4. Use **More > HDR Editing** to control HDR processing; native RAW/HDR imports enable it by default.
 5. Use **Export** for output options, batch selection and the system share sheet/Save to Files.
-6. Use **More > On-device Tools** for Masks, Remove, Library Analysis, Merge, Lens Blur and AI Enhancement.
+6. On Mac/iPad, use the toolbar icons for Masks, Remove, Library Analysis, Merge, Lens Blur and AI Enhancement. On iPhone, find them in **More**. Hover an icon to see its label.
    Depth/enhancement models download only when you choose Download; photos stay on device. Lens Blur
    and enhancement create rendered copies. RGB enhancement requires explicitly disabling HDR Editing.
 7. For an image opened from Photos, choose **More > Save to Apple Photos** to request a save to that item.
    If Photos changed externally, keep the local edit or use **Reload Latest Photos Version**.
 
-Local drafts and Photos saves are separate. Adjusting a photo does not automatically write back
-to Photos. Originals are retained by the import/save design; preservation and round-trip checks
+Local drafts are retained while editing. For a photo opened from Apple Photos, **Back** waits for pending edits and saves changed settings/rendering to the same Photos item before returning home. A save failure or external-edit conflict keeps the editor open. Manual **Save to Apple Photos** remains available. Originals are retained by the import/save design; preservation and round-trip checks
 are listed in the verification documents.
 
 ## Build
@@ -67,6 +74,9 @@ git clone https://github.com/cwallyman/iLightCraft.git
 cd iLightCraft
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-ios-macabi
 scripts/build-xcframework.sh
+# In a Python venv, prepare the bundled sky/skin models once:
+pip install -r scripts/mask-model-requirements.txt
+python scripts/build-mask-models.py
 scripts/build-apple-local.sh simulator
 scripts/build-apple-local.sh ios
 scripts/build-apple-local.sh mac
@@ -77,8 +87,8 @@ build unsigned products in `DerivedData-Apple-<platform>`; they do not install t
 installation requires your development team, provisioning profile and signing identity.
 See [local iPad notes](Docs/LOCAL-IPAD.md) for the earlier machine-specific helpers.
 
-The Xcode project, scheme and Swift module remain `Unveil`; the displayed name is **iLightCraft**.
-The universal helper defaults to `com.cwallyman.UnveilNative`, overridable with `UNVEIL_BUNDLE_ID`.
+The Xcode project, scheme and Swift module are now `iLightCraft`; the displayed name is **iLightCraft**.
+Release uses `com.cwallyman.iLightCraft`. The Debug helper reads an optional ignored `Config/DevelopmentIdentity.xcconfig` to update existing test installs; `ILIGHTCRAFT_BUNDLE_ID` can override it.
 Existing wrapper/prototype libraries are separate; no automatic migration or deletion occurs.
 
 ## Next steps
@@ -124,7 +134,7 @@ Evidence: [HEIC](Docs/Verification/heic-support.md), [export/crop](Docs/Verifica
 
 Repository: [cwallyman/iLightCraft](https://github.com/cwallyman/iLightCraft). Default branch:
 `ipad-lightcraft`. Native baseline: `79be4e4`; first combined implementation: `2f71fe9`.
-Unveil history and its upstream remote are preserved.
+Original upstream history and its remote are preserved.
 
 Source, asset licenses, development notes and saved tests are published. Generated frameworks,
 build products, provisioning material, real camera fixtures, personal libraries and backups are

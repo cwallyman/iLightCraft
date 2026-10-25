@@ -5,12 +5,12 @@ cd "$(dirname "$0")/.."
 TEAM="${APPLE_TEAM_ID:-D58RZM4K8N}"
 BUNDLE="${IPAD_BUNDLE_ID:-com.cwallyman.LightCraftiPad}"
 DESTINATION="${1:-generic/platform=iOS}"
-[[ -d Frameworks/UnveilEngine.xcframework ]] || scripts/build-xcframework.sh
+[[ -d Frameworks/iLightCraftEngine.xcframework ]] || scripts/build-xcframework.sh
 SIGNING=()
 if [[ "${IPAD_BASIC_SIGNING:-0}" == "1" ]]; then
     SIGNING=(CODE_SIGNING_ALLOWED=NO)
 fi
-xcodebuild build -project Unveil.xcodeproj -scheme Unveil \
+xcodebuild build -project iLightCraft.xcodeproj -scheme iLightCraft \
     -configuration Debug -destination "$DESTINATION" \
     -derivedDataPath DerivedData-iPad -allowProvisioningUpdates \
     DEVELOPMENT_TEAM="$TEAM" PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE" \

@@ -50,7 +50,7 @@ impl PreviewStages {
     }
 
     /// trim drops the stages when they hold more than a quarter of `budget` (CPU images plus GPU
-    /// buffers). The quarter is Unveil's rule, not upstream's: upstream's frontend never trims its
+    /// buffers). The quarter is iLightCraft's rule, not upstream's: upstream's frontend never trims its
     /// stage caches by budget. It is the same share the engine gives the decodes in flight.
     pub fn trim(&mut self, budget: usize) {
         if self.bytes() > budget / 4 {
@@ -87,7 +87,7 @@ mod tests {
 
     impl Library {
         fn new(name: &str) -> Library {
-            let dir = std::env::temp_dir().join(format!("unveil-stages-{name}-{}", std::process::id()));
+            let dir = std::env::temp_dir().join(format!("ilightcraft-stages-{name}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
             let mut session = Session::new().with_fs();

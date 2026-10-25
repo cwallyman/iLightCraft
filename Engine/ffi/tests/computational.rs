@@ -10,7 +10,7 @@ fn a_native_selection_is_persisted_and_full_settings_restore_removes_it() {
     let alpha: Vec<u8> = (0..256).map(|i| if i % 16 < 8 { 255 } else { 0 }).collect();
     let result = exec_ok(
         &session,
-        "unveil.maskFromAlpha",
+        "ilightcraft.maskFromAlpha",
         &json!({"side":16,"alpha":alpha,"name":"Subject"}).to_string(),
     );
     let id = result["activeMask"].as_u64().unwrap();
@@ -25,7 +25,7 @@ fn a_native_selection_is_persisted_and_full_settings_restore_removes_it() {
     assert_eq!(after["masks"][0]["adjust"]["exposure"], 1.0);
     exec_ok(
         &session,
-        "unveil.restore",
+        "ilightcraft.restore",
         &json!({"settingsJSON":before.to_string()}).to_string(),
     );
     assert_eq!(exec_ok(&session, "develop.get", "{}"), before);
@@ -41,14 +41,14 @@ fn malformed_native_masks_leave_saved_settings_untouched() {
         json!({"side":1025,"alpha":[]}),
         json!({"side":16,"alpha":[255]}),
     ] {
-        assert!(exec(&session, "unveil.maskFromAlpha", &params.to_string()).is_err());
+        assert!(exec(&session, "ilightcraft.maskFromAlpha", &params.to_string()).is_err());
     }
     let mut alpha = vec![json!(255); 256];
     alpha[50] = json!(256);
     assert!(
         exec(
             &session,
-            "unveil.maskFromAlpha",
+            "ilightcraft.maskFromAlpha",
             &json!({"side":16,"alpha":alpha}).to_string()
         )
         .is_err()
@@ -63,7 +63,7 @@ fn merge_guards_reject_duplicate_sources_and_unavailable_memory() {
     assert!(
         exec(
             &session,
-            "unveil.mergeStart",
+            "ilightcraft.mergeStart",
             &json!({"ids":[id,id],"availableBytes":u64::MAX}).to_string()
         )
         .is_err()
@@ -72,12 +72,15 @@ fn merge_guards_reject_duplicate_sources_and_unavailable_memory() {
     let second = copy["ids"][0].as_u64().unwrap();
     let error = exec(
         &session,
-        "unveil.mergeStart",
+        "ilightcraft.mergeStart",
         &json!({"ids":[id,second],"availableBytes":0}).to_string(),
     )
     .unwrap_err();
     assert!(error.1.contains("memory allowance"));
-    assert_eq!(exec_ok(&session, "unveil.mergeStatus", "{}")["state"], "idle");
+    assert_eq!(
+        exec_ok(&session, "ilightcraft.mergeStatus", "{}")["state"],
+        "idle"
+    );
 }
 
 #[test]
@@ -89,7 +92,7 @@ fn an_untrusted_model_archive_never_creates_an_install_directory() {
     assert!(
         exec(
             &session,
-            "unveil.unpackEnhancement",
+            "ilightcraft.unpackEnhancement",
             &json!({"archive":archive,"destination":destination,"variant":"denoise"}).to_string()
         )
         .is_err()
@@ -104,7 +107,7 @@ fn combining_native_selections_preserves_existing_adjustments_and_rejects_unknow
     let alpha = vec![255u8; 256];
     let result = exec_ok(
         &session,
-        "unveil.maskFromAlpha",
+        "ilightcraft.maskFromAlpha",
         &json!({"side":16,"alpha":alpha,"name":"Subject"}).to_string(),
     );
     let id = result["activeMask"].as_u64().unwrap();
@@ -115,7 +118,7 @@ fn combining_native_selections_preserves_existing_adjustments_and_rejects_unknow
     );
     exec_ok(
         &session,
-        "unveil.maskFromAlpha",
+        "ilightcraft.maskFromAlpha",
         &json!({"side":16,"alpha":alpha,"maskID":id,"op":"subtract"}).to_string(),
     );
     let before = exec_ok(&session, "develop.get", "{}");
@@ -125,7 +128,7 @@ fn combining_native_selections_preserves_existing_adjustments_and_rejects_unknow
     assert!(
         exec(
             &session,
-            "unveil.maskFromAlpha",
+            "ilightcraft.maskFromAlpha",
             &json!({"side":16,"alpha":alpha,"maskID":u32::MAX,"op":"add"}).to_string()
         )
         .is_err()

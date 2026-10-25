@@ -11,7 +11,7 @@ fn cropped_exports_use_the_shared_encoder_for_each_format() {
         let output = session.dir.path().join(format!("cropped.{extension}"));
         let result = exec_ok(
             &session,
-            "unveil.export",
+            "ilightcraft.export",
             &json!({
                 "id": id, "path": output, "format": format, "longEdge": 0,
                 "colorSpace": "displayp3", "metadata": "none", "watermark": "Proof"
@@ -35,7 +35,7 @@ fn a_crop_preview_is_uncropped_and_does_not_change_saved_settings() {
     let output = session.dir.path().join("crop-preview.png");
     let result = exec_ok(
         &session,
-        "unveil.cropPreview",
+        "ilightcraft.cropPreview",
         &json!({
             "path": output, "orientation": "Rotate90", "flipH": true
         })
@@ -53,12 +53,12 @@ fn output_never_replaces_an_original_or_existing_file() {
     import_png(&session, &original);
     let bytes = std::fs::read(&original).unwrap();
     let request = json!({"path": original, "format": "png"}).to_string();
-    assert!(exec(&session, "unveil.export", &request).is_err());
+    assert!(exec(&session, "ilightcraft.export", &request).is_err());
     assert_eq!(std::fs::read(&original).unwrap(), bytes);
 
     let existing = session.dir.path().join("existing.png");
     std::fs::write(&existing, b"keep this file").unwrap();
     let request = json!({"path": existing, "format": "png"}).to_string();
-    assert!(exec(&session, "unveil.export", &request).is_err());
+    assert!(exec(&session, "ilightcraft.export", &request).is_err());
     assert_eq!(std::fs::read(&existing).unwrap(), b"keep this file");
 }

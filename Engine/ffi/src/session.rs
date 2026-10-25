@@ -304,7 +304,7 @@ impl Request for PreviewRequest {
 }
 
 /// Msg is what the engine thread receives. Each request carries its own reply channel;
-/// RenderDone comes from unveil-render.
+/// RenderDone comes from ilightcraft-render.
 pub(crate) enum Msg {
     Execute {
         command: String,
@@ -350,7 +350,7 @@ impl UVSession {
         };
         let done = tx.clone();
         let thread = thread::Builder::new()
-            .name("unveil-engine".into())
+            .name("ilightcraft-engine".into())
             .stack_size(8 << 20)
             .spawn(move || engine_main(data_dir, memory_budget, rx, done, flags, ready_tx))
             .map_err(|e| {
@@ -479,7 +479,7 @@ pub(crate) fn set_user_initiated_qos() {
 /// no caller to report to, and the thread must live on.
 pub(crate) fn caught<T>(what: &str, f: impl FnOnce() -> T) -> Option<T> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
-        .map_err(|p| log::error!("unveil: {what} panicked: {}", panic_message(&*p)))
+        .map_err(|p| log::error!("ilightcraft: {what} panicked: {}", panic_message(&*p)))
         .ok()
 }
 
@@ -491,7 +491,7 @@ struct Flags {
 
 /// engine_main is the body of the engine thread. It reports the library open over `ready`, then
 /// serves messages until Shutdown, and closes the library on exit. `done` is handed to
-/// unveil-render for its RenderDone messages. A panic while handling one command becomes that
+/// ilightcraft-render for its RenderDone messages. A panic while handling one command becomes that
 /// command's UV_ERR_PANIC, so the thread lives on.
 fn engine_main(
     data_dir: PathBuf,
@@ -618,14 +618,14 @@ struct Engine {
 
 impl Engine {
     fn execute(&mut self, command: &str, params: &Value) -> Result<Value, Failure> {
-        // The `unveil.` commands are the bridge's own read-only diagnostics, not engine commands.
+        // The `ilightcraft.` commands are the bridge's own read-only diagnostics, not engine commands.
         match command {
-            "unveil.diagnostics" => {
+            "ilightcraft.diagnostics" => {
                 let enabled = params.get("enabled").and_then(Value::as_bool).unwrap_or(false);
                 return Ok(diagnostics::set_enabled(enabled));
             }
-            "unveil.loads" => return Ok(diagnostics::loads_json()),
-            "unveil.renders" => {
+            "ilightcraft.loads" => return Ok(diagnostics::loads_json()),
+            "ilightcraft.renders" => {
                 let reset = params.get("reset").and_then(Value::as_bool).unwrap_or(false);
                 return Ok(diagnostics::renders_json(reset));
             }
@@ -634,17 +634,20 @@ impl Engine {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             if matches!(
                 command,
-                "unveil.mergeStart" | "unveil.mergeStatus" | "unveil.mergeCancel"
+                "ilightcraft.mergeStart" | "ilightcraft.mergeStatus" | "ilightcraft.mergeCancel"
             ) {
                 return self.merge_jobs.execute(&mut self.session, command, params);
             }
-            if command == "unveil.unpackEnhancement" {
+            if command == "ilightcraft.unpackEnhancement" {
                 return crate::computational::unpack_enhancement(&self.session, params);
             }
-            if command == "unveil.maskFromAlpha" {
+            if command == "ilightcraft.manualMask" {
+                return crate::computational::manual_mask(&mut self.session, params);
+            }
+            if command == "ilightcraft.maskFromAlpha" {
                 return crate::computational::mask_from_alpha(&mut self.session, params);
             }
-            if command == "unveil.restore" {
+            if command == "ilightcraft.restore" {
                 let text = params
                     .get("settingsJSON")
                     .and_then(Value::as_str)
@@ -662,7 +665,10 @@ impl Engine {
             }
             if matches!(
                 command,
-                "unveil.export" | "unveil.cropPreview" | "unveil.hdrExport"
+                "ilightcraft.export"
+                    | "ilightcraft.cropPreview"
+                    | "ilightcraft.hdrExport"
+                    | "ilightcraft.versionPreview"
             ) {
                 return crate::native_commands::run(&mut self.session, command, params);
             }
@@ -677,7 +683,7 @@ impl Engine {
         // library.memory also tells what the two views' resident stages hold (host and device).
         match (command, result) {
             ("library.memory", Ok(mut memory)) => {
-                memory["unveil"] = json!({
+                memory["ilightcraft"] = json!({
                     "previewStages": { "cpu": self.stages.cpu_bytes(), "gpu": self.stages.gpu_bytes() },
                     "windowStages": { "cpu": self.window_stages.cpu_bytes(), "gpu": self.window_stages.gpu_bytes() },
                 });
@@ -854,7 +860,7 @@ impl Engine {
             Some(result) => {
                 caught("accept", || self.session.accept(result));
                 result.rendered.as_ref().map_err(|e| {
-                    log::warn!("unveil: preview {} failed: {e}", done.generation);
+                    log::warn!("ilightcraft: preview {} failed: {e}", done.generation);
                     Failure::new(UVStatus::UV_ERR_ENGINE, e.as_str())
                 })
             }
@@ -866,7 +872,7 @@ impl Engine {
             result
                 .rendered
                 .as_ref()
-                .map_err(|e| log::warn!("unveil: histogram of {} failed: {e}", done.generation))
+                .map_err(|e| log::warn!("ilightcraft: histogram of {} failed: {e}", done.generation))
                 .ok()
         });
         let active = self.session.active().map(|p| p.0);
@@ -900,7 +906,7 @@ impl Engine {
         let idle = self.scheduler.is_idle() || wait_for_render_done(rx);
         self.worker.stop(idle);
         if let Err(e) = self.session.close_library() {
-            log::warn!("unveil: closing the library failed: {e}");
+            log::warn!("ilightcraft: closing the library failed: {e}");
         }
     }
 }

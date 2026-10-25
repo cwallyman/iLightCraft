@@ -1,7 +1,7 @@
 mod common;
 use common::*;
+use ilightcraft_ffi::*;
 use std::ffi::CString;
-use unveil_ffi::*;
 
 #[test]
 fn abi_version_matches_header() {

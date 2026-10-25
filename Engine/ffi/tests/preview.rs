@@ -1,8 +1,8 @@
 mod common;
 use common::*;
+use ilightcraft_ffi::*;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use unveil_ffi::*;
 
 fn request(s: &TestSession, max: u32, draft: bool, frames: &Arc<Frames>) -> u64 {
     // SAFETY: s.raw is live; every test declares frames before s, so it outlives the session.

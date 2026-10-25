@@ -25,7 +25,7 @@ pub fn run(session: &mut Session, command: &str, params: &Value) -> Result<Value
         .map(PhotoId)
         .or_else(|| session.active())
         .ok_or_else(|| Failure::invalid("no photo selected"))?;
-    let (bytes, width, height) = if command == "unveil.hdrExport" {
+    let (bytes, width, height) = if command == "ilightcraft.hdrExport" {
         let settings = session
             .develop_of(id)
             .ok_or_else(|| Failure::invalid("photo not found"))?;
@@ -50,7 +50,28 @@ pub fn run(session: &mut Session, command: &str, params: &Value) -> Result<Value
         let rendered = job.run().rendered.map_err(io)?;
         let bytes = encode_rendered(&rendered, &options, metadata.as_ref()).map_err(io)?;
         (bytes, width, height)
-    } else if command == "unveil.cropPreview" {
+    } else if command == "ilightcraft.versionPreview" {
+        let index = params
+            .get("index")
+            .and_then(Value::as_u64)
+            .and_then(|i| usize::try_from(i).ok())
+            .ok_or_else(|| Failure::invalid("Choose a saved version"))?;
+        let settings = session
+            .catalog
+            .photo(id)
+            .and_then(|p| p.versions.get(index).map(|v| v.settings.clone()))
+            .ok_or_else(|| Failure::invalid("Version no longer exists"))?;
+        let job = session
+            .preview_job(id, 1200, 1200, true, &settings)
+            .ok_or_else(|| Failure::invalid("Cannot prepare version preview"))?;
+        let rendered = job.run().rendered.map_err(io)?;
+        let options = ExportOptions {
+            format: ExportFormat::Png,
+            ..Default::default()
+        };
+        let bytes = encode_rendered(&rendered, &options, None).map_err(io)?;
+        (bytes, rendered.image.width, rendered.image.height)
+    } else if command == "ilightcraft.cropPreview" {
         let mut settings = (*session
             .develop_of(id)
             .ok_or_else(|| Failure::invalid("photo not found"))?)
@@ -60,11 +81,33 @@ pub fn run(session: &mut Session, command: &str, params: &Value) -> Result<Value
                 .map_err(|error| Failure::invalid(error.to_string()))?;
         }
         settings.crop = Default::default();
+        if params
+            .get("neutralPerspective")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            settings.geometry = Default::default();
+        }
         settings.crop.flip_h = params.get("flipH").and_then(Value::as_bool).unwrap_or(false);
         settings.crop.flip_v = params.get("flipV").and_then(Value::as_bool).unwrap_or(false);
         let job = session
             .preview_job(id, 1600, 1600, true, &settings)
             .ok_or_else(|| Failure::invalid("cannot prepare crop preview"))?;
+        let job = if let Some(mask_id) = params.get("overlayMask").and_then(Value::as_u64) {
+            let id =
+                u16::try_from(mask_id).map_err(|_| Failure::invalid("Mask ID is too large for overlay"))?;
+            if !settings.masks.iter().any(|m| u64::from(m.id) == mask_id) {
+                return Err(Failure::invalid("Mask no longer exists"));
+            }
+            job.with_overlay(lightcraft_pipeline::Overlay::Mask {
+                id,
+                view: lightcraft_pipeline::MaskView::Color,
+                color: [242, 165, 22],
+                opacity: 35,
+            })
+        } else {
+            job
+        };
         let result = job.run();
         let rendered = result.rendered.map_err(io)?;
         let options = ExportOptions {

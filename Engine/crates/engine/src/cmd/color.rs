@@ -1,3 +1,4 @@
+// Modified by iLightCraft (2026-10-20): uncropped-preview Point Color coordinate mode.
 //! Commands that sample the developed image: Point Color samples and the targeted adjustment tool
 //! (`develop.targeted`: a vertical drag on the photo raises/lowers the tone-curve region or the
 //! colour-mixer bands under the pointer; the UI sends one call per drag step inside an interaction).
@@ -24,14 +25,25 @@ const PROBE_EDGE: usize = 384;
 /// The sRGB-encoded colour (0..1) at normalized image point `(x, y)` of the active photo rendered
 /// with its settings changed by `neutral`, averaged over 3 × 3 proxy pixels.
 pub(crate) fn probe(s: &mut Session, c: &str, x: f64, y: f64, neutral: impl FnOnce(&mut DevelopSettings)) -> Result<[f32; 3]> {
+    probe_in_space(s, c, x, y, false, neutral)
+}
+
+fn probe_in_space(s: &mut Session, c: &str, x: f64, y: f64, preview: bool, neutral: impl FnOnce(&mut DevelopSettings)) -> Result<[f32; 3]> {
     let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
     let src = s.source_now(id, SourceLevel::Thumb).map_err(|e| bad(c, e))?;
     let info = s.source_info(id);
     let mut d = (*s.develop_of(id).unwrap_or_default()).clone();
     neutral(&mut d);
+    if preview {
+        d.crop = Default::default();
+    }
     let req = lightcraft_pipeline::RenderRequest::fit(PROBE_EDGE, PROBE_EDGE);
     let plan = lightcraft_pipeline::plan(&src, &info, &d, &req);
-    let q = plan.frame.norm_to_out(plan.w, plan.h).apply(Point::new(x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)));
+    let q = if preview {
+        Point::new(x.clamp(0.0, 1.0) * plan.w as f64, y.clamp(0.0, 1.0) * plan.h as f64)
+    } else {
+        plan.frame.norm_to_out(plan.w, plan.h).apply(Point::new(x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)))
+    };
     let img = lightcraft_pipeline::render(&src, &info, &d, &req).image;
     let (cx, cy) = (q.x.floor() as isize, q.y.floor() as isize);
     let mut acc = [0.0f32; 3];
@@ -166,7 +178,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Add Point Color Sample",
             [],
             None,
-            "{x, y} normalized image coords — samples the colour there (max 8); returns {index, lum, chroma, hue}",
+            "{x, y, space?: image|uncroppedPreview} normalized coordinates — samples image coords by default, or the uncropped rendered preview; max 8; returns {index, lum, chroma, hue}",
             has_active,
             |s, p| {
                 let c = "pointColor.pick";
@@ -175,7 +187,12 @@ pub fn specs() -> Vec<CommandSpec> {
                 if s.develop_of(id).is_some_and(|d| d.point_colors.len() >= MAX_POINT_COLORS) {
                     return Err(bad(c, format!("at most {MAX_POINT_COLORS} point colours")));
                 }
-                let [l, ch, h] = encoded_to_oklch(probe(s, c, x, y, after_mixer_neutral)?);
+                let preview = match p.get("space").and_then(Value::as_str).unwrap_or("image") {
+                    "image" => false,
+                    "uncroppedPreview" => true,
+                    _ => return Err(bad(c, "space must be image or uncroppedPreview")),
+                };
+                let [l, ch, h] = encoded_to_oklch(probe_in_space(s, c, x, y, preview, after_mixer_neutral)?);
                 let sample = PointColor { lum: l as f64, chroma: ch as f64, hue: (h as f64).to_degrees().rem_euclid(360.0), ..Default::default() };
                 let mut d = (*s.develop_of(id).unwrap_or_default()).clone();
                 d.point_colors.push(sample);

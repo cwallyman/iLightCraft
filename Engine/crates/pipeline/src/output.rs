@@ -1,4 +1,4 @@
-// Modified for Unveil on 2026-10-19: backport bounded HDR rendering from the local LightCraft reference.
+// Modified for iLightCraft on 2026-10-19: backport bounded HDR rendering from the local LightCraft reference.
 //! Output encoding: the colour space (primaries + transfer curve) and sample format a render is
 //! delivered in. Previews are always 8-bit sRGB; exports may ask for a wide-gamut space and/or
 //! 16-bit or linear float samples.

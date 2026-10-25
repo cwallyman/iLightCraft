@@ -33,7 +33,7 @@ Last updated: 2026-10-19. Tasks U1.3/U1.4 (user list items 4 and 5).
 Native Rust device/simulator/Mac Catalyst engine builds and iPhone/simulator app builds passed.
 The iPhone simulator rendered the original generated chart with HDR Editing and +1 EV; its
 capture was visually inspected. The screenshot is local-only at
-`LocalVerification/unveil-native-hdr-screen.png` in the parent workspace. The device build also
+`LocalVerification/ilightcraft-native-hdr-screen.png` in the parent workspace. The device build also
 includes the subsequent native-HDR reset-default and memory-guard refinements.
 Automated tests and benchmarks are saved for the user and were not run for this change.
 
@@ -49,8 +49,8 @@ round trips remain hands-on checks with disposable media and user-granted Photos
 From `NativeReference/Engine`:
 
 ```sh
-cargo test --locked -p unveil-ffi --test hdr_output
-cargo test --locked -p unveil-ffi --features test-hooks
+cargo test --locked -p ilightcraft-ffi --test hdr_output
+cargo test --locked -p ilightcraft-ffi --features test-hooks
 ```
 
 Swift tests: `PhotosAdjustmentTests`, existing importer, import-cleanup, undo and canvas tests,
@@ -66,7 +66,7 @@ and conflict/reload behavior should be checked in addition to compilation.
 - [ ] Edit/crop, choose More > Save to Apple Photos; confirm the same item changes, not a duplicate.
 - [ ] Reopen/relaunch; verify sliders/crop and image appearance restore. Revert in Photos to confirm
   the original remains available. Verify the canonical original resource hash if running the audit.
-- [ ] Change the disposable item in Photos while Unveil holds an edit; confirm save is blocked.
+- [ ] Change the disposable item in Photos while iLightCraft holds an edit; confirm save is blocked.
 - [ ] Reload Latest Photos Version; verify the prior local version remains selectable for export.
 - [ ] Check denial/limited access, iCloud download errors, offline state and low storage.
 
@@ -77,10 +77,10 @@ No personal-library edit or permission grant is performed by the agent for verif
 The existing app container was backed up to the parent workspace's
 `LocalVerification/device-backups/iphone-before-raw-hdr-photos-20261019`.
 The final development-signed update was installed successfully on the paired iPhone 17 Pro
-as `com.cwallyman.UnveilNative`, preserving app data. Launch was confirmed by devicectl.
-Logs: `/tmp/unveil-docked-device.log`, `/tmp/unveil-sim-build.log`,
-`/tmp/unveil-raw-hdr-framework-final.log`, `/tmp/unveil-raw-hdr-iphone-install.log`,
-`/tmp/unveil-raw-hdr-iphone-launch.log`. No automated suite or benchmark was run.
+as `com.cwallyman.iLightCraft`, preserving app data. Launch was confirmed by devicectl.
+Logs: `/tmp/ilightcraft-docked-device.log`, `/tmp/ilightcraft-sim-build.log`,
+`/tmp/ilightcraft-raw-hdr-framework-final.log`, `/tmp/ilightcraft-raw-hdr-iphone-install.log`,
+`/tmp/ilightcraft-raw-hdr-iphone-launch.log`. No automated suite or benchmark was run.
 
 ## ARW routing correction
 
@@ -98,7 +98,7 @@ No automated suite or affected-camera RAW decode was run by the agent.
 
 ## Photos save crash correction
 
-The iPhone crash report `Unveil-2026-10-19-214007.ips` confirms SIGTRAP on
+The iPhone crash report `iLightCraft-2026-10-19-214007.ips` confirms SIGTRAP on
 `com.apple.PHPhotoLibrary.transaction.high`. The stack enters
 `_dispatch_assert_queue_fail`, Swift executor checking, then closure 2 in
 `ApplePhotosEditor.save`. The Photos transaction callback inherited main-actor
@@ -109,7 +109,7 @@ to prevent inherited main-actor isolation. UI state remains on the main actor.
 No personal photo is automatically modified during agent verification.
 
 Saved regression: `PhotosAdjustmentTests.saveSyntheticPhotoOnPhotosTransactionQueue`,
-disabled unless `UNVEIL_RUN_PHOTOS_SAVE_REGRESSION=1` is set in the test scheme.
+disabled unless `ILIGHTCRAFT_RUN_PHOTOS_SAVE_REGRESSION=1` is set in the test scheme.
 It requires Photos access granted by the user to the test host, creates a 32-pixel
 generated JPEG, saves an adjustment through the production path, verifies the same
 asset and new revision, then deletes only its own generated asset. It was not run.

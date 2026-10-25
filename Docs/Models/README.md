@@ -1,6 +1,6 @@
 # Optional on-device models
 
-Last updated: 2026-10-20. Models are not bundled, committed or downloaded automatically.
+Last updated: 2026-10-20. Depth/enhancement models are optional downloads. Sky/skin models are bundled from pinned, gitignored build inputs; weights are never committed.
 The user chose on-device processing first. Hosted sharing remains separately configured future work.
 
 ## Sources and licenses
@@ -63,3 +63,29 @@ They are conservative estimates, not guarantees against every OS memory limit.
 The private local analysis index is bounded to 1,000 imported catalog photos / 32 MB, saved atomically after
 each photo, and removable from Library Analysis. It contains labels/OCR/face counts and optional text vectors.
 It does not scan the user's entire Photos library, perform face identity matching or run a joint image-text model.
+
+
+## Bundled sky and individual skin masks — 2026-10-20
+
+- Sky: [Twist Labs SkySegSmall](https://huggingface.co/twistlabs/fotometis-sky/tree/97dfe50bf3fe4dc02badea287512afaf4ce857c2),
+  based on xiongzhu666's MIT sky model. Pinned package files, exact sizes and SHA-256 values
+  live in `scripts/build-mask-models.py`. Input is 384×384 RGB; output is a float16 sky
+  probability image. No image-relative normalization is applied. Fine buildings/clouds may be misclassified.
+- Skin: Google's Apache-2.0 MediaPipe Selfie Multiclass weights, from
+  [senty-au's ONNX conversion](https://huggingface.co/senty-au/selfie_multiclass_256x256-ONNX/tree/6db8421a7150ac20558f2c24675078eb3a1a04d0).
+  Source ONNX: 16,454,560 bytes, SHA-256
+  `35ec1ecd9ee7f85073c99c00020b7f6751b69506eeacf683bc8665f6117f85b0`.
+  Build script converts to Core ML FP32 with pinned conversion dependencies. Input is
+  NHWC `[1,256,256,3]` RGB in `[0,1]`; output is six **logits**, followed by stable softmax
+  in the app. Classes 2 (body skin) and 3 (face skin) are summed.
+- Apple's Vision person-instance request creates independent silhouettes. People are numbered
+  left to right. Skin inference crops each silhouette with context and intersects the mapped
+  skin probabilities with that person's coverage. Limit: 20 detected people per request.
+- Masks are saved as 256×256 normalized coverage through the existing engine command, included
+  in undo/export/Photos settings. Skin quality for distant/occluded people remains unqualified;
+  this portrait model is not guaranteed to segment every person in a crowd.
+- Packages are compiled into each app; there is no runtime download or upload for sky/skin.
+  Licenses/notices ship in the app. See `assets/ATTRIBUTION.md`.
+- Conversion sanity check on one deterministic synthetic tensor: FP32 Core ML vs source ONNX
+  maximum logit error 0.00009594, mean 0.00000459, identical argmax labels. This is a conversion
+  check, not real-image mask-quality validation. The initial FP16 conversion was replaced by FP32.

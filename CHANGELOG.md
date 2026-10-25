@@ -1,8 +1,93 @@
 # iLightCraft change history
 
-Changes through 2026-10-20, relative to native Unveil `79be4e4`. First published implementation:
+Changes through 2026-10-20, relative to the upstream native baseline `79be4e4`. First published implementation:
 [`2f71fe9`](https://github.com/cwallyman/iLightCraft/commit/2f71fe9ad954352cdf0eec2ab64f765f56c0f3bc).
 Implementation, delivery and acceptance are recorded separately.
+
+## iLightCraft identity and release preparation (2026-10-21)
+
+- Renamed native source/test folders, Xcode project/targets/schemes, executable, Swift bridge module, Rust FFI package, internal commands, launch flags and scripts to iLightCraft.
+- New Photos envelopes use the iLightCraft identifier; a read-only compatibility adapter retains access to old saved edits and migrates the library-source preference. Upstream copyright/license notices and baseline evidence remain intact.
+- Release uses the current developer team and a clean app identity. Local Debug identity is isolated in an ignored configuration for existing test-container updates.
+- Added a privacy manifest and bundled license/credit viewer; corrected Photos permission wording for save-on-Back. Removed the unsupported increased-memory entitlement; Mac Release enables hardened runtime. Disk-space launch diagnostics are compiled out of Release.
+- See [App Store readiness](Docs/APP-STORE-READINESS.md) for archive evidence and remaining submission requirements.
+
+## Remaining native tools and portable recovery (2026-10-20)
+
+- Added Point Color, grading, optics/perspective, manual mask shapes/ranges/brush and mask tone/detail controls.
+- Added repair source/mode/refinement, presets/selective batch edits, named versions/history and reference comparison.
+- Added checksum-verified portable backup and separate-library staged restore in Settings. CloudKit deferred by user; queue items 8 and 9 skipped.
+- Build/install evidence and implementation limits: [remaining features](Docs/Verification/remaining-features.md). Tests are saved, unrun by request; physical acceptance remains.
+
+## Color adjustments inside masks (2026-10-20)
+
+- Added per-mask Temperature, Tint, Hue, Saturation, Colorize hue/Amount and quick color swatches alongside Exposure.
+- Skin masks can be corrected independently; separate Subject/Background masks can use red/blue or other colors.
+- Applies through engine mask settings, hides the coverage highlight to reveal the result and retains undo/persistence/export behavior.
+- See [behavior, limits and saved checks](Docs/Verification/mask-color.md).
+
+## Smaller Tone Curves graph (2026-10-20)
+
+- Reduced the graph maximum to 260 points and added side margins, making the panel easier to scroll without dragging curve points.
+- See [Tone Curves verification](Docs/Verification/tone-curves.md).
+
+## Main-photo masks, removal and crop (2026-10-20)
+
+- Moved mask coverage/object picks, removal strokes and crop/rotate interaction onto the main photo; panels now contain their controls without duplicate photos.
+- Shared observable sessions keep tool controls and main-photo interaction aligned; added pinch/two-finger pan with normalized coordinates and undo preview refresh.
+- Reordered the core tools to Edit, Crop & Rotate, Remove, Masks, then standalone color and extra tools.
+- Spatial modes reuse the existing bounded SDR uncropped preview; full-resolution/HDR main canvas resumes after closing the tool. See [behavior, limits and delivery](Docs/Verification/main-photo-tools.md).
+
+## Adaptive controls and placement setting (2026-10-20)
+
+- iPhone tools now stay in a scrollable lower-half dock in portrait and a side dock in landscape, leaving the main photo available for pinch/pan inspection.
+- Added More > Settings > Controls side (Left/Right), saved per device and applied to all side panels on iPhone/iPad/Mac.
+- Retained tool/canvas identity across layout changes and existing busy-operation protection.
+- See [behavior and delivery evidence](Docs/Verification/adaptive-controls.md). Apps are installed without launching, per request.
+
+## More menu correction (2026-10-20)
+
+- Kept More as a native menu outside a bounded scrolling tool strip on Mac/iPad, avoiding empty system overflow popovers for custom hover buttons.
+- Preserved tool hover/selection and iPhone More entries; added always-available Info and Fit Photo menu actions.
+- See [toolbar evidence and manual checks](Docs/Verification/editor-toolbar.md).
+
+## Active toolbar tool highlight (2026-10-20)
+
+- Added explicit selected icon color, rounded background/outline and accessibility state for the open editor tool.
+- Highlight follows panel selection and clears on closing or switching tools; HDR and Show Original show their enabled states.
+- Mac/iOS builds passed and Mac appearance inspected; see [verification](Docs/Verification/right-tool-dock.md).
+
+## HSL Mixer and Profiles: U2.2 partial (2026-10-20)
+
+- Added eight HSL color bands with Hue, Saturation and Luminance, live draft rendering, band/all resets and undo/redo.
+- Added 22 original built-in profiles grouped by style, Amount (0–200%), search, favorites, recent choices and reset to Color. Amount applies on release.
+- Included the complete profile object in native undo snapshots; HSL uses the existing adjustment queue and saved settings.
+- Mac/iPad use separate toolbar icons and the right dock; iPhone uses More and sheets.
+- Mac Catalyst and universal iOS builds passed; Mac dock visually inspected. See [delivery and saved acceptance checks](Docs/Verification/hsl-profiles.md).
+
+## Right-side editor tool panels (2026-10-20)
+
+- Moved Tone Curves, Masks, Remove, Library Analysis, Merge, Lens Blur, AI Enhancement,
+  Crop & Rotate, Export and Info into the right-hand dock on Mac/iPad.
+- Kept one tool beside the existing canvas, local panel actions, active-tool tint, and operation
+  guards for switching/Back. Edit and other panels replace each other; iPhone keeps sheets.
+- Removed the duplicate Tone Curves preview in the dock. Interactive crop/mask/remove previews
+  remain inside their panels. Corrected mask choice wrapping for narrow panel widths.
+- See [layout and verification](Docs/Verification/right-tool-dock.md).
+
+## Tone Curves: U2.1 (2026-10-20)
+
+- Added direct Mac/iPad toolbar access and an iPhone More entry, with a native curve sheet.
+- Added RGB/red/green/blue channels, normalized point addition/dragging/deletion, precise Input/Output
+  sliders, reset-current/reset-all-point-channels and in-sheet Undo/Redo. Each released drag is one edit.
+- Draws the same Fritsch–Carlson interpolation as the Rust renderer and refreshes a cropped, color-managed
+  SDR photo preview through the shared export pipeline after each committed edit.
+- Included the complete curve object in native undo snapshots. Existing catalog/Photos settings and
+  final export paths retain curves; original photo files are unchanged.
+- Mac and universal iOS builds passed; installed on Mac and iPad. Corrected square graph sizing after
+  the Mac visual review. Saved tests remain unrun by user preference; persistence/output/Photos
+  round trips and physical curve interactions remain acceptance checks.
+- See [Tone Curves verification](Docs/Verification/tone-curves.md).
 
 ## Priority 4 on-device tools: U4.1–U4.6 (partial, 2026-10-20)
 
@@ -118,7 +203,7 @@ launched. Actual save/reopen confirmation is pending; an opt-in synthetic-asset 
 
 ## GitHub and documentation
 
-- Published the native app as cwallyman/iLightCraft, preserving the Unveil fork history/upstream remote.
+- Published the native app as cwallyman/iLightCraft, preserving the iLightCraft fork history/upstream remote.
 - Set ipad-lightcraft as default branch and documented the full prioritized feature queue.
 - Added saved regression tests, milestone evidence, asset provenance and vendored-engine notices.
 - Excluded generated frameworks/builds, local backups, provisioning material and personal media.
@@ -137,7 +222,7 @@ round trips/conflicts and current iPad/Mac runtime still need acceptance.
 
 ## Inherited foundation
 
-Unveil already supplied the native shell, Metal canvas, Rust bridge, basic adjustments, import,
+iLightCraft already supplied the native shell, Metal canvas, Rust bridge, basic adjustments, import,
 undo/redo, before/after, Files/Photos home and diagnostics. These were not newly created here.
 The separate web wrapper and its private CloudKit sync remain outside this native app.
 See [verification](Docs/Verification/), [engine changes](Engine/CHANGES.md) and [next steps](Docs/NEXT-STEPS.md).

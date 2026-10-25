@@ -1,7 +1,7 @@
 # Home and editor redesign
 
 Date: 2026-10-11. Approved in conversation (approach C). Replaces the SwiftUI inspector shell and the alpha
-panels with a Pixelmator-like home and editor, sized to the features Unveil has today.
+panels with a Pixelmator-like home and editor, sized to the features iLightCraft has today.
 
 ## Constraints
 
@@ -17,7 +17,7 @@ panels with a Pixelmator-like home and editor, sized to the features Unveil has 
 
 ## Home
 
-- Background: black with a soft purple radial/mesh gradient; "Unveil" title centered in the upper half;
+- Background: black with a soft purple radial/mesh gradient; "iLightCraft" title centered in the upper half;
   5 floating photo cards on different depths (scale, blur, shadow, slight `rotation3DEffect`), drifting
   slowly. The cards are the neutral renders of the 5 CC0 RAWs from raw.pixls.us (`Baseline/golden/mac/*__neutral.png`),
   resized to 1024 px JPEG in an asset catalog. Motion is decorative: hidden from VoiceOver.

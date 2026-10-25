@@ -1,11 +1,11 @@
-//! Writes the Mac reference renders: every RAW in UNVEIL_RAW_DIR times every preset, as RGB8 PNGs in
+//! Writes the Mac reference renders: every RAW in ILIGHTCRAFT_RAW_DIR times every preset, as RGB8 PNGs in
 //! Baseline/golden/mac. The iPad exports the same set and `compare_golden` measures the distance.
 mod common;
 use common::*;
+use ilightcraft_ffi::*;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
-use unveil_ffi::*;
 
 /// PRESETS is the table in Docs/Baseline/raw-set.md, copied by hand into the Swift exporter.
 const PRESETS: [(&str, &[(&str, f64)]); 5] = [
@@ -110,15 +110,15 @@ fn write_png(path: &Path, w: u32, h: u32, rgb: &[u8]) {
     enc.write_header().unwrap().write_image_data(rgb).unwrap();
 }
 
-/// golden_mac_renders writes the Mac reference set: each RAW in UNVEIL_RAW_DIR through each preset.
+/// golden_mac_renders writes the Mac reference set: each RAW in ILIGHTCRAFT_RAW_DIR through each preset.
 ///
 /// Without the variable it prints a skip note and passes. A RAW that fails to import or render is
 /// reported by name and the test goes on, then fails at the end with the full list: that is a
 /// baseline fact, not something to patch around.
 #[test]
 fn golden_mac_renders() {
-    let Some(raw_dir) = std::env::var_os("UNVEIL_RAW_DIR") else {
-        println!("skipped: UNVEIL_RAW_DIR not set");
+    let Some(raw_dir) = std::env::var_os("ILIGHTCRAFT_RAW_DIR") else {
+        println!("skipped: ILIGHTCRAFT_RAW_DIR not set");
         return;
     };
     let out_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../Baseline/golden/mac");

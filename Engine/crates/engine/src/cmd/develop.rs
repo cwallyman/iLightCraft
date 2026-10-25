@@ -1,3 +1,4 @@
+// Modified by iLightCraft (2026-10-20): bounded atomic restore for native other-photo batch undo.
 //! Develop commands. All operate on the active photo unless `ids` are given (sync).
 
 use lightcraft_catalog::{Op, PhotoId, Version};
@@ -402,6 +403,42 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(())
             })
         }),
+        cmd!(
+            "develop.restoreBatch",
+            "Restore Batch Settings",
+            [],
+            None,
+            "{rows: [{id, settingsJSON}]} — restores up to 20 imported photos atomically",
+            has_active,
+            |s, p| {
+                let rows = p
+                    .get("rows")
+                    .and_then(Value::as_array)
+                    .filter(|r| !r.is_empty() && r.len() <= 20)
+                    .ok_or_else(|| bad("develop.restoreBatch", "Choose 1–20 photos"))?;
+                let mut total = 0usize;
+                let mut seen = std::collections::HashSet::new();
+                let mut prepared = Vec::new();
+                for row in rows {
+                    let id = PhotoId(row.get("id").and_then(Value::as_u64).ok_or_else(|| bad("develop.restoreBatch", "Missing photo ID"))?);
+                    if !seen.insert(id) || s.catalog.photo(id).is_none() {
+                        return Err(bad("develop.restoreBatch", "Invalid or duplicate photo"));
+                    }
+                    let text = row.get("settingsJSON").and_then(Value::as_str).ok_or_else(|| bad("develop.restoreBatch", "Missing settings"))?;
+                    total = total.saturating_add(text.len());
+                    if total > 32 * 1024 * 1024 {
+                        return Err(bad("develop.restoreBatch", "Batch settings exceed 32 MiB"));
+                    }
+                    let value: Value = serde_json::from_str(text).map_err(|e| bad("develop.restoreBatch", e.to_string()))?;
+                    let settings = DevelopSettings::from_json(&value).map_err(|e| bad("develop.restoreBatch", e.to_string()))?;
+                    prepared.push((id, settings));
+                }
+                let ops: Vec<_> = prepared.into_iter().filter_map(|(id, d)| s.develop_op(id, d, "Restore Batch Settings")).collect();
+                let changed = ops.len();
+                s.commit("Restore Batch Settings", Op::Batch { ops })?;
+                Ok(json!({"changed":changed}))
+            }
+        ),
         // ---- crop & rotate
         cmd!("crop.set", "Set Crop", [], None, "{rect?: [x0,y0,x1,y1] normalized in the straightened frame, angle?: degrees}", has_active, |s, p| {
             let id = active(s, "crop.set")?;

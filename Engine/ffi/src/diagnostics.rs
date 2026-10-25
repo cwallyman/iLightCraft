@@ -29,7 +29,7 @@ fn thread_cpu_ns() -> u64 {
 }
 
 /// ENABLED is the one switch of this module. It is off in every normal launch and set only by the
-/// app's measurement options (`unveil.diagnostics`), so a product run reads no clock and keeps no log.
+/// app's measurement options (`ilightcraft.diagnostics`), so a product run reads no clock and keeps no log.
 static ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// LOAD_LOG_CAP bounds the load log: the newest events win, so a forgotten switch never grows memory.
@@ -129,7 +129,7 @@ fn log_load(kind: &'static str, path: &str, max_edge: usize, size: (usize, usize
 }
 
 /// instrument_loads wraps the session's file hooks so every decode, probe and embedded preview read is
-/// logged (`unveil.loads`). The wrappers call the original hook and return its result untouched.
+/// logged (`ilightcraft.loads`). The wrappers call the original hook and return its result untouched.
 pub(crate) fn instrument_loads(session: &mut Session) {
     if let Some(inner) = session.media.file_loader.take() {
         session.media.file_loader = Some(Arc::new(move |path: &str, max_edge: usize| {

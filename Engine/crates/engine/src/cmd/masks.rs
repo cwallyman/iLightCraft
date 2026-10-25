@@ -1,3 +1,4 @@
+// Modified by iLightCraft (2026-10-20): manual range sampling from uncropped pre-perspective preview.
 //! Masking and Remove (spot) commands on the active photo.
 
 use lightcraft_develop::{BrushStroke, LocalAdjustments, Mask, MaskComponent, MaskOp, MaskShape, RedEye, Spot, SpotMode};
@@ -297,7 +298,11 @@ pub fn specs() -> Vec<CommandSpec> {
                 let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
                 let src = s.source_now(id, crate::media::SourceLevel::Thumb).map_err(|e| bad(c, e))?;
                 let info = s.source_info(id);
-                let d = s.develop_of(id).unwrap_or_default();
+                let mut d = (*s.develop_of(id).unwrap_or_default()).clone();
+                if p.get("space").and_then(Value::as_str) == Some("uncroppedPreview") {
+                    d.crop = Default::default();
+                    d.geometry = Default::default();
+                }
                 let req = lightcraft_pipeline::RenderRequest::fit(384, 384);
                 let lab = lightcraft_pipeline::color_range_sample(&src, &info, &d, &req, lightcraft_geom::Point::new(x, y))
                     .ok_or_else(|| bad(c, "the point is outside the photo"))?;

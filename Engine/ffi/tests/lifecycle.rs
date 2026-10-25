@@ -1,9 +1,9 @@
 mod common;
 use common::*;
+use ilightcraft_ffi::*;
 use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::Duration;
-use unveil_ffi::*;
 
 /// The memory budget is process-global and every TestSession sets it, so these tests take turns.
 static SERIAL: Mutex<()> = Mutex::new(());

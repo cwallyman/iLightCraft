@@ -1,26 +1,26 @@
 # CODE_STYLE.md
 
-Code style conventions for **Unveil**. Goal: **protocol-oriented, explicit, type-safe** code that reads well, with a clear seam between the *style* rules (which never bend) and the *performance* rules (which let us reach for the unsafe, low-level tools where the pixel path demands it).
+Code style conventions for **iLightCraft**. Goal: **protocol-oriented, explicit, type-safe** code that reads well, with a clear seam between the *style* rules (which never bend) and the *performance* rules (which let us reach for the unsafe, low-level tools where the pixel path demands it).
 
-Unveil is an **iPad RAW editor**: **SwiftUI** for the editor shell, navigation, panels and presentations, **UIKit/Metal** for the canvas, input and system adapters, and a **Rust engine** in `Engine/` (the vendored LightCraft workspace plus the `Engine/ffi` bridge) that does the decoding and the pixel work. The deployment floor is **iPadOS 26**. The engine bridge is designed as if it were a library: clean contracts, no leaking internals.
+iLightCraft is an **iPad RAW editor**: **SwiftUI** for the editor shell, navigation, panels and presentations, **UIKit/Metal** for the canvas, input and system adapters, and a **Rust engine** in `Engine/` (the vendored LightCraft workspace plus the `Engine/ffi` bridge) that does the decoding and the pixel work. The deployment floor is **iPadOS 26**. The engine bridge is designed as if it were a library: clean contracts, no leaking internals.
 
 ## Principles
 
 1. **Protocol-oriented first, and harder than usual.** Depend on abstractions (protocols), never on concrete implementations. Every service / resolver / monitor / engine / renderer has its protocol so callers know only the contract and the app stays testable and mockable. This is the backbone of the whole project: the editor depends on an engine protocol, not on the FFI bridge directly.
 2. **Immutable value models, by default.** Anything that describes state (adjustment values, image metadata, a render request) is a value `struct` with `let` properties. Mutable, framework-coupled state belongs to the UI layer (`@Observable`), not to the model.
-3. **Performance is a first-class constraint.** Unveil must not devour RAM, CPU or battery, and must never hang the UI. In the hot pixel / render path we deliberately use `@frozen`, compact and aligned structs, contiguous storage, `InlineArray` and `Unsafe*` pointers for cache-friendly, allocation-free access. This is the **one** place where we trade safety for speed, explicitly, behind a clean API, never leaking the unsafety to callers. See **Performance-critical code**.
+3. **Performance is a first-class constraint.** iLightCraft must not devour RAM, CPU or battery, and must never hang the UI. In the hot pixel / render path we deliberately use `@frozen`, compact and aligned structs, contiguous storage, `InlineArray` and `Unsafe*` pointers for cache-friendly, allocation-free access. This is the **one** place where we trade safety for speed, explicitly, behind a clean API, never leaking the unsafety to callers. See **Performance-critical code**.
 4. **No unsafe unwraps in ordinary code.** `!` (force unwrap) and `try!` are forbidden outside the audited performance path. Use `guard let` / `if let`, `??`, or explicit error handling.
 5. **Explicit over clever.** Readability comes before one-line tricks, even in the fast path: comment the trick.
 6. **Resources are part of the contract.** A subsystem that wakes the CPU on a timer, blocks the main thread or re-renders without a real input change is a *bug*, not a style nit. The type system and the protocols are shaped to make the cheap path the default one. See **Performance-critical code**.
 
 ## File header
 
-Every file opens with the standard Xcode banner: the file name and the product name. The product is `Unveil` for the app target and `UnveilTests` for the test target. The `Created by` line is optional: keep it if it is there, drop it if it is not; don't churn it.
+Every file opens with the standard Xcode banner: the file name and the product name. The product is `iLightCraft` for the app target and `iLightCraftTests` for the test target. The `Created by` line is optional: keep it if it is there, drop it if it is not; don't churn it.
 
 ```swift
 //
 //  CanvasLayer.swift
-//  Unveil
+//  iLightCraft
 //
 ```
 
@@ -242,10 +242,10 @@ This is the part that justifies the careful style. Treat it as a small, audited 
 Each target is laid out by layer, not by feature. Inside a layer, an area gets its own folder once it has more than a couple of files.
 
 ```text
-Unveil/
-├─ Unveil.xcodeproj
-├─ Unveil/
-│  ├─ App/           UnveilApp, AppDelegate adapter, EditorWorkspace, launch commands
+iLightCraft/
+├─ iLightCraft.xcodeproj
+├─ iLightCraft/
+│  ├─ App/           iLightCraftApp, AppDelegate adapter, EditorWorkspace, launch commands
 │  ├─ Core/          Engine/ Memory/ Lifecycle/ Import/ Diagnostics/
 │  │  ├─ Protocols/  one protocol per file
 │  │  ├─ Errors/     one Error type per file
@@ -254,10 +254,10 @@ Unveil/
 │  ├─ Views/         Editor/ Diagnostics/
 │  ├─ Components/    Adjustments/
 │  └─ Resources/
-├─ UnveilTests/
+├─ iLightCraftTests/
 ├─ Engine/           Rust workspace: crates/ (upstream engine included), assets/, ffi/ (include/, src/, tests/), UPSTREAM.md
 ├─ Frameworks/       generated XCFramework, ignored by git
-├─ Config/           UnveilEngine.xcconfig (generated link flags)
+├─ Config/           iLightCraftEngine.xcconfig (generated link flags)
 ├─ scripts/          build-xcframework.sh, test-app.sh
 ├─ Docs/             Specs/ Plans/ Baseline/
 └─ CODE_STYLE.md  CLAUDE.md  LICENSE  NOTICE  README.md
@@ -272,7 +272,7 @@ Unveil/
 
 ## Vertical rhythm
 
-The code should breathe (this vertical rhythm comes from the author's earlier ReixOS style; Unveil does not depend on it):
+The code should breathe (this vertical rhythm comes from the author's earlier ReixOS style; iLightCraft does not depend on it):
 
 - **One blank line after the opening brace of every type, extension and protocol**, none before its closing brace, and one between members. Stored properties that belong together form one aligned group without blank lines; separate groups (constants, dependencies, state) with one.
 - Inside a function, **separate logical steps with a blank line**: the guards, the work, the result. No blank line directly after a function's opening brace; a body of one step has none at all.
@@ -327,7 +327,7 @@ VStack(spacing: 8) {
 .frame(maxWidth: .infinity, maxHeight: .infinity)
 ```
 
-## Unveil additions
+## iLightCraft additions
 
 - **SwiftUI for editor UI; UIKit/Metal for native boundaries.** Keep canvas identity stable across view updates. Do not route frame buffers or display-link ticks through observation. On iPadOS 26, `InlineArray` and `Span` need no version checks.
 - **`//` comments are at most 2 lines.** If more is needed, it goes in a `///` on the symbol. `///` stays narrative, in English, antirez style.

@@ -1,12 +1,12 @@
 [package]
-name = "unveil-ffi"
+name = "ilightcraft-ffi"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
 
 [lib]
-name = "unveil_ffi"
+name = "ilightcraft_ffi"
 crate-type = ["staticlib", "rlib"]
 
 [features]
@@ -19,6 +19,7 @@ lightcraft-engine = { workspace = true }
 lightcraft-codecs = { workspace = true, features = ["heif"] }
 lightcraft-gpu = { workspace = true }
 lightcraft-develop = { workspace = true }
+lightcraft-pipeline = { workspace = true }
 lightcraft-denoise-core = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }

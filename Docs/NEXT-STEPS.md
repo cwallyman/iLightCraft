@@ -3,6 +3,8 @@
 Last updated: 2026-10-20. Development branch: `ipad-lightcraft`.
 The [full roadmap](Plans/2026-10-19-lightroom-priorities.md) defines task scope;
 the [change history](../CHANGELOG.md) records implementation so far.
+See the [prioritized missing-feature list](MISSING-FEATURES.md) for a concise implementation queue.
+App Store identity/packaging work is recorded in [App Store readiness](APP-STORE-READINESS.md); unsigned Release archives passed on 2026-10-21, while distribution signing and physical acceptance remain.
 Unchecked implemented work still needs acceptance. Build, install, visual and physical evidence differ.
 
 ## 1. Confirm installed reliability fixes first
@@ -51,8 +53,8 @@ All remaining agreed tasks are listed here; details and dependencies are in the 
 
 | Priority | Task | Native work and acceptance target |
 |---|---|---|
-| P2 | U2.1 Tone curves | RGB/channel point curves, reset, undo, persistence and matching exports |
-| P2 | U2.2 Advanced color | HSL, Point Color, grading wheels, camera/creative profiles, color-managed output |
+| P2 | U2.1 Tone curves | Implemented and installed: RGB/channel point graph, precise controls, reset and undo; hands-on persistence/export/Photos acceptance pending |
+| P2 | U2.2 Advanced color | HSL and built-in creative profiles implemented; hands-on acceptance pending. Point Color, grading wheels, camera-specific calibration and extended output checks remain |
 | P2 | U2.3 Optics/geometry | Lens matching/profiles, distortion, aberration, defringing, perspective and Upright |
 | P2 | U2.4 Manual masks | Brush/gradients, color/luminance range, combine/refine/feather and Pencil input |
 | P2 | U2.5 Healing/cloning | Spot/brush selection, source choice, restore/undo, progress and cancellation |
@@ -81,6 +83,8 @@ P4 rows are partially implemented; the table describes full task scope. Other un
 face/semantic search depends on U4.5. Hosted work needs a service design. AI requires permissive
 model licenses, setup/download policies, resource budgets and clear failure/cancellation behavior.
 
+Tone Curves and the other editor tools use a reserved side panel on Mac/iPad and iPhone landscape, with left/right selection in More > Settings. iPhone portrait uses a scrollable lower-half panel; tool entries remain in More. See [adaptive controls](Verification/adaptive-controls.md). See [dock verification](Verification/right-tool-dock.md). Tone Curves is available from the Mac/iPad toolbar and iPhone More menu. **U2.2 Advanced Color** now exposes HSL and built-in creative profiles; Point Color and color-grading wheels remain next. See [color tools evidence](Verification/hsl-profiles.md). See [Tone Curves evidence](Verification/tone-curves.md).
+
 ## 4. Saved tests for the user
 
 **Do not run suites or benchmarks automatically.** The user asked to keep them for manual use
@@ -88,21 +92,23 @@ to conserve credits. This documentation update does not resume testing.
 
 | Area | Saved checks |
 |---|---|
-| HEIC | `Engine/ffi/tests/heic.rs`, `UnveilTests/HEICImportTests.swift` |
-| Export/crop | `Engine/ffi/tests/native_output.rs`, `UnveilTests/CropSettingsTests.swift`, editor undo/layout tests |
-| RAW/HDR | `Engine/ffi/tests/hdr_output.rs`, `UnveilTests/NativeImagePipelineTests.swift`, ABI/canvas tests |
-| Photos | `UnveilTests/PhotosAdjustmentTests.swift`, importer/cleanup and saved-settings checks |
-| Priority 4 | `Engine/ffi/tests/computational.rs`, `UnveilTests/ComputationalToolsTests.swift`; real model/merge checks in verification notes |
+| HEIC | `Engine/ffi/tests/heic.rs`, `iLightCraftTests/HEICImportTests.swift` |
+| Export/crop | `Engine/ffi/tests/native_output.rs`, `iLightCraftTests/CropSettingsTests.swift`, editor undo/layout tests |
+| RAW/HDR | `Engine/ffi/tests/hdr_output.rs`, `iLightCraftTests/NativeImagePipelineTests.swift`, ABI/canvas tests |
+| Photos | `iLightCraftTests/PhotosAdjustmentTests.swift`, importer/cleanup and saved-settings checks |
+| Priority 4 | `Engine/ffi/tests/computational.rs`, `iLightCraftTests/ComputationalToolsTests.swift`; real model/merge checks in verification notes |
+| Tone curves | `iLightCraftTests/ToneCurveTests.swift`; saved manual checks in `Verification/tone-curves.md` |
+| HSL / Profiles | `iLightCraftTests/NativeColorToolsTests.swift`; saved manual checks in `Verification/hsl-profiles.md` |
 | Existing behavior | Existing editor, import, engine, canvas and memory tests |
 
 When requested, run the following from `Engine`:
 
 ```sh
-cargo test --locked -p unveil-ffi --test heic
-cargo test --locked -p unveil-ffi --test native_output
-cargo test --locked -p unveil-ffi --test hdr_output
-cargo test --locked -p unveil-ffi --test computational
-cargo test --locked -p unveil-ffi --features test-hooks
+cargo test --locked -p ilightcraft-ffi --test heic
+cargo test --locked -p ilightcraft-ffi --test native_output
+cargo test --locked -p ilightcraft-ffi --test hdr_output
+cargo test --locked -p ilightcraft-ffi --test computational
+cargo test --locked -p ilightcraft-ffi --features test-hooks
 ```
 
 Before Swift integration tests, rebuild the current engine from the repository root:
@@ -112,8 +118,8 @@ scripts/build-xcframework.sh
 scripts/test-app.sh
 ```
 
-The camera RAW test requires `UNVEIL_RAW_FIXTURE` pointing to a suitable local fixture.
-The Photos queue-crash test is opt-in: set `UNVEIL_RUN_PHOTOS_SAVE_REGRESSION=1` in the test
+The camera RAW test requires `ILIGHTCRAFT_RAW_FIXTURE` pointing to a suitable local fixture.
+The Photos queue-crash test is opt-in: set `ILIGHTCRAFT_RUN_PHOTOS_SAVE_REGRESSION=1` in the test
 scheme and grant the test host Photos read/write access yourself. It creates, edits and deletes
 its own generated asset. It must not select personal media. See verification notes for prerequisites.
 Benchmarks and measured Lightroom rendering comparisons remain pending.
@@ -138,3 +144,17 @@ No native App Store submission or automatic wrapper-library conversion has occur
 ## Revision history
 
 - 2026-10-20: Moved Priority 4 ahead by user request; linked partial implementation, local model policy and saved checks.
+
+- 2026-10-20: Added native Tone Curves implementation/delivery evidence; retained acceptance checks and advanced color as the next core addition.
+
+- 2026-10-20: Added native HSL and Profiles, build/delivery evidence and saved checks; retained remaining U2.2 scope and hands-on acceptance.
+
+- 2026-10-20: Added iPhone lower-half/landscape side tool docks and More > Settings placement on all devices; see [adaptive controls](Verification/adaptive-controls.md). Physical acceptance remains pending; no apps launched by request.
+
+- 2026-10-20: Moved Masks/Remove/Crop interaction into the main photo and reordered core tools; see [main-photo evidence and preview limits](Verification/main-photo-tools.md). Physical checks remain pending; no launches by request.
+
+- 2026-10-20: Added independent per-mask color/skin-tone controls and quick colorize swatches; see [mask-color verification](Verification/mask-color.md). Physical/output acceptance remains pending.
+
+## Remaining-feature update — 2026-10-20
+
+Native first passes for missing-feature queue 1–7 and portable backup/restore are implemented. Items 8 and 9 remain skipped. CloudKit is deferred by user. See [missing-feature status](MISSING-FEATURES.md) and its verification record for limits and acceptance work.

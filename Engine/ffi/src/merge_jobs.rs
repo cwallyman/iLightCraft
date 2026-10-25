@@ -51,13 +51,13 @@ impl MergeJobs {
         command: &str,
         params: &Value,
     ) -> Result<Value, Failure> {
-        if command == "unveil.mergeCancel" {
+        if command == "ilightcraft.mergeCancel" {
             if let Some(run) = &self.current {
                 run.cancel.store(true, Ordering::Release);
             }
             return Ok(json!({"cancelling": true}));
         }
-        if command == "unveil.mergeStatus" {
+        if command == "ilightcraft.mergeStatus" {
             return self.poll(session);
         }
         if self

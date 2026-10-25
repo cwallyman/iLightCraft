@@ -3,13 +3,13 @@
 Last updated: 2026-10-20. User scope: items 18–23 (U4.1–U4.6); on-device processing first.
 Hosted sharing is item 24 / U5.1 and is outside this update. No Priority 4 task is marked complete.
 
-Open a still image, then **More > On-device Tools**. Choose a tool from the menu at the top.
+Open a still image, then use the separate tool icons on Mac/iPad or the named entries in More on iPhone. Each opens its own section; the in-sheet selector remains available.
 
 ## Implemented and remaining scope
 
 | Item | Implemented first pass | Still required |
 |---|---|---|
-| 18 U4.1 Semantic masks | Apple Vision subject/background/people, tap-selected foreground instance; normalized saved coverage; exposure; add/subtract/intersect, invert, delete, edge refinement; native undo/redo | Sky/landscape/body-part/depth masks, general object prompting, durable recomputation/status, adaptive profiles/presets; real selection/output acceptance |
+| 18 U4.1 Semantic masks | Apple Vision subject/background/people, separate person instances, bundled sky and per-person skin masks, tap-selected foreground instance; normalized saved coverage; exposure, temperature/tint/hue/saturation and colorize; add/subtract/intersect, invert, delete, edge refinement; native undo/redo | Landscape/additional body-part/depth masks, general object prompting, durable recomputation/status, adaptive profiles/presets; real selection/output acceptance |
 | 19 U4.2 AI enhancement | Optional pinned BSD Core ML RGB denoise and 2× Super Resolution; bounded padded tiles; progress/cancel; separate SDR PNG | Sensor-domain AI denoise, Raw Details, input coverage, actual inference/quality/seam/color acceptance |
 | 20 U4.3 Lens Blur | Optional pinned Apache local depth model; relative focus/range and blur strength; separate float TIFF copy | Editable depth/blur layer, bokeh shapes, depth preview/paint refinement; real model depth/output/HDR acceptance |
 | 21 U4.4 Advanced removal | Native normalized brush stroke, content-aware automatic source-patch healing, persisted engine spot settings and undo | Generative fill, reflection removal, automatic distraction/background-person detection; real patch-quality acceptance |
@@ -50,12 +50,12 @@ Photos round trips, rendering quality, thermal/memory behavior or Lightroom pari
 
 New Rust coverage: `Engine/ffi/tests/computational.rs` (mask persistence/restoration, invalid input,
 mask combinations, merge guards and untrusted archive rejection). New Swift coverage:
-`UnveilTests/ComputationalToolsTests.swift` (coverage orientation/inversion, index search/serialization,
+`iLightCraftTests/ComputationalToolsTests.swift` (coverage orientation/inversion, index search/serialization,
 invalid vector handling and model pins). Rebuild the framework before running native integration tests.
 
 ```sh
 cd Engine
-cargo test --locked -p unveil-ffi --test computational
+cargo test --locked -p ilightcraft-ffi --test computational
 cd ..
 scripts/test-app.sh
 ```
@@ -77,3 +77,5 @@ Device acceptance on disposable media:
 ## Revision history
 
 - 2026-10-20: First native Priority 4 implementation, model policy, saved checks and bounded evidence.
+
+- 2026-10-20: Added native per-mask color controls; see [color adjustment evidence](mask-color.md). Selection/render/output acceptance remains pending.

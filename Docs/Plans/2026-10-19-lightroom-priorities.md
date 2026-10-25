@@ -32,8 +32,8 @@ Start with [the current next steps](../NEXT-STEPS.md); implementation history is
 
 ## Priority 2: core editing tools
 
-6. [ ] **U2.1 Tone curves.** RGB and individual-channel curves with points, reset and undo.
-7. [ ] **U2.2 Advanced color.** HSL mixer, Point Color, color-grading wheels and camera/creative profiles.
+6. [ ] **U2.1 Tone curves (implemented and installed; acceptance pending).** RGB and individual-channel curves with points, reset and undo. Native graph, point selection/deletion, Input/Output sliders, per-channel/all-channel resets and curve-inclusive undo snapshots are available. See [verification](../Verification/tone-curves.md).
+7. [ ] **U2.2 Advanced color (partial).** Native eight-band HSL mixer and built-in creative profiles with Amount/favorites/search are implemented. Point Color, color-grading wheels and camera-specific calibration remain. Hands-on acceptance is pending; see [verification](../Verification/hsl-profiles.md).
    Include profile selection and verify color-managed output.
 8. [ ] **U2.3 Optics and geometry.** Lens-profile selection/automatic matching, distortion correction,
    chromatic-aberration removal, defringing, perspective controls and Upright.
@@ -115,3 +115,11 @@ RAW/HDR/Photos evidence and user checks are in `../Verification/raw-hdr-photos.m
 ## Revision history
 
 - 2026-10-20: User moved Priority 4 ahead of Priority 2. Counted HEIC as item 1 so U4.1–U4.6 are items 18–23. Added partial implementation notes; no Priority 4 row is marked complete. On-device processing chosen; hosted sharing remains separate.
+
+- 2026-10-20: Added native U2.1 Tone Curves; kept the row unchecked pending hands-on persistence, output and Photos acceptance.
+
+- 2026-10-20: Exposed HSL and built-in profiles in native U2.2 panels; remaining color tools and real-output acceptance stay unchecked.
+
+## Remaining-feature update — 2026-10-20
+
+Native first passes for missing-feature queue 1–7 and portable backup/restore are implemented. Items 8 and 9 remain skipped. CloudKit is deferred by user. See [missing-feature status](../MISSING-FEATURES.md) and its verification record for limits and acceptance work.
