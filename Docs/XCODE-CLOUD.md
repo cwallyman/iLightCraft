@@ -74,7 +74,14 @@ metadata and a local download both confirm the existing size and digest. The
 downloader now requests raw file bytes, assembles bounded partial reads, retries
 rejected/interrupted downloads up to three times, and reports the received length
 and digest on failure. The source pins remain unchanged; invalid bytes are never
-accepted. Cloud verification of this download fix is pending.
+accepted. Cloud Build 3 subsequently passed model setup.
+
+Cloud Build 3 passed the model setup and reached the branding audit, where the
+worker reported `FileNotFoundError: 'rg'`. The audit now uses Git's NUL-delimited
+file list, including untracked source and excluding deleted paths, so it has no
+ripgrep installation requirement. Regression checks preserve its name checks.
+Cloud verification of this audit portability fix is pending. The initial workflow
+uses Xcode 27.1 and macOS 27.0.1; the earlier local archive checks used Xcode 27.0.
 
 The required parent-reference `cargo xtask ci` gate completed successfully before
 publishing this snapshot (fmt, Clippy, HEIF, workspace tests, parity, layers, assets

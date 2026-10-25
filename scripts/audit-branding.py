@@ -38,11 +38,20 @@ try:
         failures.append("project.pbxproj: unexpected product bundle identifier")
 except (OSError, ValueError, ET.ParseError) as error:
     failures.append(f"Could not verify shipping identity: {error}")
-files = subprocess.check_output(["rg", "--files", "--hidden", "-g", "!.git/**"], cwd=root, text=True).splitlines()
+try:
+    files = subprocess.check_output(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=root, text=True,
+    ).split("\0")
+except (OSError, subprocess.CalledProcessError) as error:
+    failures.append(f"Could not enumerate product files with Git: {error}")
+    files = []
 for name in files:
     if not name.startswith(product_roots) or name in exceptions or name.startswith("iLightCraft/Resources/Legal/"):
         continue
     path = root / name
+    if not path.is_file():
+        continue
     if pattern.search(name):
         failures.append(name + ": old product name in path")
     try:
