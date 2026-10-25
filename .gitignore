@@ -33,3 +33,7 @@ LocalVerification/
 
 # Ephemeral Xcode Cloud toolchains and model-conversion environment
 /.xcode-cloud/
+
+# Python build-tool caches
+__pycache__/
+*.py[cod]

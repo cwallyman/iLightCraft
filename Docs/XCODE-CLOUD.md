@@ -68,6 +68,14 @@ source before starting the first build. The workflow may start automatically on 
 The user confirmed selecting both iOS and Mac platforms in the initial setup;
 verify both archive actions and their outputs in the first cloud build.
 
+The initial cloud runs reached the model conversion setup but stopped when the
+skin ONNX download failed its size/SHA-256 check. The pinned revision's Git LFS
+metadata and a local download both confirm the existing size and digest. The
+downloader now requests raw file bytes, assembles bounded partial reads, retries
+rejected/interrupted downloads up to three times, and reports the received length
+and digest on failure. The source pins remain unchanged; invalid bytes are never
+accepted. Cloud verification of this download fix is pending.
+
 The required parent-reference `cargo xtask ci` gate completed successfully before
 publishing this snapshot (fmt, Clippy, HEIF, workspace tests, parity, layers, assets
 and WASM). It reported 165 dependency/data skips: 137 corpus, 20 fonts and 8 models.

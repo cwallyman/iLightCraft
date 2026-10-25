@@ -25,6 +25,7 @@ if ! brew list --versions python@3.12 >/dev/null 2>&1; then
     brew install python@3.12
 fi
 PYTHON="$(brew --prefix python@3.12)/bin/python3.12"
+"$PYTHON" -m unittest discover -s scripts/tests
 "$PYTHON" -m venv "$ROOT/.xcode-cloud/model-venv"
 "$ROOT/.xcode-cloud/model-venv/bin/python" -m pip install \
     --only-binary=:all: -r scripts/mask-model-requirements.txt

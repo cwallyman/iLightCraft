@@ -4,9 +4,11 @@ Build-time dependencies: scripts/mask-model-requirements.txt (install in a venv)
 No photograph is read or uploaded. Generated model packages are gitignored.
 """
 import hashlib
+import http.client
 from pathlib import Path
 import shutil
 import tempfile
+import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,12 +22,42 @@ FILES = [
 
 
 def fetch(url, destination, size, digest):
-    with urllib.request.urlopen(url, timeout=90) as response:
-        data = response.read(size + 1)
-    if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
-        raise ValueError('Model download failed its size/SHA-256 check')
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(data)
+    # Ask the Hub for file bytes rather than its preview response. The revision,
+    # exact length and digest remain mandatory even after a retry or redirect.
+    download_url = url + ('&' if '?' in url else '?') + 'download=true'
+    request = urllib.request.Request(download_url, headers={
+        'User-Agent': 'iLightCraft-model-build/1',
+        'Accept': 'application/octet-stream',
+        'Accept-Encoding': 'identity',
+        'Cache-Control': 'no-cache',
+    })
+    for attempt in range(1, 4):
+        try:
+            chunks = []
+            total = 0
+            with urllib.request.urlopen(request, timeout=90) as response:
+                while total <= size:
+                    chunk = response.read(min(1024 * 1024, size + 1 - total))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    total += len(chunk)
+            data = b''.join(chunks)
+            actual_digest = hashlib.sha256(data).hexdigest()
+            if len(data) != size or actual_digest != digest:
+                raise ValueError(
+                    f'expected {size} bytes / SHA-256 {digest}; '
+                    f'received {len(data)} bytes / SHA-256 {actual_digest}'
+                )
+        except (OSError, http.client.HTTPException, ValueError) as error:
+            print(f'Model download attempt {attempt}/3 rejected for {destination.name}: {error}', flush=True)
+            if attempt == 3:
+                raise ValueError(f'Could not obtain verified model file {destination.name}: {error}') from error
+            time.sleep(attempt * 2)
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+        return
 
 
 def main():
