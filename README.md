@@ -13,6 +13,20 @@ This is not a claim of Lightroom parity or App Store readiness.
 
 Point Color, grading, optics, manual masks, repair refinements, presets/batch, versions/history and portable backup/restore now have native workflows. Physical acceptance is pending; [scope and limits](Docs/MISSING-FEATURES.md).
 
+## Release status — 0.11.0
+
+Xcode Cloud builds passed for **iOS/iPadOS and Mac Catalyst** on 2026-10-25 at
+[`303faf0`](https://github.com/cwallyman/iLightCraft/commit/303faf06baa18e79f35c4e8bb4d2042f30eb7b0d).
+The three Swift compiler warnings were resolved. The Mac Cloud build retains one
+nonblocking Metal toolchain search-path warning. The workflow currently builds both
+platforms; automatic Archive/TestFlight delivery is not configured.
+
+Signed local 0.11.0 archives were uploaded successfully for both platforms. Apple
+processing, TestFlight availability, physical feature acceptance and App Review remain
+unverified. The current engine is retained for this release; engine updates are deferred
+to the next version. See [release preparation](Docs/APP-STORE-READINESS.md) and
+[Cloud configuration](Docs/XCODE-CLOUD.md).
+
 ## Documentation
 
 - [App Store preparation](Docs/APP-STORE-READINESS.md): branding exceptions, Release packaging and remaining submission work.

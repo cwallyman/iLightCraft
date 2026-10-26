@@ -1,8 +1,16 @@
 # iLightCraft change history
 
-Changes through 2026-10-20, relative to the upstream native baseline `79be4e4`. First published implementation:
+Changes through 2026-10-25, relative to the upstream native baseline `79be4e4`. First published implementation:
 [`2f71fe9`](https://github.com/cwallyman/iLightCraft/commit/2f71fe9ad954352cdf0eec2ab64f765f56c0f3bc).
 Implementation, delivery and acceptance are recorded separately.
+
+## 0.11.0 release and Xcode Cloud (2026-10-25)
+
+- Signed iOS and Mac Catalyst archives uploaded successfully to App Store Connect; processing and TestFlight availability remain unverified.
+- Configured automatic Cloud builds for iOS and Apple Silicon Mac Catalyst; both passed at `303faf0`. Archive/TestFlight post-actions remain pending.
+- Added isolated Rust/model bootstrap, verified download retries and portable branding checks.
+- Removed three Swift compiler warnings. One nonblocking Mac Cloud Metal toolchain search-path warning remains.
+- Kept the current engine for 0.11.0; upstream engine updates are deferred to the next version.
 
 ## iLightCraft identity and release preparation (2026-10-21)
 

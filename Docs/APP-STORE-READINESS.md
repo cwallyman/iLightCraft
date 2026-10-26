@@ -14,7 +14,7 @@ were not verified. No existing device app/library was replaced by these uploads.
 
 Earlier 0.14.0 upload attempts were interrupted without reporting success after the
 user selected 0.11.0; do not use those earlier archives for this release.
-See [Xcode Cloud setup](XCODE-CLOUD.md) for the new remote build preparation.
+See [Xcode Cloud setup](XCODE-CLOUD.md): both iOS and Mac Catalyst Build actions passed at `303faf0`. Automatic Archive/TestFlight delivery is not yet configured.
 
 ## Identity and branding
 
@@ -22,8 +22,8 @@ See [Xcode Cloud setup](XCODE-CLOUD.md) for the new remote build preparation.
 - Source/test folders: `iLightCraft`, `iLightCraftTests`, `iLightCraftUITests`.
 - Engine bridge: `ilightcraft-ffi`, library `ilightcraft_ffi`, module/framework `iLightCraftEngine`.
 - Internal bridge commands use `ilightcraft.*`; new Photos adjustments use `com.cwallyman.iLightCraft.develop`.
-- Release bundle ID: `com.cwallyman.iLightCraft`, explicitly approved by the user on 2026-10-22. Registration/availability in App Store Connect still needs verification before upload.
-- Team: `D58RZM4K8N`, verified against the current local development profile. App Store distribution profiles/certificates were not verified or requested from Apple.
+- Release bundle ID: `com.cwallyman.iLightCraft`, explicitly approved by the user on 2026-10-22. The App Store Connect record was used for the successful 0.11.0 uploads.
+- Team: `D58RZM4K8N`, verified against the current local development profile. Signed local distribution archives and uploads subsequently succeeded.
 - User confirmed on 2026-10-22 that existing test installs and libraries must be preserved. Old test installs retain their identity via ignored `Config/DevelopmentIdentity.xcconfig`, used only by the Debug helper. Changing an app identity creates a separate sandbox; a new Store install will need a user-driven portable backup/recovery transfer from the test app. Do not uninstall the existing test app before preserving its library.
 
 The product code/config/scripts audit allows the original name only in read-only `LegacyEditCompatibility.swift` and bundled legal notices. The adapter accepts old Photos adjustment identifiers/envelopes and migrates the preferred-library setting; new writes use iLightCraft. Upstream copyright/modification notices, provenance URLs, git history and historical baseline documents are preserved. Generated old build directories are not shipping source and have not been relabeled as new evidence.
@@ -56,11 +56,11 @@ scripts/archive-apple-local.sh ios
 scripts/archive-apple-local.sh mac
 ```
 
-These scripts deliberately do not use local Debug identity overrides or request automatic provisioning changes. Archive output is `LocalVerification/Archives/` inside this checkout. A signed distribution archive and Apple's validation are still required.
+These scripts deliberately do not use local Debug identity overrides or request automatic provisioning changes. Archive output is `LocalVerification/Archives/` inside this checkout. Signed distribution archives and uploads subsequently succeeded as recorded above; Apple processing and submission approval remain unverified.
 
 ## Remaining before submission
 
-- Register/confirm the chosen explicit app identifier and App Store Connect record; configure distribution signing and validate the signed iOS/Mac archives. Decide Mac architecture coverage (current engine ships Apple Silicon only).
+- Confirm uploaded builds finish processing in App Store Connect and configure Cloud Archive/TestFlight delivery. Current Mac engine coverage is Apple Silicon only.
 - Complete physical regression acceptance: RAW/HDR camera support, Photos save/reopen/revert/conflict recovery, undo/persistence/export, masks/AI quality, adaptive layouts/accessibility and library backup/recovery. Saved tests and no-launch builds do not establish runtime acceptance.
 - Review bundled/transitively linked dependencies and downloaded models, redistribution terms and required notices; verify final archive contents and privacy aggregation.
 - Prepare public privacy policy/support URLs, App Privacy questionnaire, age rating, content rights/export-compliance answers, description, screenshots and review notes. Verify model-download hosts and data handling against the privacy policy. Do not invent store answers from build success.

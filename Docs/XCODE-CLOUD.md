@@ -1,93 +1,71 @@
 # iLightCraft Xcode Cloud
 
-Prepared 2026-10-25. Local script validation does not establish a successful cloud build.
+Last updated: 2026-10-25.
 
-## Build inputs
+## Verified workflow
 
-The native checkout is the repository root, not its parent LightCraftiPad directory.
-Use `https://github.com/cwallyman/iLightCraft`, branch `ipad-lightcraft`, project
-`iLightCraft.xcodeproj`, scheme `iLightCraft`, team `D58RZM4K8N`, and bundle ID
-`com.cwallyman.iLightCraft`. Keep the current product version `0.11.0`.
+The **iLightCraft** workflow builds both iOS/iPadOS and Mac Catalyst on branch
+`ipad-lightcraft`, with branch-change and manual triggers. It uses project
+`iLightCraft.xcodeproj`, scheme `iLightCraft`, Xcode 27.1 and macOS 27.0.1.
+The product version is **0.11.0**, bundle ID `com.cwallyman.iLightCraft`, signing
+team `D58RZM4K8N`. The native checkout is the repository root.
 
-`ci_scripts/ci_post_clone.sh` installs isolated Rust 1.95.0 and the three Apple
-targets, creates a Python 3.12 environment for the pinned model conversion tools,
-fetches the existing SHA-256-verified model sources and builds the Rust XCFramework.
-Cargo uses the existing lockfile. This does not update the vendored engine.
-The pre-build script checks that generated inputs exist and that no local identity
-override was included. Neither script requires signing credentials or personal photos.
+Both Cloud actions completed successfully at
+[`303faf0`](https://github.com/cwallyman/iLightCraft/commit/303faf06baa18e79f35c4e8bb4d2042f30eb7b0d).
+The iOS action reports no warnings; the Mac action reports one missing Metal
+toolchain Swift search path on the Apple worker. This warning did not block the build.
+The unused capture, redundant error cast and unnecessary isolation annotation in
+Swift source have been removed.
 
-These scripts must be executable and committed alongside the native app source.
-The current local rename and feature work must reach GitHub before a remote build can
-use it; the previously pushed project still uses the old native project name.
-Do not commit Frameworks, DerivedData, model packages, signing keys, development
-identity overrides, device backups or `.xcode-cloud` environments.
+For the Mac action, select platform **macOS** and **Build For: Any Mac (Mac Catalyst)**.
+The framework supplies Apple Silicon Mac Catalyst, not a native macOS slice or Intel
+support. Selecting the default native Mac destination causes linking to fail.
 
-## First-time Apple/GitHub connection
+The current actions are **Build**, not Archive. Automatic Archive/TestFlight delivery
+and distribution post-actions remain to be configured. No public release or App Review
+approval is established by these builds.
 
-In Xcode, choose Product > Xcode Cloud > Create Workflow. Select iLightCraft.
-Follow Apple's account authorization prompts; grant repository access only to
-`cwallyman/iLightCraft`. Accept any Apple service terms yourself after reviewing them.
-This is account setup, not a file that a shell script can enable.
+## Generated build inputs
 
-Create an **iLightCraft iOS** workflow:
+`ci_scripts/ci_post_clone.sh` installs isolated Rust 1.95.0 with device, simulator and
+Mac Catalyst targets; prepares Python 3.12 and pinned model tools; runs nine Python
+regression tests; fetches SHA-256-verified model sources; audits branding; and builds
+the locked Rust XCFramework. The vendored engine is unchanged.
 
-- Branch Changes: `ipad-lightcraft`; enable manual builds.
-- Select Xcode 27.0 (the locally verified toolchain) and a compatible macOS version.
-- Archive: scheme `iLightCraft`, Release, iOS (iPhone and iPad).
-- Start build numbering above every uploaded build for the version; verify the current
-  App Store Connect build list before setting it. The local source build number is 1;
-  the previous upload allowed Xcode to manage its final number.
-- Begin with no external TestFlight distribution or automatic public release.
-  Add an internal TestFlight group after the first successful archive is processed.
-- No custom secret environment variables are needed for these scripts; Apple manages signing.
+`ci_scripts/ci_pre_xcodebuild.sh` checks generated framework/config/model inputs and
+rejects a local development identity override. Apple manages Cloud signing; these
+scripts need no custom signing secrets or personal photos.
 
-Add a Release archive for Mac Catalyst, either as a second action or in a separate
-**iLightCraft Mac** workflow with the same branch and toolchain. The engine currently supports Apple Silicon;
-Intel Mac support is not established. Verify the archive's architecture settings.
+Cloud workers have successfully completed model conversion, branding checks and
+framework generation. Model downloads use bounded reads, exact size/hash checks and
+three retries. The branding audit uses Git file enumeration and does not require
+ripgrep. Earlier download and missing-ripgrep failures are resolved.
 
-Run the first builds manually, inspect post-clone and archive logs, and confirm each
-build finishes processing in App Store Connect before enabling distribution post-actions.
-The initial builds must fetch Rust crates and large Python wheels and compile three
-engine targets, so their duration is not comparable to a warm local archive.
+Keep scripts executable. Do not commit generated Frameworks, DerivedData, model
+packages, signing keys, identity overrides, device backups or `.xcode-cloud` environments.
 
-## Evidence and current limitations
+## Archive and TestFlight next steps
 
-Local iOS and Mac Catalyst 0.11.0 archives and uploads succeeded before this setup.
-Logs: `LocalVerification/StoreUpload-20261025-v011/`. This is separate from Xcode Cloud
-verification and does not establish physical feature acceptance or App Review approval.
+Add Release Archive actions for iOS and Mac Catalyst, retaining the Catalyst destination.
+Check App Store Connect's existing build numbers before setting Cloud numbering; local
+source uses build number 1 and the prior uploads let Xcode manage distribution numbering.
+Confirm each archive processes successfully before adding an internal TestFlight group.
+External distribution and public release require their own subsequent steps.
 
-Local checks for this setup: Bash syntax and the branding audit passed; an isolated
-preflight check accepted complete generated inputs and rejected missing inputs/local
-identity overrides; the locked Rust XCFramework rebuild passed for all three Apple
-targets. Python 3.12 wheels were confirmed on PyPI for every pinned direct model-tool
-dependency. The post-clone installer and model conversion have not run on an Apple
-cloud worker. Xcode's first-workflow assistant now shows **Setup Complete** with
-`ipad-lightcraft` selected. The Apple/GitHub connection and initial workflow are
-configured; a successful cloud build is not yet verified. Publish the prepared
-source before starting the first build. The workflow may start automatically on push.
-The user confirmed selecting both iOS and Mac platforms in the initial setup;
-verify both archive actions and their outputs in the first cloud build.
+The GitHub connection is already configured for `cwallyman/iLightCraft`. Future account
+or service-term prompts must be reviewed by the account holder.
 
-The initial cloud runs reached the model conversion setup but stopped when the
-skin ONNX download failed its size/SHA-256 check. The pinned revision's Git LFS
-metadata and a local download both confirm the existing size and digest. The
-downloader now requests raw file bytes, assembles bounded partial reads, retries
-rejected/interrupted downloads up to three times, and reports the received length
-and digest on failure. The source pins remain unchanged; invalid bytes are never
-accepted. Cloud Build 3 subsequently passed model setup.
+## Other verification
 
-Cloud Build 3 passed the model setup and reached the branding audit, where the
-worker reported `FileNotFoundError: 'rg'`. The audit now uses Git's NUL-delimited
-file list, including untracked source and excluding deleted paths, so it has no
-ripgrep installation requirement. Regression checks preserve its name checks.
-Cloud verification of this audit portability fix is pending. The initial workflow
-uses Xcode 27.1 and macOS 27.0.1; the earlier local archive checks used Xcode 27.0.
+Signed local iOS and Mac Catalyst 0.11.0 archives and uploads succeeded. Their ignored
+logs are in `LocalVerification/StoreUpload-20261025-v011/`. This is separate from Cloud
+Build actions and does not establish TestFlight availability or physical feature acceptance.
 
-The required parent-reference `cargo xtask ci` gate completed successfully before
-publishing this snapshot (fmt, Clippy, HEIF, workspace tests, parity, layers, assets
-and WASM). It reported 165 dependency/data skips: 137 corpus, 20 fonts and 8 models.
-The report is in the parent checkout's `target/ci/summary.md`; these reference checks
-are separate from native device acceptance and the first Xcode Cloud build.
+Local iOS and Mac Catalyst Release builds passed after the Swift warning cleanup.
+The required parent-reference `cargo xtask ci` gate passed before publication, including
+fmt, Clippy, HEIF, workspace tests, parity, layers, assets and WASM. Its 165 skips comprise
+137 corpus, 20 fonts and eight models. These Rust reference checks are separate from
+native runtime acceptance.
 
 References: [first workflow](https://developer.apple.com/documentation/xcode/configuring-your-first-xcode-cloud-workflow),
 [GitHub connection](https://developer.apple.com/documentation/xcode/connecting-xcode-cloud-to-github),
