@@ -100,7 +100,7 @@ final class PhotoMergeSession<Engine: EngineDriving & EngineDiagnosing, Importer
         do {
             _ = try await model.photoCommand("ilightcraft.mergeCancel", params: [String: String]())
             stage = "Cancelling at the next processing boundary…"
-        } catch { self.error = (error as? EngineError)?.message ?? error.localizedDescription }
+        } catch { self.error = error.message }
     }
     func merge() async {
         guard !working, selected.count >= 2 else { return }

@@ -240,7 +240,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             return false
         }
 
-        return await enqueue { [engine, previewPixels] in
+        return await enqueue { [engine] in
             var previewGeneration: UInt64?
             defer { Signposts.openRequestedPreview(signpost, generation: previewGeneration) }
 
