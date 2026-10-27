@@ -327,6 +327,23 @@ final class FakeEngine: EngineDriving, EngineDiagnosing {
         _ command: String,
         params   : some Encodable & Sendable
     ) async throws(EngineError) -> String {
-        throw .unknownCommand(command)
+        switch command {
+        case "photo.inspect":
+            return #"{"rating":0,"flag":"none","source":{"type":"file","path":"/tmp/photo.RAF"},"meta":{"keywords":[]},"versions":[]}"#
+        case "library.state":
+            return #"{"clipboard":false,"sort":{"key":"captureDate","ascending":false,"group":"auto"}}"#
+        case "develop.get":
+            return #"{"wb":{"mode":"asShot"},"vignette":{"style":"highlightPriority"},"optics":{"lens_profile":false,"remove_ca":false},"disabled_sections":[]}"#
+        case "develop.controls":
+            let stored = state.withLock { $0.storedValues }
+            let rows: [[String: Any]] = DevelopAdjustmentKind.allCases.map { kind in
+                ["id": kind.rawValue, "label": kind.rawValue, "min": kind.range.lowerBound, "max": kind.range.upperBound,
+                 "step": kind.step, "value": stored[kind] ?? kind.defaultValue, "default": kind.defaultValue]
+            }
+            do { return String(decoding: try JSONSerialization.data(withJSONObject: rows), as: UTF8.self) }
+            catch { throw .engine(error.localizedDescription) }
+        default:
+            throw .unknownCommand(command)
+        }
     }
 }

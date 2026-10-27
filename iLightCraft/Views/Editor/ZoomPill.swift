@@ -16,10 +16,14 @@ struct ZoomPill<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoImporti
     var body: some View {
         let label = "\(ZoomScale.label(forPercent: session.zoomPercent))%"
 
-        Menu {
-            Button("Zoom In", systemImage: "plus.magnifyingglass", action: canvas.zoomIn)
+        LightCraftNumberButton(title: "Zoom Percent", value: session.zoomPercent,
+                               range: ZoomScale.minimumPercent...ZoomScale.maximumPercent, step: 1, suffix: "%", display: label) { percent in
+            canvas.zoom(toPercent: percent)
+        }
+        .contextMenu {
+            Button("Zoom In", lightCraftIcon: "LightCraft-Plus", action: canvas.zoomIn)
 
-            Button("Zoom Out", systemImage: "minus.magnifyingglass", action: canvas.zoomOut)
+            Button("Zoom Out", lightCraftIcon: "LightCraft-Minus", action: canvas.zoomOut)
 
             Divider()
 
@@ -30,9 +34,6 @@ struct ZoomPill<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoImporti
             Button("Actual Size") { canvas.zoom(toPercent: 100) }
 
             Button("200%") { canvas.zoom(toPercent: 200) }
-        } label: {
-            Text(label)
-                .monospacedDigit()
         }
         .accessibilityLabel("Zoom")
         .accessibilityValue(label)

@@ -39,8 +39,8 @@ struct PhotoExportSheet<Engine: EngineDriving & EngineDiagnosing, Importer: Phot
             }
             .disabled(export.isWorking || export.selected.isEmpty)
         }) {
-            Form {
-                Section("File") {
+            LightCraftMenuList {
+                LightCraftMenuSection("File") {
                     Picker("Format", selection: $export.options.format) {
                         Text("JPEG").tag("jpeg")
                         Text("PNG").tag("png")
@@ -52,7 +52,10 @@ struct PhotoExportSheet<Engine: EngineDriving & EngineDiagnosing, Importer: Phot
                         if format != "tiff" { export.options.hdr = format == "heic" }
                     }
                     if export.options.format == "jpeg" {
-                        Stepper("Quality: \(export.options.quality)%", value: $export.options.quality, in: 1...100)
+                        HStack {
+                            Text("Quality"); Spacer()
+                            LightCraftNumberButton(title: "JPEG Quality", value: Double(export.options.quality), range: 1...100, step: 1, suffix: "%") { export.options.quality = Int($0) }
+                        }.foregroundStyle(export.options.quality == 92 ? LightCraftPanelStyle.label : LightCraftPanelStyle.changed)
                     } else if export.options.format != "heic" && !export.options.hdr {
                         Picker("Bit depth", selection: $export.options.bitDepth) {
                             Text("8 bit").tag(8)
@@ -74,12 +77,14 @@ struct PhotoExportSheet<Engine: EngineDriving & EngineDiagnosing, Importer: Phot
                         set: { export.options.longEdge = $0 ? 2048 : 0 }
                     ))
                     if export.options.longEdge > 0 {
-                        Stepper("Long edge: \(export.options.longEdge) px", value: $export.options.longEdge,
-                                in: 256...16000, step: 256)
+                        HStack {
+                            Text("Long edge"); Spacer()
+                            LightCraftNumberButton(title: "Export Long Edge", value: Double(export.options.longEdge), range: 256...16000, step: 1, suffix: " px") { export.options.longEdge = Int($0) }
+                        }.foregroundStyle(LightCraftPanelStyle.changed)
                     }
                 }
 
-                Section("Finishing") {
+                LightCraftMenuSection("Finishing") {
                     Picker("Output sharpening", selection: $export.options.sharpen) {
                         Text("None").tag("none")
                         Text("Screen").tag("screen")
@@ -103,7 +108,7 @@ struct PhotoExportSheet<Engine: EngineDriving & EngineDiagnosing, Importer: Phot
                     Toggle("Remove location", isOn: $export.options.removeLocation)
                 }
 
-                Section("Photos (\(export.selected.count) selected)") {
+                LightCraftMenuSection("Photos (\(export.selected.count) selected)") {
                     ForEach(export.photos) { photo in
                         Toggle(photo.name, isOn: Binding(
                             get: { export.selected.contains(photo.id) },
@@ -118,11 +123,11 @@ struct PhotoExportSheet<Engine: EngineDriving & EngineDiagnosing, Importer: Phot
                 }
 
                 if let error = export.error {
-                    Section { Text(error).foregroundStyle(.red) }
+                    LightCraftMenuSection { Text(error).foregroundStyle(.red) }
                 }
 
                 if !export.files.isEmpty {
-                    Section {
+                    LightCraftMenuSection {
                         Button("Share \(export.files.count) exported photo(s)") { showsShare = true }
                     }
                 }
@@ -142,7 +147,7 @@ struct PhotoExportSheet<Engine: EngineDriving & EngineDiagnosing, Importer: Phot
                     }
                     .padding()
                     .frame(maxWidth: .infinity)
-                    .background(.regularMaterial)
+                    .background(LightCraftPanelStyle.inset)
                 }
             }
             .task { await export.loadMore() }

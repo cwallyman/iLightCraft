@@ -6,7 +6,7 @@
 import SwiftUI
 
 /// AdjustmentSlider is one develop control: its name and value on top, and below them a thin
-/// custom track between a minus and a plus stepper.
+/// themed track with a hollow handle.
 ///
 /// It knows nothing about the engine. The value comes in as a plain number and the photo's own
 /// default as `defaultValue`. Out go every new drag value (`onDragValue`), the drag edges
@@ -26,7 +26,7 @@ import SwiftUI
 /// Haptics: a tick when a drag crosses or lands on the default or reaches either end of the range
 /// (HapticsAnchor, so a trackpad drag clicks too), a selection tick when it changes speed band and
 /// at every stepper press, and a light impact on reset. A double tap on the name or on the track
-/// resets; a tap on the value opens a field to type it in.
+/// resets; a tap on the value opens a ten-key popup.
 ///
 /// For VoiceOver the row is one element: the name and the value are read once, a swipe up or
 /// down moves the value by one step, and "Reset" resets it.
@@ -51,7 +51,7 @@ struct AdjustmentSlider: View {
         var speed   : SliderSpeed
     }
 
-    private static let thumbSize   : CGFloat = 18
+    private static let thumbSize   : CGFloat = 20
     private static let trackHeight : CGFloat = 4
     private static let dragSlop    : CGFloat = 8
 
@@ -86,12 +86,6 @@ struct AdjustmentSlider: View {
     @State
     private var isEntryShown = false
 
-    @State
-    private var entryText = ""
-
-    @FocusState
-    private var isEntryFocused: Bool
-
     #if DEBUG
     /// bodyRuns counts body evaluations per control in debug builds, so a test can check that a
     /// drag on one row leaves every other row alone.
@@ -112,21 +106,18 @@ struct AdjustmentSlider: View {
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2, perform: reset)
 
-                Button(formattedValue, action: openEntry)
-                    .buttonStyle(.plain)
-                    .monospacedDigit()
-                    .foregroundStyle(isAtDefault ? .secondary : .primary)
-                    .popover(isPresented: $isEntryShown) { entryField }
+                LightCraftNumberButton(title: Self.title(of: kind), value: value, range: kind.range, step: kind.step,
+                                       decimals: kind.step < 1 ? 2 : 0, display: formattedValue, isPresented: $isEntryShown, onCommit: onCommit)
+                    .foregroundStyle(isAtDefault ? LightCraftPanelStyle.label : LightCraftPanelStyle.changed)
             }
-            .font(isCompact ? .caption : .subheadline)
+            .font(.system(size: 14))
+            .foregroundStyle(isAtDefault ? LightCraftPanelStyle.label : LightCraftPanelStyle.changed)
 
             HStack(spacing: 0) {
 
-                stepButton(direction: -1)
 
                 track
 
-                stepButton(direction: 1)
             }
         }
         .overlay(alignment: .top) { speedLabel }
@@ -142,11 +133,6 @@ struct AdjustmentSlider: View {
                 endDrag()
             }
         }
-        .onChange(of: isEntryShown) { _, isShown in
-            if !isShown {
-                commitEntry()
-            }
-        }
         .sensoryFeedback(.selection, trigger: selectionTicks)
         .sensoryFeedback(.impact(weight: .light), trigger: resets)
         .accessibilityElement(children: .ignore)
@@ -154,6 +140,7 @@ struct AdjustmentSlider: View {
         .accessibilityValue(formattedValue)
         .accessibilityAdjustableAction { direction in adjust(direction) }
         .accessibilityAction(named: "Reset", reset)
+        .accessibilityAction(named: "Enter Value") { isEntryShown = true }
     }
 
     // MARK: - Track
@@ -169,31 +156,7 @@ struct AdjustmentSlider: View {
                 defaultValue : defaultValue
             )
 
-            ZStack(alignment: .leading) {
-
-                Capsule()
-                    .fill(.secondary)
-                    .frame(width: usable, height: Self.trackHeight)
-                    .offset(x: Self.thumbSize / 2)
-
-                if kind.range.lowerBound < 0 {
-                    Capsule()
-                        .fill(.secondary)
-                        .frame(width: 2, height: 10)
-                        .offset(x: Self.thumbSize / 2 + defaultFraction * usable - 1)
-                }
-
-                Capsule()
-                    .fill(.primary)
-                    .frame(width: (fill.end - fill.start) * usable, height: Self.trackHeight)
-                    .offset(x: Self.thumbSize / 2 + fill.start * usable)
-
-                Circle()
-                    .fill(.white)
-                    .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
-                    .frame(width: Self.thumbSize, height: Self.thumbSize)
-                    .offset(x: fill.thumb * usable)
-            }
+            LightCraftSliderTrack(fraction: fill.thumb, controlID: kind.rawValue, isChanged: !isAtDefault)
             .frame(width: proxy.size.width, height: proxy.size.height)
             .contentShape(Rectangle())
             .gesture(trackDrag(usableWidth: usable, height: proxy.size.height))
@@ -294,7 +257,7 @@ struct AdjustmentSlider: View {
             selectionTicks += 1
             onNudge(direction * kind.step)
         } label: {
-            Image(systemName: direction < 0 ? "minus" : "plus")
+            Image(lightCraftIcon: direction < 0 ? "LightCraft-Minus" : "LightCraft-Plus")
                 .font(.footnote.weight(.semibold))
                 .frame(width: 32, height: 44)
                 .contentShape(Rectangle())
@@ -303,55 +266,6 @@ struct AdjustmentSlider: View {
         .buttonRepeatBehavior(.enabled)
         .foregroundStyle(.secondary)
         .disabled(isAtLimit)
-    }
-
-    // MARK: - Value entry
-
-    /// entryField asks for the full keyboard's number layout on centred controls: the decimal pad
-    /// of the floating (phone layout) keyboard has no minus key.
-    private var entryField: some View {
-        TextField(Self.title(of: kind), text: $entryText)
-            .keyboardType(kind.range.lowerBound < 0 ? .numbersAndPunctuation : .decimalPad)
-            .submitLabel(.done)
-            .monospacedDigit()
-            .multilineTextAlignment(.trailing)
-            .textFieldStyle(.roundedBorder)
-            .focused($isEntryFocused)
-            .onSubmit { isEntryShown = false }
-            .frame(width: 160)
-            .padding(16)
-            .presentationCompactAdaptation(.popover)
-            .onAppear { isEntryFocused = true }
-    }
-
-    /// openEntry fills the field with the plain number (no plus sign, unit or grouping) in the
-    /// locale's decimal separator, as the row shows it, so it can be edited as typed.
-    private func openEntry() {
-        guard isEnabled else { return }
-
-        let number = value
-        entryText = kind.step < 1
-            ? number.formatted(.number.precision(.fractionLength(2)).grouping(.never))
-            : String(Int(number.rounded()))
-        isEntryShown = true
-    }
-
-    /// commitEntry sends the typed number, snapped to the step and the range, as one whole edit.
-    /// A comma counts as the decimal point and a typographic minus (U+2212) or en dash as a minus;
-    /// text that is not a number, or no change, sends nothing.
-    private func commitEntry() {
-        let text = entryText
-            .trimmingCharacters(in: .whitespaces)
-            .replacingOccurrences(of: ",", with: ".")
-            .replacingOccurrences(of: "\u{2212}", with: "-")
-            .replacingOccurrences(of: "\u{2013}", with: "-")
-
-        guard let number = Double(text) else { return }
-
-        let snapped = kind.snapped(number)
-        if snapped != value {
-            onCommit(snapped)
-        }
     }
 
     // MARK: - Edits
@@ -395,7 +309,7 @@ struct AdjustmentSlider: View {
 
     // MARK: - Text
 
-    private var isAtDefault: Bool { value == defaultValue }
+    private var isAtDefault: Bool { !LightCraftPanelStyle.isChanged(value, from: defaultValue) }
 
     private var defaultFraction: Double { SliderFill.fraction(of: defaultValue, in: kind.range) }
 

@@ -1,8 +1,134 @@
 # iLightCraft change history
 
-Changes through 2026-10-25, relative to the upstream native baseline `79be4e4`. First published implementation:
+Changes through 2026-10-27, relative to the upstream native baseline `79be4e4`. First published implementation:
 [`2f71fe9`](https://github.com/cwallyman/iLightCraft/commit/2f71fe9ad954352cdf0eec2ab64f765f56c0f3bc).
 Implementation, delivery and acceptance are recorded separately.
+
+## Top-left Back button (2026-10-27)
+
+- Restored Back to the top-left on iPhone and iPad, enlarged its icon to 26 points with a 44-point tap target, and removed its iPhone More-menu entry.
+
+## Top-bar Undo and Redo (2026-10-27)
+
+- Moved Undo and Redo from More into the top bar immediately beside More on iPhone and iPad, with 44-point touch targets and existing keyboard shortcuts and availability rules.
+
+## Photo comparison and phone toolbar (2026-10-27)
+
+- Replaced the five bottom view buttons with Single Photo and side-by-side Before / Edited for the same photo.
+- Comparison renders bounded previews from the engine's before state and current edits, retaining current crop/orientation; refreshes on committed edits and panel changes. Spatial editing returns to Single Photo.
+- iPhone top actions, including Back, Zoom and Export, are in More. Increased the More icon to 26 points on iPhone and iPad, with a 48-point touch target.
+- Physical-device build/install evidence is recorded in Docs/Verification/2026-10-27-before-edited-phone-menu.md. No simulators or automated tests run.
+
+## Settings and preset menu cleanup (2026-10-26)
+
+- Removed diagnostic tools from the editor's main More menu, including Debug builds.
+- Removed Presets & Batch Editing from the editor's main More menu; Batch Editing is in the Presets panel's options.
+- Removed static explanatory paragraphs from Settings, keeping its controls and operational status/errors.
+
+## Ten-key numeric entry (2026-10-26)
+
+- Editable numeric readouts open a themed ten-key popup with decimal/sign keys as needed and bounded, single-commit entry.
+- Covered adjustment tools, masks/repair, crop/Geometry, curves, preset/profile Amount, export sizes and zoom. Cancel/outside dismissal does not apply an edit.
+- Retained yellow changed-state styling and existing undo paths. No simulator or automated tests run.
+
+## Active mask highlight and bottom divider (2026-10-26)
+
+- Active mask rows use the preset yellow for their name/icon and a subtle yellow background.
+- Removed the divider overlay that appeared vertically through the bottom rating stars.
+
+## Toolbar alignment and status banner (2026-10-26)
+
+- Right-aligned the Presets-through-Info toolbar group next to More, retaining scrolling on narrow layouts.
+- Removed the bottom Photos status banner that covered photo controls. Saving progress and error handling remain.
+
+## Crop Geometry expander (2026-10-26)
+
+- Geometry expands inline in Crop like Edit's submenus, retaining themed controls and changed-value highlights.
+- Kept Upright/guides connected to the main photo and refreshed the crop preview after geometry edits. No simulator or automated tests run.
+
+## Project version cleanup (2026-10-26)
+
+- Moved AppleWrapper, obsolete Unveil products, old DerivedData copies, engine framework snapshots and superseded archives to recoverable Trash.
+- Preserved the current NativeReference source/app, submitted 0.11.0 iOS/Mac archives, device backups and Rust reference source. One active Xcode app project remains.
+- Recorded a restore manifest and verified project listing/current app signature; no simulator or test run.
+
+## Yellow changed-control indicators (2026-10-26)
+
+- Changed adjustment labels, values and slider handles use the selected preset's yellow; unchanged controls retain neutral styling.
+- Compared with actual photo/control defaults, including RAW/as-shot and nonzero brush/profile/repair settings. Resetting to a default clears its highlight.
+- Applied shared indicators across editor tools while retaining existing gradients, gestures and editing behavior. No simulators or automated tests run.
+
+## Preset selection replacement (2026-10-26)
+
+- Selecting a different preset now replaces the active preset from its original baseline instead of accumulating both presets' settings.
+- Earlier edits remain; Amount and Reset share that baseline. Active selection survives closing/reopening Presets for the open photo, with guards against discarding intervening edits.
+- Saved replacement/reopening regression coverage. No simulator or automated tests run.
+
+## Masking icon tiles and Content-Aware (2026-10-26)
+
+- Matched the Masking panel's icon-tile layout and mask/overlay controls, including Each Person and Each Person's Skin.
+- Enabled real Content-Aware patch completion in Masking and Remove through a focused pure-Rust engine backport; saved fills remain non-destructive.
+- Added actual mask pins, preview overlay colors/modes/opacity and component actions. Person and skin selection retain the existing local implementation.
+- Physical iOS and Mac Catalyst engine builds and iOS app build passed. No simulator, automated tests or performance benchmarks run; manual acceptance remains with the user.
+
+## Shared menu theme and capture row (2026-10-26)
+
+- Applied Edit's theme across editor menus and sheets, replacing native Form/List row backgrounds with shared flat sections and dividers.
+- Restored the always-visible ISO, focal length, aperture and shutter row beneath the histogram; missing values show a dash.
+- Missing catalog capture fields fall back to read-only metadata from retained originals for Apple-decoded editing copies. Saved regression coverage; no simulators or automated tests run.
+
+## Inline Edit menus and themed sliders (2026-10-26)
+
+- Edit's child menus now expand inline, including Profile, Curve, Color Mixer, Point Color, Color Grading and Defringe. White Balance sampling keeps Edit visible.
+- Removed AI Denoise from Edit. Unified editor slider tracks, hollow handles, gradients and text/accent colors with LightCraft's Charcoal theme; retained precision adjustment behavior.
+- Added Curve channel rings and the engine-backed Point Curve preset menu with Save/Import/Export and Reset. Temp/Tint use the desktop's relative display scales.
+- No simulator or automated tests were run. Hands-on acceptance remains with the user.
+
+## Menu scrolling space (2026-10-26)
+
+- Added a shared 32-point blank area at the right of editor menu content for scrolling beside controls, including the Profile popover.
+- Separated the Edit section eye buttons from their expand arrows with a 20-point gap and gave each eye button a 44-point touch target.
+- Applied the same margin to standalone editor tools. No simulator or automated tests were run.
+
+## Profile popover from Edit (2026-10-26)
+
+- Edit's Profile button opens the grouped chooser as an anchored popover, keeping Edit underneath.
+- Tapping outside returns to Edit and refreshes the selected profile label and controls.
+- No simulator or automated tests were run; manual acceptance remains with the user.
+
+## Desktop menu alignment (2026-10-26)
+
+- Matched the shared panel colors, headers, section order and nested control grouping to LightCraft's desktop source.
+- Added white-balance selection, section visibility/reset/solo actions, vignette styles, B&W mixer, dust actions and local mask Moiré/Defringe controls; separated Geometry from Optics.
+- Consolidated Info metadata saving and kept native-only tools under More. Content-Aware and sensor AI Denoise remain unavailable in the retained engine.
+- Device build passed. No simulator or automated tests were run; hands-on acceptance remains with the user.
+
+## Selected preset Amount and Reset (2026-10-26)
+
+- Selecting a preset reveals the Amount strip below the header, starting at 100, with a 0–200 range.
+- Amount changes use the settings before that selection; Presets > More > Reset restores those earlier edits and clears selection. Stale operations refuse to overwrite intervening edits.
+- Regression coverage is saved for manual execution. No simulator or automated test run was performed.
+
+## Grouped LightCraft presets (2026-10-26)
+
+- Replaced the default presets form with collapsible alphabetical groups, indented preset rows and the desktop-style More/+ header.
+- Exposes all 41 LightCraft built-ins across ten groups, preserving their exact existing engine settings and in-group order, plus user presets and favorites.
+- Moved creation fields to + and preset management/import/export/filter options to menus. Device build passed; hands-on testing is left to the user, with no simulator run.
+
+## LightCraft toolbar and photo controls (2026-10-26)
+
+- Ordered the top tools as requested, with separate Versions and History and dividers matching the desktop rail. Native extras are in More.
+- Added the bottom photo strip with grid/detail/compare/survey, sort, ratings/flags and settings copy/paste/options.
+- Expanded the shared Edit, Red Eye, Keywords, Info, Versions/History and Crop workflows; retained the native precision sliders and engine.
+- Added synthetic command/geometry checks and updated the UI test engine for the new read-only queries. Final targeted test run and device build passed before the user stopped simulator testing.
+- Further simulator/automated testing is deferred to the user by request.
+
+## Native icon consistency (2026-10-26)
+
+- Replaced app-owned SF Symbols throughout the toolbar, tool panels, menus, Photos browser, navigation and diagnostics with LightCraft's original vector icon catalog.
+- Preserved scalable template paths, tint, selected/disabled states, text labels, accessibility identifiers and keyboard shortcuts.
+- Added a reproducible export tool, pinned desktop icon source, licenses and catalog/reference checks. Native-only tools use documented semantic equivalents from the desktop catalog; system-owned pickers/share sheets keep Apple's UI.
+- Existing iLightCraft app/home lynx branding remains unchanged.
 
 ## 0.11.0 release and Xcode Cloud (2026-10-25)
 

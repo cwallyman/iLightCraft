@@ -1,6 +1,23 @@
 # iLightCraft App Store preparation
 
-Last updated: 2026-10-25. This is preparation, not submission approval or an App Store validation result.
+Last updated: 2026-10-26. This is preparation, not submission approval or an App Store validation result.
+
+## Release scope — 2026-10-26
+
+The user deferred the Mac app from the **0.11.0** release. Submit only the iOS/iPadOS
+version. Preserve Mac development support and existing installations/libraries.
+The local archive helper now rejects Mac archives to avoid preparing another Mac
+release accidentally. Cloud Mac Build actions may remain for development, but do not
+add Mac Archive/TestFlight delivery or submit the previously uploaded Mac build.
+
+App Store Connect still needs inspection after account sign-in: exclude the macOS
+version from any review submission and detach its selected build if editable. The
+previous Mac upload cannot be undone locally. Apple permits deleting a platform only
+if no build has ever been uploaded for it; leaving an unsubmitted Mac platform record
+may therefore be necessary. Also verify iOS availability on Apple Silicon Macs is off
+if no Mac distribution is intended. No App Store Connect changes have been verified.
+
+Reference: [Apple platform deletion rules](https://developer.apple.com/help/app-store-connect/create-an-app-record/add-platforms/).
 
 ## Current upload — 2026-10-25
 
@@ -53,14 +70,13 @@ Unsigned archive commands (no upload, installation or launch):
 ```sh
 scripts/build-xcframework.sh
 scripts/archive-apple-local.sh ios
-scripts/archive-apple-local.sh mac
 ```
 
 These scripts deliberately do not use local Debug identity overrides or request automatic provisioning changes. Archive output is `LocalVerification/Archives/` inside this checkout. Signed distribution archives and uploads subsequently succeeded as recorded above; Apple processing and submission approval remain unverified.
 
 ## Remaining before submission
 
-- Confirm uploaded builds finish processing in App Store Connect and configure Cloud Archive/TestFlight delivery. Current Mac engine coverage is Apple Silicon only.
+- Confirm uploaded builds finish processing in App Store Connect and configure Cloud Archive/TestFlight delivery. Mac distribution is deferred from this release.
 - Complete physical regression acceptance: RAW/HDR camera support, Photos save/reopen/revert/conflict recovery, undo/persistence/export, masks/AI quality, adaptive layouts/accessibility and library backup/recovery. Saved tests and no-launch builds do not establish runtime acceptance.
 - Review bundled/transitively linked dependencies and downloaded models, redistribution terms and required notices; verify final archive contents and privacy aggregation.
 - Prepare public privacy policy/support URLs, App Privacy questionnaire, age rating, content rights/export-compliance answers, description, screenshots and review notes. Verify model-download hosts and data handling against the privacy policy. Do not invent store answers from build success.

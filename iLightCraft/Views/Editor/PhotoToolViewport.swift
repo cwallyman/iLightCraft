@@ -6,7 +6,7 @@ import UIKit
 struct PhotoToolViewport: UIViewRepresentable {
     enum Mode { case masks, remove, crop, guides, radial }
     struct ZoomRequest: Equatable {
-        enum Action { case fit, zoomIn, zoomOut }
+        enum Action: Equatable { case fit, zoomIn, zoomOut, percent(Double) }
         let id = UUID()
         let action: Action
     }
@@ -14,6 +14,7 @@ struct PhotoToolViewport: UIViewRepresentable {
     let mode: Mode
     var mask: UIImage?
     var sourcePoint: CGPoint?
+    var maskPin: CGPoint?
     var stroke: [CGPoint] = []
     var guideLines: [[CGPoint]] = []
     var onGuideFinished: () -> Void = {}
@@ -28,6 +29,11 @@ struct PhotoToolViewport: UIViewRepresentable {
     var onStroke: ([CGPoint]) -> Void = { _ in }
     var onCrop: (CropSettings.Rectangle) -> Void = { _ in }
     var onInteraction: (Bool) -> Void = { _ in }
+    var sourcePixelWidth: CGFloat?
+    var selectionRadius: Double?
+    var onZoomPercent: (Double) -> Void = { _ in }
+    var cropOverlay = "thirds"
+    var cropOverlayFlipped = false
 
     func makeUIView(context: Context) -> PhotoToolScrollView { PhotoToolScrollView() }
     func updateUIView(_ view: PhotoToolScrollView, context: Context) { view.configure(self) }
@@ -42,6 +48,7 @@ final class PhotoToolScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRe
     private var imageSize = CGSize.zero
     private var viewportSize = CGSize.zero
     private var lastZoomRequest: UUID?
+    private var lastZoomPercent = -1.0
     private var fitting = false
     private var initialCrop: CGRect?
     private var cropCorner: Int?
@@ -91,6 +98,15 @@ final class PhotoToolScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRe
             case .fit: setZoomScale(1, animated: false); centerImage()
             case .zoomIn: setZoomScale(min(maximumZoomScale, zoomScale * 1.5), animated: false)
             case .zoomOut: setZoomScale(max(minimumZoomScale, zoomScale / 1.5), animated: false)
+            case .percent(let percent):
+                let sourceWidth = photo.sourcePixelWidth ?? imageSize.width
+                let fitPercent = sourceWidth > 0 ? Double(surface.bounds.width * (window?.screen.scale ?? 1) / sourceWidth * 100) : 0
+                if percent.isFinite, percent > 0, fitPercent.isFinite, fitPercent > 0 {
+                    minimumZoomScale = CGFloat(min(1, ZoomScale.minimumPercent / fitPercent))
+                    maximumZoomScale = CGFloat(max(1, ZoomScale.maximumPercent / fitPercent))
+                    setZoomScale(CGFloat(min(ZoomScale.maximumPercent, max(ZoomScale.minimumPercent, percent)) / fitPercent), animated: false)
+                    centerImage()
+                }
             }
         }
     }
@@ -131,6 +147,14 @@ final class PhotoToolScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRe
         let next = UIEdgeInsets(top: vertical, left: horizontal, bottom: vertical, right: horizontal)
         if contentInset != next { contentInset = next }
         surface.handleScale = zoomScale
+        let pixels = photo?.sourcePixelWidth ?? imageSize.width
+        if pixels > 0 {
+            let percent = Double(surface.bounds.width * zoomScale * (window?.screen.scale ?? 1) / pixels * 100)
+            if percent.isFinite, percent > 0, abs(percent - lastZoomPercent) > 0.01, let onZoom = photo?.onZoomPercent {
+                lastZoomPercent = percent
+                DispatchQueue.main.async { onZoom(percent) }
+            }
+        }
     }
     func viewForZooming(in scrollView: UIScrollView) -> UIView? { surface }
     func scrollViewDidZoom(_ scrollView: UIScrollView) { centerImage(); surface.setNeedsDisplay() }
@@ -225,9 +249,15 @@ private final class PhotoToolDrawingView: UIView {
         photo.image.draw(in: CGRect(x: -bounds.width / 2, y: -bounds.height / 2, width: bounds.width, height: bounds.height))
         context.restoreGState()
         if let mask = photo.mask { mask.draw(in: bounds, blendMode: .normal, alpha: 0.35) }
+        if let pin = photo.maskPin {
+            let radius = 5 / max(1, handleScale)
+            let marker = UIBezierPath(ovalIn: CGRect(x: pin.x * bounds.width - radius, y: pin.y * bounds.height - radius, width: radius * 2, height: radius * 2))
+            UIColor.darkGray.setFill(); marker.fill()
+            UIColor.white.setStroke(); marker.lineWidth = 1.5 / max(1, handleScale); marker.stroke()
+        }
         if let source = photo.sourcePoint {
             let point = CGPoint(x: source.x * bounds.width, y: source.y * bounds.height)
-            let radius = 9 / max(1, handleScale)
+            let radius = photo.selectionRadius.map { CGFloat($0) * max(bounds.width, bounds.height) } ?? (9 / max(1, handleScale))
             UIColor.systemCyan.setStroke()
             let marker = UIBezierPath(ovalIn: CGRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2))
             marker.lineWidth = 2 / max(1, handleScale); marker.stroke()
@@ -262,13 +292,10 @@ private final class PhotoToolDrawingView: UIView {
             let shade = UIBezierPath(rect: bounds); shade.append(UIBezierPath(rect: crop)); shade.usesEvenOddFillRule = true
             UIColor.black.withAlphaComponent(0.55).setFill(); shade.fill()
             UIColor.white.setStroke(); let border = UIBezierPath(rect: crop); border.lineWidth = 1 / max(1, handleScale); border.stroke()
-            let grid = UIBezierPath()
-            for n in 1...2 {
-                let f = CGFloat(n) / 3
-                grid.move(to: CGPoint(x: crop.minX + crop.width * f, y: crop.minY)); grid.addLine(to: CGPoint(x: crop.minX + crop.width * f, y: crop.maxY))
-                grid.move(to: CGPoint(x: crop.minX, y: crop.minY + crop.height * f)); grid.addLine(to: CGPoint(x: crop.maxX, y: crop.minY + crop.height * f))
-            }
+            let grid = NativeCropGuides.path(in: crop, kind: photo.cropOverlay, flipped: photo.cropOverlayFlipped)
+            context.saveGState(); context.clip(to: crop)
             grid.lineWidth = 0.5 / max(1, handleScale); grid.stroke()
+            context.restoreGState()
             UIColor.white.setFill()
             let radius = 6 / max(1, handleScale)
             for x in [crop.minX, crop.maxX] { for y in [crop.minY, crop.maxY] {

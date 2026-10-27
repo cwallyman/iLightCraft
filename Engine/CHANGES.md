@@ -14,3 +14,11 @@ section 4(b) requires. Each changed file also carries a notice at its top.
 
 | 2026-10-20 | `crates/engine/src/cmd/masks.rs` | Optional uncropped, pre-perspective preview coordinates for color-range samples. | Native manual masks must sample the pixel shown in the main-photo mask stage. |
 | 2026-10-20 | `crates/engine/src/cmd/develop.rs` | Bounded, validated atomic `develop.restoreBatch` command. | Native other-photo batch undo/redo restores settings without changing source files. |
+
+| 2026-10-26 | `crates/inpaint/*`, `crates/pipeline/src/spots.rs`, `crates/pipeline/Cargo.toml`, `crates/develop/src/settings.rs`, `crates/engine/src/cmd/masks.rs`, manifest/lock and NOTICE | Focused backport of pure-Rust deterministic Content-Aware Fill, its spot mode and bounded-radius handling. No broad engine upgrade. | Actual non-destructive fill in native Masking and Remove. Upstream synthetic regressions retained; tests and performance benchmarks deferred by user request. |
+
+| 2026-10-26 | `ffi/src/native_commands.rs` | Optional validated overlay mode, RGB color and opacity on the native crop preview query. | Masking overlay controls match LightCraft without changing saved edits. |
+
+| 2026-10-26 | `ffi/src/native_commands.rs`, `ffi/src/session.rs` | Read-only selected-mask pin query using geometric anchors or the centroid of bounded stored foreground logits. | Show Pins uses actual mask data without rerunning selection models. |
+
+| 2026-10-26 | `ffi/src/native_commands.rs`, `ffi/src/session.rs` | Bounded read-only `ilightcraft.comparisonPreview` using the engine before/after render job with current crop. | Native same-photo side-by-side comparison without changing settings or selection. |

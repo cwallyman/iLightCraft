@@ -20,7 +20,7 @@ struct ToolRail: View {
                 
                 button(
                     item.title,
-                    systemImage : item.systemImage,
+                    lightCraftIcon : item.lightCraftIcon,
                     tool        : item
                 )
                 
@@ -33,7 +33,7 @@ struct ToolRail: View {
 
     private func button(
         _ title    : String,
-        systemImage: String,
+        lightCraftIcon: String,
         tool       : EditorTool
     ) -> some View {
         
@@ -45,7 +45,7 @@ struct ToolRail: View {
         ) {
             // A 32 pt label with the small control size keeps the rail compact; the frame and shape
             // sit on the label, so the whole circle is hit-tested.
-            Label(title, systemImage: systemImage)
+            Label(title, lightCraftIcon: lightCraftIcon)
                 .labelStyle(.iconOnly)
                 .font(.system(size: 15, weight: .medium))
                 .frame(width: 32, height: 32)

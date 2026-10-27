@@ -1,3 +1,4 @@
+// Modified for iLightCraft on 2026-10-26: add the LightCraft Content-Aware Fill spot mode.
 // Modified for iLightCraft on 2026-10-19: backport bounded HDR rendering from the local LightCraft reference.
 //! The develop settings schema. Every field has a neutral default; serde uses `#[serde(default)]` so
 //! older/newer files load (unknown fields are ignored, missing fields take defaults).
@@ -861,6 +862,8 @@ pub enum SpotMode {
     Remove,
     Heal,
     Clone,
+    /// Content-aware patch completion with no single source offset.
+    Fill,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

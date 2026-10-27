@@ -74,7 +74,7 @@ struct PhotosBrowser: View {
             Button {
                 withAnimation(Self.navigation) { library.closeAlbum() }
             } label: {
-                Image(systemName: "chevron.left")
+                Image(lightCraftIcon: "LightCraft-ChevronLeft")
                     .font(.body.weight(.semibold))
                     .frame(width: 28, height: 28)
             }
@@ -135,7 +135,7 @@ struct PhotosBrowser: View {
         switch library.access {
             case .undetermined:
                 ContentUnavailableView {
-                    Label("Photos", systemImage: "photo.on.rectangle")
+                    Label("Photos", lightCraftIcon: "LightCraft-Photos")
                 } description: {
                     Text("Allow access to open photos from your library.")
                 } actions: {
@@ -145,7 +145,7 @@ struct PhotosBrowser: View {
 
             case .denied:
                 ContentUnavailableView {
-                    Label("No Access to Photos", systemImage: "photo.on.rectangle")
+                    Label("No Access to Photos", lightCraftIcon: "LightCraft-Photos")
                 } description: {
                     Text("Allow iLightCraft to read your photo library in Settings.")
                 } actions: {
@@ -232,11 +232,11 @@ struct PhotosBrowser: View {
     @ViewBuilder
     private func photoGridContent(_ photos: PhotoList?) -> some View {
         if let photos, photos.count == 0 {
-            ContentUnavailableView(
-                library.showsOnlyRAW ? "No RAW Photos" : "No Photos",
-                systemImage : "photo",
-                description : Text(library.showsOnlyRAW ? "RAW and ProRAW photos appear here." : "Photos you take or save appear here.")
-            )
+            ContentUnavailableView {
+                Label(library.showsOnlyRAW ? "No RAW Photos" : "No Photos", lightCraftIcon: "LightCraft-Photos")
+            } description: {
+                Text(library.showsOnlyRAW ? "RAW and ProRAW photos appear here." : "Photos you take or save appear here.")
+            }
         } else if let photos {
             ScrollView {
                 LazyVGrid(columns: Self.columns, spacing: 28) {
@@ -267,7 +267,7 @@ struct PhotosBrowser: View {
     @ViewBuilder
     private var albumGrid: some View {
         if let albums = library.albums, albums.isEmpty {
-            ContentUnavailableView("No Albums", systemImage: "rectangle.stack", description: Text("Albums with photos appear here."))
+            ContentUnavailableView { Label("No Albums", lightCraftIcon: "LightCraft-Album") } description: { Text("Albums with photos appear here.") }
         } else if let albums = library.albums {
             ScrollView {
                 LazyVGrid(columns: Self.columns, spacing: 28) {

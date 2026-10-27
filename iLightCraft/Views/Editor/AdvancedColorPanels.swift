@@ -9,17 +9,11 @@ struct AdvancedColorPanel<Engine: EngineDriving & EngineDiagnosing, Importer: Ph
     var title: String { session.pointColor ? "Point Color" : "Color Grading" }
     var prefix: String { session.pointColor ? "pointColor.\(session.selectedSample)." : "grading.\(tone)." }
     var body: some View {
-        EditorToolPresentation(title: title, header: {
-            Button("Undo", systemImage: "arrow.uturn.backward") { Task { await session.undo() } }
-                .disabled(!session.model.canUndo || session.busy || dragging)
-            Button("Redo", systemImage: "arrow.uturn.forward") { Task { await session.undo(redo: true) } }
-                .disabled(!session.model.canRedo || session.busy || dragging)
-            Button("Done") { close?() }.disabled(session.busy || dragging)
-        }) {
-            ScrollView {
+        EditorToolPresentation(title: title, header: { EmptyView() }) {
+            EditorPanelScroll {
                 VStack(alignment: .leading, spacing: 16) {
                     if session.pointColor {
-                        Button(session.picking ? "Cancel Sampling" : "Sample Color", systemImage: "eyedropper") { session.picking.toggle() }
+                        Button(session.picking ? "Cancel Sampling" : "Sample Color", lightCraftIcon: "LightCraft-Picker") { session.picking.toggle() }
                             .disabled(session.busy || dragging || !session.loaded || session.sampleCount >= 8)
                         Text(session.picking ? "Tap a color on the main photo. Pinch to zoom; use two fingers to pan." : "Sample up to eight colors, then adjust each color and its affected range.")
                             .font(.footnote).foregroundStyle(.secondary)
@@ -66,11 +60,14 @@ struct AdvancedColorPanel<Engine: EngineDriving & EngineDiagnosing, Importer: Ph
                 HStack {
                     Text(control.label)
                     Spacer()
-                    Text(session.values[control.id] ?? control.value, format: .number.precision(.fractionLength(control.step < 1 ? 1 : 0)))
-                        .monospacedDigit()
-                }
-                Slider(value: Binding(get: { session.values[control.id] ?? control.value }, set: { session.setDraft(control.id, $0) }),
-                       in: control.min...control.max, step: control.step) { active in
+                    LightCraftNumberButton(title: control.label, value: session.values[control.id] ?? control.value,
+                                           range: control.min...control.max, step: control.step, decimals: control.step < 1 ? 2 : 0) { number in
+                        session.setDraft(control.id, number)
+                        Task { await session.apply([control.id]) }
+                    }.disabled(session.busy || !session.loaded)
+                }.foregroundStyle(LightCraftPanelStyle.isChanged(session.values[control.id] ?? control.value, from: control.defaultValue) ? LightCraftPanelStyle.changed : LightCraftPanelStyle.label)
+                LightCraftSlider(value: Binding(get: { session.values[control.id] ?? control.value }, set: { session.setDraft(control.id, $0) }),
+                       in: control.min...control.max, step: control.step, controlID: control.id, defaultValue: control.defaultValue) { active in
                     dragging = active
                     if !active { Task { await session.apply([control.id]) } }
                 }

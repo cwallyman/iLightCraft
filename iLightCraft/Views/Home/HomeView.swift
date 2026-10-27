@@ -136,18 +136,18 @@ struct HomeView: View {
                                 HStack {
                                     Text("Files").font(.headline)
                                     Spacer()
-                                    Button("Browse…", systemImage: "folder") { showsFilePicker = true }
+                                    Button("Browse…", lightCraftIcon: "LightCraft-Folder") { showsFilePicker = true }
                                         .buttonStyle(.glass)
                                 }
                                 Spacer(minLength: 0)
-                                Image(systemName: "photo.on.rectangle.angled")
+                                Image(lightCraftIcon: "LightCraft-Photos").resizable().frame(width: 42, height: 42)
                                     .font(.system(size: 42))
                                     .foregroundStyle(Color.accentColor)
                                 Text("Open a photo to start editing").font(.title3.weight(.semibold))
                                 Text("Choose an image from your Mac, iCloud Drive or an external drive.")
                                     .foregroundStyle(.secondary)
                                     .multilineTextAlignment(.center)
-                                Button("Browse Files", systemImage: "folder") { showsFilePicker = true }
+                                Button("Browse Files", lightCraftIcon: "LightCraft-Folder") { showsFilePicker = true }
                                     .buttonStyle(.glassProminent)
                                     .accessibilityIdentifier("home-browse-files")
                                 Spacer(minLength: 0)

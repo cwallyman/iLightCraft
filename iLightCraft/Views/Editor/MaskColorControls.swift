@@ -14,9 +14,10 @@ struct MaskColorControls: View {
     ]
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Mask adjustments").font(.headline)
-            slider("Exposure", value: $values.exposure, range: -4...4, step: 0.1, suffix: " EV")
-            DisclosureGroup("Tone & Detail") {
+            slider("Temp", value: $values.temperature)
+            slider("Tint", value: $values.tint)
+            slider("Exposure", value: $values.exposure, range: -4...4, step: 0.01)
+            Group {
                 VStack(spacing: 14) {
                     slider("Contrast", value: $values.contrast)
                     slider("Highlights", value: $values.highlights)
@@ -28,11 +29,11 @@ struct MaskColorControls: View {
                     slider("Dehaze", value: $values.dehaze)
                     slider("Sharpness", value: $values.sharpness)
                     slider("Noise", value: $values.noise)
+                    slider("Moiré", value: $values.moire)
+                    slider("Defringe", value: $values.defringe)
                 }
             }
-            Text("Skin tone and color balance").font(.subheadline.weight(.semibold))
-            slider("Temperature", value: $values.temperature)
-            slider("Tint", value: $values.tint)
+            Text("Color").font(.subheadline.weight(.semibold))
             slider("Hue shift", value: $values.hue)
             slider("Saturation", value: $values.saturation)
             Text("Colorize").font(.subheadline.weight(.semibold))
@@ -71,11 +72,12 @@ struct MaskColorControls: View {
             HStack {
                 Text(title)
                 Spacer()
-                Text(value.wrappedValue, format: .number.precision(.fractionLength(step < 1 ? 1 : 0)))
-                    .monospacedDigit()
+                LightCraftNumberButton(title: title, value: value.wrappedValue, range: range, step: step, decimals: step < 0.1 ? 2 : step < 1 ? 1 : 0) { number in
+                    value.wrappedValue = number; apply()
+                }
                 if !suffix.isEmpty { Text(suffix) }
-            }
-            Slider(value: value, in: range, step: step) { editing in
+            }.foregroundStyle(LightCraftPanelStyle.isChanged(value.wrappedValue, from: 0) ? LightCraftPanelStyle.changed : LightCraftPanelStyle.label)
+            LightCraftSlider(value: value, in: range, step: step, controlID: title == "Temp" ? "mask.temp" : title == "Tint" ? "mask.tint" : title == "Saturation" ? "color.saturation" : title == "Hue shift" || title == "Target hue" ? "mask.hue" : "") { editing in
                 onEditingChanged(editing)
                 if !editing { apply() }
             }

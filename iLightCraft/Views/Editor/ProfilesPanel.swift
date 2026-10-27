@@ -16,27 +16,23 @@ struct ProfilesPanel<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoIm
         if let closeDock { closeDock() } else { dismiss() }
     }
     var body: some View {
-        EditorToolPresentation(title: "Profiles", header: {
-            Button("Undo", systemImage: "arrow.uturn.backward") { Task { await session.undo(redo: false) } }
-                .help("Undo").disabled(!session.model.canUndo || session.busy || dragging)
-            Button("Redo", systemImage: "arrow.uturn.forward") { Task { await session.undo(redo: true) } }
-                .help("Redo").disabled(!session.model.canRedo || session.busy || dragging)
-            Button("Done", action: close).disabled(session.busy || dragging)
-        }) {
-            ScrollView {
+        EditorToolPresentation(title: "Profiles", header: { EmptyView() }) {
+            EditorPanelScroll {
                 VStack(alignment: .leading, spacing: 16) {
                     if !isDocked, let preview = session.preview {
                         Image(uiImage: preview).resizable().aspectRatio(contentMode: .fit)
                             .frame(maxHeight: 180).accessibilityLabel("Photo with selected profile")
                     }
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Current: \(session.currentName)").font(.headline)
+                        Text("Current: \(session.currentName)").font(.headline).foregroundStyle(session.selectedID == "lc.color" ? LightCraftPanelStyle.label : LightCraftPanelStyle.changed)
                         HStack {
                             Text("Amount")
                             Spacer()
-                            Text("\(Int(session.amount.rounded()))%").monospacedDigit()
-                        }
-                        Slider(value: $session.amount, in: 0...200, step: 1, onEditingChanged: { editing in
+                            LightCraftNumberButton(title: "Profile Amount", value: session.amount, range: 0...200, step: 1, suffix: "%") { number in
+                                session.amount = number; Task { await session.commitAmount() }
+                            }.disabled(!session.loaded || session.busy || session.model.isShowingBefore)
+                        }.foregroundStyle(LightCraftPanelStyle.isChanged(session.amount, from: 100) ? LightCraftPanelStyle.changed : LightCraftPanelStyle.label)
+                        LightCraftSlider(value: $session.amount, in: 0...200, step: 1, defaultValue: 100, onEditingChanged: { editing in
                             dragging = editing
                             if !editing { Task { await session.commitAmount() } }
                         })
@@ -88,7 +84,7 @@ struct ProfilesPanel<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoIm
                         Task { await session.select(profile) }
                     } label: {
                         HStack {
-                            Image(systemName: session.selectedID == profile.id ? "checkmark.circle.fill" : "circle")
+                            Image(lightCraftIcon: session.selectedID == profile.id ? "LightCraft-Check" : "LightCraft-Circle")
                                 .foregroundStyle(session.selectedID == profile.id ? Color.accentColor : .secondary)
                             Text(profile.name).frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -97,7 +93,7 @@ struct ProfilesPanel<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoIm
                     .buttonStyle(.plain)
                     .accessibilityLabel(profile.name)
                     .accessibilityValue(session.selectedID == profile.id ? "Selected" : "")
-                    Button(profile.favorite ? "Remove favorite" : "Favorite", systemImage: profile.favorite ? "star.fill" : "star") {
+                    Button(profile.favorite ? "Remove favorite" : "Favorite", lightCraftIcon: profile.favorite ? "LightCraft-StarFilled" : "LightCraft-Star") {
                         Task { await session.favorite(profile) }
                     }
                     .labelStyle(.iconOnly)

@@ -14,28 +14,28 @@ struct DiagnosticsMenuItems<Engine: EngineDriving & EngineDiagnosing, Importer: 
 
     var body: some View {
         Section("Diagnostics") {
-            Button("Engine state", systemImage: "cpu") {
+            Button("Engine state", lightCraftIcon: "LightCraft-Monitor") {
                 Task { await diagnostics.showEngineState() }
             }
 
             Button(
                 "Inject test frame",
-                systemImage : "square.fill",
+                lightCraftIcon : "LightCraft-Single",
                 action      : diagnostics.injectTestFrame
             )
             .disabled(isPhotoOpen)
 
-            Button("Export reference images", systemImage: "square.and.arrow.down") {
+            Button("Export reference images", lightCraftIcon: "LightCraft-Share") {
                 Task { await diagnostics.exportReferenceImages() }
             }
 
-            Button("Clean Up Test Data", systemImage: "trash") {
+            Button("Clean Up Test Data", lightCraftIcon: "LightCraft-Trash") {
                 Task { await diagnostics.cleanUpTestData() }
             }
 
             Button(
                 "Run Stress Test (10 min)",
-                systemImage : "flame",
+                lightCraftIcon : "LightCraft-Activity",
                 action      : diagnostics.startSoakTest
             )
             .disabled(!isPhotoOpen)

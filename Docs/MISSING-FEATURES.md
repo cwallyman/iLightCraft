@@ -12,7 +12,7 @@ implementation record. Engine support alone does not mean a native workflow is c
 5. **Healing and cloning — implemented controls, acceptance pending:** Remove/Heal/Clone, explicit/automatic source, feather/opacity, saved repair selection/update/delete.
 6. **Presets and batch edits — implemented, acceptance pending:** create/favorite/apply, native `.lcpreset` import/export, selective copy/paste and batches of up to 20 other imported photos. Batch undo/redo lasts until the panel closes; per-photo history persists. Batch edits do not write back to Photos assets.
 7. **Versions and history — implemented, acceptance pending:** named save/restore/rename/delete, alternate local edit copies, persistent history and a main-photo reference comparison.
-8. **SKIPPED by user (2026-10-20) — Library organization:** albums/collections, smart collections, stacks, ratings, flags, labels and editable keywords.
+8. **SKIPPED by user (2026-10-20) — Library organization:** albums/collections, smart collections, stacks, ratings, flags and labels. Editable local photo keywords were subsequently requested and added with the top toolbar on 2026-10-26; hands-on acceptance remains pending.
 9. **SKIPPED by user (2026-10-20) — Search/culling and metadata:** metadata filters, saved searches, multi-select comparison, captions/copyright/IPTC/GPS/capture-time editing and sidecar interchange.
 10. **Backup/restore implemented; CloudKit deferred by user:** Settings can copy a portable library package with checksums and stage verified recovery into a separate library for the next launch. Current library retained; device-specific Photos links excluded. CloudKit signing, sync and conflict recovery remain for later.
 

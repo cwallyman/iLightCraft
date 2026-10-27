@@ -23,6 +23,12 @@ final class ComputationalToolsSession<Engine: EngineDriving & EngineDiagnosing, 
     }
     var brushSize = 0.025
     var removalMode = "remove"
+    var maskingContentAware = false
+    var overlayMode = "color"
+    var overlayColor: [UInt8] = [255, 0, 0]
+    var overlayOpacity = 35.0
+    var showPins = true
+    private(set) var selectedMaskPin: CGPoint?
     var removalFeather = 60.0
     var removalOpacity = 100.0
     var isPickingSource = false
@@ -65,6 +71,12 @@ final class ComputationalToolsSession<Engine: EngineDriving & EngineDiagnosing, 
     private let onIndexed: @MainActor (PhotoID, URL) async -> Void
     nonisolated struct SavedMask: Decodable, Identifiable {
         let id: UInt32; let name: String; let adjust: MaskColorAdjustments; let refine: Double?
+        let visible: Bool?
+        let components: [Component]?
+        struct Component: Decodable {
+            let name: String?; let op: String?; let invert: Bool?; let shape: Shape
+            struct Shape: Decodable { let kind: String }
+        }
     }
     nonisolated struct SavedSpot: Decodable {
         let mode: String; let points: [Point]; let size: Double; let feather: Double; let opacity: Double
@@ -82,6 +94,9 @@ final class ComputationalToolsSession<Engine: EngineDriving & EngineDiagnosing, 
         let path: String
         let neutralPerspective = true
         var overlayMask: UInt32? = nil
+        var overlayMode: String? = nil
+        var overlayColor: [UInt8]? = nil
+        var overlayOpacity: Int? = nil
     }
     nonisolated struct SelectionRequest: Encodable, Sendable {
         let side: Int
@@ -142,7 +157,7 @@ final class ComputationalToolsSession<Engine: EngineDriving & EngineDiagnosing, 
     func cancel() { task?.cancel() }
 
     func select(people: Bool, background: Bool, point: CGPoint? = nil) {
-        manualKind = "none"; tintedPreview = nil
+        maskingContentAware = false; manualKind = "none"; tintedPreview = nil
         isPickingObject = false
         run("Selecting on device…") {
             guard let preview = self.preview else { throw OnDeviceAnalysis.AnalysisError.imageUnavailable }
@@ -169,7 +184,7 @@ final class ComputationalToolsSession<Engine: EngineDriving & EngineDiagnosing, 
         }
     }
     func selectSky() {
-        manualKind = "none"; tintedPreview = nil
+        maskingContentAware = false; manualKind = "none"; tintedPreview = nil
         isPickingObject = false
         run("Selecting sky on device…") {
             guard let preview = self.preview else { throw OnDeviceAnalysis.AnalysisError.imageUnavailable }
@@ -182,7 +197,7 @@ final class ComputationalToolsSession<Engine: EngineDriving & EngineDiagnosing, 
     }
 
     func selectIndividuals(skin: Bool) {
-        manualKind = "none"; tintedPreview = nil
+        maskingContentAware = false; manualKind = "none"; tintedPreview = nil
         isPickingObject = false
         run(skin ? "Selecting each person's skin…" : "Selecting individual people…") {
             guard let preview = self.preview else { throw OnDeviceAnalysis.AnalysisError.imageUnavailable }
@@ -284,7 +299,7 @@ final class ComputationalToolsSession<Engine: EngineDriving & EngineDiagnosing, 
         if let selectedMask, !masks.contains(where: { $0.id == selectedMask }) {
             self.selectedMask = masks.first?.id
         }
-        if selectedMask == nil { maskColor = .init(); maskOverlay = nil; tintedPreview = nil; overlayMaskID = nil }
+        if selectedMask == nil { selectedMaskPin = nil; maskColor = .init(); maskOverlay = nil; tintedPreview = nil; overlayMaskID = nil }
         restoreMaskControls()
         if masks.isEmpty { maskOperation = "new" }
     }
@@ -299,6 +314,32 @@ final class ComputationalToolsSession<Engine: EngineDriving & EngineDiagnosing, 
                                   provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) else { return nil }
         return UIImage(cgImage: image)
     }
+    nonisolated private struct MaskPin: Decodable { let point: [Double]? }
+    func beginContentAware() {
+        guard !busy else { return }
+        maskingContentAware = true; manualKind = "none"; isPickingObject = false
+        isPickingSource = false; sourcePoint = nil; removalMode = "fill"; stroke = []
+        showMaskOverlay = false
+    }
+    func refreshOverlay() {
+        guard !busy, selectedMask != nil else { return }
+        run("Updating mask overlay…") { try await self.refreshImage() }
+    }
+    func toggleVisibility(_ id: UInt32) {
+        run("Toggling mask…") {
+            _ = try await self.model.performPhotoEdit("mask.visible", params: ["id": id])
+            try await self.refreshMasks(); try await self.refreshImage()
+        }
+    }
+    func componentAction(_ index: Int, action: String) {
+        guard let id = selectedMask else { return }
+        let params = ComponentEdit(id: id, component: index, action: action)
+        run("Updating mask component…") {
+            _ = try await self.model.performPhotoEdit("mask.component", params: params)
+            try await self.refreshMasks(); try await self.refreshImage()
+        }
+    }
+    nonisolated private struct ComponentEdit: Encodable, Sendable { let id: UInt32; let component: Int; let action: String }
     func openIndexed(_ entry: LocalAnalysisIndex.Entry) {
         run("Opening local draft…") {
             let text = try await self.model.photoCommand("photo.inspect", params: ["id": entry.id])
@@ -320,7 +361,7 @@ final class ComputationalToolsSession<Engine: EngineDriving & EngineDiagnosing, 
     }
     func beginManual(_ kind: String) {
         guard !busy else { return }
-        manualKind = kind; manualPoints = []; colorPoint = nil; isPickingObject = false
+        maskingContentAware = false; manualKind = kind; manualPoints = []; colorPoint = nil; isPickingObject = false
     }
     func manualPick(_ point: CGPoint) {
         guard !busy else { return }
@@ -362,11 +403,30 @@ final class ComputationalToolsSession<Engine: EngineDriving & EngineDiagnosing, 
         }
     }
 
+    func findDustSpots() {
+        run("Finding dust spots…") {
+            let text = try await self.model.performPhotoEdit("spot.findDust", params: [String: String]())
+            let result = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
+            let count = result?["added"] as? Int ?? 0
+            self.status = count == 0 ? "No dust spots found" : "Healed \(count) dust spots"
+            try await self.refreshImage(); try await self.refreshMasks()
+        }
+    }
+    func deleteAllSpots() {
+        run("Deleting spots…") {
+            for index in self.savedSpots.indices.reversed() {
+                _ = try await self.model.performPhotoEdit("spot.delete", params: ["index": index])
+            }
+            self.selectedSpot = nil; self.sourcePoint = nil; self.stroke = []
+            try await self.refreshImage(); try await self.refreshMasks()
+            self.status = "All spots deleted"
+        }
+    }
     func removeStroke() {
         guard !stroke.isEmpty else { return }
         let points = stroke.map { [Double(min(1, max(0, $0.x))), Double(min(1, max(0, $0.y)))] }
         guard points.count <= 2048 else { error = "Use a shorter removal stroke."; return }
-        let source = sourceOffset(for: stroke.first)
+        let source = removalMode == "fill" ? nil : sourceOffset(for: stroke.first)
         let request = Spot(mode: removalMode, points: points, size: brushSize, feather: removalFeather, opacity: removalOpacity, source: source)
         run("Applying repair…") {
             let result = try await self.model.performPhotoEdit("spot.add", params: request)
@@ -392,14 +452,14 @@ final class ComputationalToolsSession<Engine: EngineDriving & EngineDiagnosing, 
     func updateSavedSpot() {
         guard let selectedSpot, savedSpots.indices.contains(selectedSpot), let spot = savedSpots.dropFirst(selectedSpot).first else { return }
         let target = spot.points.first.map { CGPoint(x: $0.x, y: $0.y) }
-        let request = SpotUpdate(index: selectedSpot, mode: removalMode, size: brushSize, feather: removalFeather, opacity: removalOpacity, source: sourceOffset(for: target))
+        let request = SpotUpdate(index: selectedSpot, mode: removalMode, size: brushSize, feather: removalFeather, opacity: removalOpacity, source: removalMode == "fill" ? nil : sourceOffset(for: target))
         run("Updating repair…") {
             _ = try await self.model.performPhotoEdit("spot.update", params: request)
             try await self.refreshImage(); try await self.refreshMasks()
         }
     }
     func changeSpotSource() {
-        guard let selectedSpot else { return }
+        guard let selectedSpot, removalMode != "fill" else { return }
         run("Finding another source…") {
             _ = try await self.model.performPhotoEdit("spot.refreshSource", params: ["index": selectedSpot])
             try await self.refreshImage(); try await self.refreshMasks(); self.restoreSpotControls()
@@ -500,9 +560,12 @@ final class ComputationalToolsSession<Engine: EngineDriving & EngineDiagnosing, 
         if let id = selectedMask, masks.contains(where: { $0.id == id }) {
             let overlayURL = folder.appending(path: "overlay-\(UUID()).png")
             defer { try? FileManager.default.removeItem(at: overlayURL) }
-            _ = try await model.photoCommand("ilightcraft.cropPreview", params: PreviewRequest(path: overlayURL.path, overlayMask: id))
+            _ = try await model.photoCommand("ilightcraft.cropPreview", params: PreviewRequest(path: overlayURL.path, overlayMask: id, overlayMode: overlayMode, overlayColor: overlayColor, overlayOpacity: Int(min(100, max(0, overlayOpacity)))))
             let overlayData = try await Task.detached { try Data(contentsOf: overlayURL) }.value
             tintedPreview = UIImage(data: overlayData)
+            let pinText = try await model.photoCommand("ilightcraft.maskPin", params: ["maskID": id])
+            let pin = try JSONDecoder().decode(MaskPin.self, from: Data(pinText.utf8)).point
+            selectedMaskPin = pin.flatMap { $0.count == 2 && $0.allSatisfy({ $0.isFinite && (0...1).contains($0) }) ? CGPoint(x: $0[0], y: $0[1]) : nil }
         }
     }
     private func run(_ message: String, operation: @escaping @MainActor () async throws -> Void) {

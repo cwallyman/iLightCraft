@@ -31,6 +31,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
     private(set) var openPhoto   : PhotoID?
     private(set) var openCopyURL : URL?
     private var advancedSettingsJSON: String?
+    @ObservationIgnored var presetReplacementState: PresetReplacementState?
 
     /// errorMessages are the errors raised and not yet acknowledged, oldest first: a second error
     /// while the first is on screen waits behind it. `errorMessage` is the one to show now.
@@ -55,7 +56,8 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 
     /// captureSummary is the open photo's exposure as recorded ("ISO 200 · 1/250 s · f/2.8 · 35 mm"),
     /// nil when the file records none.
-    private(set) var captureSummary: String?
+    private(set) var captureDetails = PhotoCapture.empty
+    var captureSummary: String? { captureDetails.summary }
 
     /// isEdited is the editor's "Edited" status: the engine's own flag (`Photo::is_edited`, which
     /// compares with the photo's import look), read after open and after every committed change.
@@ -273,6 +275,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
                 throw error
             }
 
+            self.presetReplacementState = nil
             self.openPhoto       = photo
             self.openCopyURL     = copy.url
             self.visibleWindow   = nil
@@ -289,7 +292,8 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
             self.cameraDefaults  = info.cameraDefaultsMerge
             let nativeHDR = await Task.detached { (try? NativeImageInfo.read(for: copy.url))?.hdr == true }.value
             if nativeHDR { self.cameraDefaults.hdr = .init(enabled: true, max_ev: 3) }
-            self.captureSummary  = info.capture?.summary
+            let nativeCapture = await Task.detached { PhotoCapture.read(from: copy.url) }.value
+            self.captureDetails = (info.capture ?? .empty).merging(nativeCapture)
             self.histogram       = nil
             self.isShowingBefore = false
 
@@ -907,6 +911,7 @@ extension EditorViewModel where Engine: EngineDiagnosing {
                 let hdr = try await engine.hdrEnabled()
                 let advanced = try await engine.advancedSettingsJSON()
                 let edited = try await engine.isEdited(photo)
+                self.presetReplacementState = nil
                 self.openPhoto = photo
                 self.openCopyURL = source
                 self.photoTitle = source.deletingPathExtension().lastPathComponent
@@ -914,7 +919,8 @@ extension EditorViewModel where Engine: EngineDiagnosing {
                 self.photoSize = info.size
                 self.developDefaults = info.developDefaults
                 self.cameraDefaults = info.cameraDefaultsMerge
-                self.captureSummary = info.capture?.summary
+                let nativeCapture = await Task.detached { PhotoCapture.read(from: source) }.value
+                self.captureDetails = (info.capture ?? .empty).merging(nativeCapture)
                 self.values = Self.defaultValues.merging(values) { _, new in new }
                 self.sent = self.values; self.sentAsShot = asShot
                 self.cropSettings = crop; self.hdrEnabled = hdr; self.advancedSettingsJSON = advanced
@@ -949,9 +955,61 @@ extension EditorViewModel where Engine: EngineDiagnosing {
         return output
     }
 
+    nonisolated private struct PresetSettingsRow: Encodable, Sendable { let id: UInt64; let settingsJSON: String }
+    nonisolated private struct PresetBaseline: Encodable, Sendable { let rows: [PresetSettingsRow] }
+    nonisolated private struct PresetApplication: Encodable, Sendable { let id: String; let amount: Double; let ids: [UInt64] }
+
+    /// replacePreset restores the selection's baseline before applying a new amount, never stacking it.
+    /// The expected settings guard prevents a reset from discarding an intervening edit.
+    func replacePreset(_ preset: String?, amount: Double, baseline: String, expected: String, photo: PhotoID) async throws(EngineError) -> String {
+        guard amount.isFinite, (0...200).contains(amount), baseline.utf8.count <= 16 * 1024 * 1024 else {
+            throw .invalidArgument("Invalid preset amount or baseline")
+        }
+        commitPendingNudge()
+        var output: String?
+        await enqueue { [engine] in
+            guard self.openPhoto == photo, !self.isShowingBefore else { throw EngineError.engine("Open the selected preset's photo first") }
+            let previous = try await engine.diagnostic("develop.get", params: [String: String]())
+            guard previous.utf8.count <= 16 * 1024 * 1024 else { throw EngineError.engine("Preset settings exceed the editing limit") }
+            guard previous == expected else {
+                throw EngineError.engine("The photo changed after this preset was selected. Select the preset again before adjusting or resetting it.")
+            }
+            do {
+                _ = try await engine.diagnostic("develop.restoreBatch", params: PresetBaseline(rows: [PresetSettingsRow(id: photo.rawValue, settingsJSON: baseline)]))
+                if let preset {
+                    _ = try await engine.diagnostic("preset.apply", params: PresetApplication(id: preset, amount: amount, ids: [photo.rawValue]))
+                }
+                try await self.reloadValues()
+                output = try await engine.diagnostic("develop.get", params: [String: String]())
+            } catch {
+                let failure = error
+                do {
+                    _ = try await engine.diagnostic("develop.restoreBatch", params: PresetBaseline(rows: [PresetSettingsRow(id: photo.rawValue, settingsJSON: previous)]))
+                    try await self.reloadValues()
+                } catch {
+                    throw EngineError.engine("Preset change failed: \(failure.localizedDescription). Recovery also failed: \(error.localizedDescription)")
+                }
+                throw failure
+            }
+            self.commitEdit()
+            try self.requestFrames(draft: false)
+        }
+        guard let output else { throw .engine(errorMessages.last ?? "The preset could not be changed") }
+        return output
+    }
+
     /// Native output commands run after the editor's queued adjustments and never block the main actor.
     func photoCommand(_ command: String, params: some Encodable & Sendable) async throws(EngineError) -> String {
         await finishPendingEdits()
         return try await engine.diagnostic(command, params: params)
     }
+}
+
+/// PresetReplacementState keeps a preset's original baseline when its panel is reopened.
+nonisolated struct PresetReplacementState {
+    let photo: PhotoID
+    let presetID: String
+    let baseline: String
+    let expected: String
+    let amount: Double
 }

@@ -156,6 +156,16 @@ struct HistogramTests {
         #expect(PhotoCapture(iso: nil, shutter: "2", aperture: 8, focalMM: nil).summary == "2 s · f/8")
     }
 
+    @Test
+    func captureFieldsRemainVisibleAndFillMissingValues() {
+        #expect(PhotoCapture.empty.displayValues == ["ISO —", "— mm", "f/—", "— s"])
+        let catalog = PhotoCapture(iso: 200, shutter: "", aperture: nil, focalMM: 0)
+        let original = PhotoCapture(iso: 400, shutter: "1/250", aperture: 2.8, focalMM: 35)
+        let capture = catalog.merging(original)
+        #expect(capture.displayValues == ["ISO 200", "35 mm", "f/2.8", "1/250 s"])
+        #expect(capture.summary == "ISO 200 · 1/250 s · f/2.8 · 35 mm")
+    }
+
     /// The overlay outlives page changes and closing the card, and shows only while the card is open.
     @Test
     func theClippingOverlayLivesInTheSession() async {

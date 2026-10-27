@@ -1,0 +1,7 @@
+LightCraft native focused backports
+
+crates/inpaint (lightcraft-inpaint) ports the inpainting (PatchMatch completion) and Poisson membrane
+fill code of PhotoCraft (https://github.com/storytold/photocraft, crates/algo/src/inpaint.rs and
+poisson.rs), Copyright the PhotoCraft contributors, licensed under the MIT License or the Apache
+License 2.0, at your option. The port was modified by the LightCraft contributors (2026); each
+ported file says so.

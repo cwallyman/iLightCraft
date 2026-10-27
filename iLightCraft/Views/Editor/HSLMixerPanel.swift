@@ -18,14 +18,8 @@ struct HSLMixerPanel<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoIm
     }
 
     var body: some View {
-        EditorToolPresentation(title: "HSL Mixer", header: {
-            Button("Undo", systemImage: "arrow.uturn.backward") { undo(redo: false) }
-                .help("Undo").disabled(!model.canUndo || working || dragging)
-            Button("Redo", systemImage: "arrow.uturn.forward") { undo(redo: true) }
-                .help("Redo").disabled(!model.canRedo || working || dragging)
-            Button("Done", action: close).disabled(working || dragging)
-        }) {
-            ScrollView {
+        EditorToolPresentation(title: "HSL Mixer", header: { EmptyView() }) {
+            EditorPanelScroll {
                 VStack(alignment: .leading, spacing: 18) {
                     if !isDocked {
                         if let preview {

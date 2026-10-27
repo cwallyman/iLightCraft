@@ -1,0 +1,2 @@
+# Generated vector icons are binary assets; preserve their PDF byte offsets.
+*.pdf binary

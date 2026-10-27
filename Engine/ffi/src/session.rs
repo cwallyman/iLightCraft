@@ -666,6 +666,8 @@ impl Engine {
             if matches!(
                 command,
                 "ilightcraft.export"
+                    | "ilightcraft.maskPin"
+                    | "ilightcraft.comparisonPreview"
                     | "ilightcraft.cropPreview"
                     | "ilightcraft.hdrExport"
                     | "ilightcraft.versionPreview"

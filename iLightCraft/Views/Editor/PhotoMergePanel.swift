@@ -26,15 +26,14 @@ struct PhotoMergePanel<Engine: EngineDriving & EngineDiagnosing, Importer: Photo
                     ForEach(["auto", "spherical", "cylindrical", "perspective"], id: \.self) { Text($0.capitalized).tag($0) }
                 }
                 Toggle("Auto crop", isOn: $session.autoCrop)
-                Text("Panorama output limit: \(session.maxMegapixels, specifier: "%.0f") MP")
-                Slider(value: $session.maxMegapixels, in: 1...40, step: 1)
+                LightCraftSliderRow("Panorama Output Limit (MP)", value: $session.maxMegapixels, in: 1...40, defaultValue: 20, step: 1)
             }
             Text("Select imported photos in capture order. HDR panoramas require exposure brackets at each view. Full-resolution jobs are refused when their memory estimate exceeds the current allowance.")
                 .font(.footnote).foregroundStyle(.secondary)
             ForEach(session.photos) { photo in
                 Button { session.toggle(photo.id) } label: {
                     HStack {
-                        Image(systemName: session.selected.contains(photo.id) ? "checkmark.circle.fill" : "circle")
+                        Image(lightCraftIcon: session.selected.contains(photo.id) ? "LightCraft-Check" : "LightCraft-Circle")
                         VStack(alignment: .leading) {
                             Text(photo.name).lineLimit(1)
                             Text("\(photo.width) × \(photo.height)").font(.caption).foregroundStyle(.secondary)

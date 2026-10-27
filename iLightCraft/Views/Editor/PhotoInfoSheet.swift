@@ -27,7 +27,7 @@ struct PhotoInfoSheet: View {
         EditorToolPresentation(title: "Info", header: {
             Button("Done", action: closeTool)
         }) {
-            List {
+            LightCraftMenuList {
                 LabeledContent("Name", value: name)
 
                 if let type {

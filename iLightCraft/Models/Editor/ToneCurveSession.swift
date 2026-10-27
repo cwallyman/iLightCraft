@@ -13,6 +13,15 @@ final class ToneCurveSession<Engine: EngineDriving & EngineDiagnosing, Importer:
     private(set) var loaded = false
     private(set) var image: UIImage?
     var error: String?
+    private var showsPreview = true
+    private(set) var presetNames: [String] = []
+    private(set) var userPresetNames: [String] = []
+    private(set) var currentPreset = "Linear"
+    nonisolated private struct PresetMenu: Decodable {
+        let presets: [Preset]
+        let current: String?
+        struct Preset: Decodable { let name: String; let builtin: Bool? }
+    }
     private var saved: [ToneCurveChannel: ToneCurvePoints] = [:]
 
     nonisolated struct Settings: Decodable {
@@ -43,7 +52,8 @@ final class ToneCurveSession<Engine: EngineDriving & EngineDiagnosing, Importer:
         return points[index]
     }
 
-    func load() async {
+    func load(showsPreview: Bool = true) async {
+        self.showsPreview = showsPreview
         guard !busy else { return }
         busy = true; defer { busy = false }
         do { try await readSettings(); loaded = true; try await refreshImage() }
@@ -56,6 +66,12 @@ final class ToneCurveSession<Engine: EngineDriving & EngineDiagnosing, Importer:
         curves = [.master: try ToneCurvePoints(c.master), .red: try ToneCurvePoints(c.red),
                   .green: try ToneCurvePoints(c.green), .blue: try ToneCurvePoints(c.blue)]
         saved = curves
+        let menuText = try await model.photoCommand("curve.presets", params: [String: String]())
+        let menu = try JSONDecoder().decode(PresetMenu.self, from: Data(menuText.utf8))
+        guard menu.presets.count <= 4096 else { throw EngineError.engine("Too many curve presets") }
+        presetNames = menu.presets.map(\.name)
+        userPresetNames = menu.presets.filter { $0.builtin != true }.map(\.name)
+        currentPreset = menu.current ?? "Custom"
         if let selectedPoint, !points.indices.contains(selectedPoint) { self.selectedPoint = nil }
     }
 
@@ -119,12 +135,43 @@ final class ToneCurveSession<Engine: EngineDriving & EngineDiagnosing, Importer:
         catch { self.error = Self.message(error) }
     }
     private func refreshImage() async throws {
+        guard showsPreview else { return }
         let url = URL.temporaryDirectory.appending(path: "tone-curve-\(UUID()).png")
         defer { try? FileManager.default.removeItem(at: url) }
         _ = try await model.photoCommand("ilightcraft.export", params: PreviewRequest(path: url.path))
         let bytes = try await Task.detached { try Data(contentsOf: url) }.value
         guard let image = UIImage(data: bytes) else { throw EngineError.engine("Cannot read the tone curve preview") }
         self.image = image
+    }
+    func resetAllCurves() async {
+        guard !busy else { return }
+        busy = true; error = nil; defer { busy = false }
+        do {
+            _ = try await model.performPhotoEdit("curve.reset", params: ["channel": "all"])
+            selectedPoint = nil; try await readSettings(); try await refreshImage()
+        } catch { self.error = Self.message(error) }
+    }
+    func presetCommand(_ command: String, params: [String: String]) async {
+        guard loaded, !busy else { return }
+        busy = true; error = nil; defer { busy = false }
+        do {
+            if command == "curve.applyPreset" {
+                _ = try await model.performPhotoEdit(command, params: params)
+            } else {
+                _ = try await model.photoCommand(command, params: params)
+            }
+            selectedPoint = nil
+            try await readSettings(); try await refreshImage()
+        } catch { self.error = Self.message(error) }
+    }
+    func importPresets(_ url: URL) async {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            guard (1...2_097_152).contains(size) else { throw EngineError.engine("Choose a curve preset file under 2 MB") }
+            await presetCommand("curve.importPresets", params: ["path": url.path])
+        } catch { self.error = Self.message(error) }
     }
     private static func message(_ error: Error) -> String { (error as? EngineError)?.message ?? error.localizedDescription }
 }

@@ -28,7 +28,7 @@ struct ClippingToggle: View {
         Button {
             clipping.formSymmetricDifference(end)
         } label: {
-            Image(systemName: "triangle.fill")
+            Image(lightCraftIcon: "LightCraft-Clipping").resizable().frame(width: 9, height: 9)
                 .font(.system(size: 9, weight: .bold))
                 .rotationEffect(.degrees(isShadows ? -45 : 45))
                 .foregroundStyle(isClipped ? lit : .white.opacity(0.35))

@@ -14,7 +14,7 @@ struct RenderErrorBanner: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image(lightCraftIcon: "LightCraft-Info")
                 .foregroundStyle(.yellow)
                 .accessibilityHidden(true)
 
@@ -22,7 +22,7 @@ struct RenderErrorBanner: View {
                 .font(.callout)
                 .lineLimit(3)
 
-            Button("Dismiss", systemImage: "xmark", action: onDismiss)
+            Button("Dismiss", lightCraftIcon: "LightCraft-Close", action: onDismiss)
                 .labelStyle(.iconOnly)
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("render-error-dismiss")

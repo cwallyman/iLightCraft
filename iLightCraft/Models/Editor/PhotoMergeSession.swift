@@ -17,6 +17,7 @@ final class PhotoMergeSession<Engine: EngineDriving & EngineDiagnosing, Importer
         let height: Int
         let title: String?
         let copyName: String?
+        var captured: String? = nil
         var originalName: String?
         var name: String {
             let base = title.flatMap { $0.isEmpty ? nil : $0 } ?? Self.withoutImportHash(originalName ?? fileName)

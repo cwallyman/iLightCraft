@@ -15,6 +15,10 @@ Point Color, grading, optics, manual masks, repair refinements, presets/batch, v
 
 ## Release status — 0.11.0
 
+**Release scope updated 2026-10-26: iPhone and iPad only.** Mac distribution is deferred.
+Mac development support remains available. The earlier Mac upload below is historical;
+App Store Connect exclusion is pending account access. Do not submit it for this release.
+
 Xcode Cloud builds passed for **iOS/iPadOS and Mac Catalyst** on 2026-10-25 at
 [`303faf0`](https://github.com/cwallyman/iLightCraft/commit/303faf06baa18e79f35c4e8bb4d2042f30eb7b0d).
 The three Swift compiler warnings were resolved. The Mac Cloud build retains one
@@ -23,8 +27,9 @@ platforms; automatic Archive/TestFlight delivery is not configured.
 
 Signed local 0.11.0 archives were uploaded successfully for both platforms. Apple
 processing, TestFlight availability, physical feature acceptance and App Review remain
-unverified. The current engine is retained for this release; engine updates are deferred
-to the next version. See [release preparation](Docs/APP-STORE-READINESS.md) and
+unverified. The current engine baseline is retained, with the focused Content-Aware Fill and
+native preview additions recorded in [engine changes](Engine/CHANGES.md). A broad
+engine update remains deferred to the next version. See [release preparation](Docs/APP-STORE-READINESS.md) and
 [Cloud configuration](Docs/XCODE-CLOUD.md).
 
 ## Documentation
@@ -64,14 +69,14 @@ An engine capability is not automatically an exposed or verified native app feat
 
 1. Choose **Files** or **Photos** and open a still image. Grant Photos access yourself when requested.
 2. Use **Edit/Done** to show or hide adjustments.
-3. For Masks, Remove and Crop & Rotate, interact directly with the main photo; pinch to zoom and use two fingers to pan. Their panels contain the controls. Use **HSL Mixer** for eight color bands and **Profiles** for built-in looks and Amount (0–200%). Open these from the Mac/iPad toolbar or iPhone More menu. Use **Tone Curves** in the Mac/iPad toolbar (or iPhone **More**) for RGB and individual-channel curves. Tools open beside the photo on Mac/iPad and iPhone landscape; iPhone portrait uses a scrollable lower-half panel with the main photo available for pinch zoom. More > Settings > Controls side chooses Left or Right for side panels. Tap to add a point, drag it and release to update the photo; use the point selector and Input/Output sliders for precise changes.
-4. Use **More > Crop & Rotate** for crop handles, presets, rotation and straightening.
-4. Use **More > HDR Editing** to control HDR processing; native RAW/HDR imports enable it by default.
+3. For Masks, Remove and Crop & Rotate, interact directly with the main photo; pinch to zoom and use two fingers to pan. Their panels contain the controls. Use **HSL Mixer** for eight color bands and **Profiles** for built-in looks and Amount (0–200%). Open these from the Edit panel. Use **Tone Curves** in the Edit panel for RGB and individual-channel curves. Tools open beside the photo on Mac/iPad and iPhone landscape; iPhone portrait uses a scrollable lower-half panel with the main photo available for pinch zoom. Three-dot menu > Settings > Controls side chooses Left or Right for side panels. Tap to add a point, drag it and release to update the photo; use the point selector and Input/Output sliders for precise changes.
+4. Use **Crop** in the top toolbar for crop handles, presets, rotation and straightening.
+4. Use the **Edit > HDR** to control HDR processing; native RAW/HDR imports enable it by default.
 5. Use **Export** for output options, batch selection and the system share sheet/Save to Files.
-6. On Mac/iPad, use the toolbar icons for Masks, Remove, Library Analysis, Merge, Lens Blur and AI Enhancement. On iPhone, find them in **More**. Hover an icon to see its label.
+6. On iPad, the top toolbar follows LightCraft’s side rail: Back, name, zoom percentage, Export, Presets, Edit, a divider, Crop, Remove, Masking, Red Eye, a divider, Versions, History, Keywords and Info. Tool groups scroll horizontally when needed. iPhone keeps Back, the photo name, Undo, Redo and More visible, with zoom/export and tool buttons inside More. Undo and Redo sit beside More on both devices; Back and More use larger icons. App-only extras and Settings are in More. The bottom photo strip has Single Photo and side-by-side Before / Edited views of the same photo, sorting, ratings/flags and Copy Edit Settings options. Hover an icon to see its label.
    Depth/enhancement models download only when you choose Download; photos stay on device. Lens Blur
    and enhancement create rendered copies. RGB enhancement requires explicitly disabling HDR Editing.
-7. For an image opened from Photos, choose **More > Save to Apple Photos** to request a save to that item.
+7. For an image opened from Photos, choose **three-dot menu > Save to Apple Photos** to request a save to that item.
    If Photos changed externally, keep the local edit or use **Reload Latest Photos Version**.
 
 Local drafts are retained while editing. For a photo opened from Apple Photos, **Back** waits for pending edits and saves changed settings/rendering to the same Photos item before returning home. A save failure or external-edit conflict keeps the editor open. Manual **Save to Apple Photos** remains available. Originals are retained by the import/save design; preservation and round-trip checks

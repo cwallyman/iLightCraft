@@ -6,6 +6,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import Metal
 import Testing
 import UniformTypeIdentifiers
 @testable import iLightCraft

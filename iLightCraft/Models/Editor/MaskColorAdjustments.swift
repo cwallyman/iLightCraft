@@ -14,6 +14,8 @@ nonisolated struct MaskColorAdjustments: Codable, Equatable, Sendable {
     var dehaze = 0.0
     var sharpness = 0.0
     var noise = 0.0
+    var moire = 0.0
+    var defringe = 0.0
 
     var temperature = 0.0
     var tint = 0.0
@@ -23,7 +25,7 @@ nonisolated struct MaskColorAdjustments: Codable, Equatable, Sendable {
     var colorAmount = 0.0
 
     enum CodingKeys: String, CodingKey {
-        case exposure, tint, hue, saturation, contrast, highlights, shadows, whites, blacks, texture, clarity, dehaze, sharpness, noise
+        case exposure, tint, hue, saturation, contrast, highlights, shadows, whites, blacks, texture, clarity, dehaze, sharpness, noise, moire, defringe
         case temperature = "temp", colorHue = "color_hue", colorAmount = "color_sat"
     }
     init() {}
@@ -46,6 +48,8 @@ nonisolated struct MaskColorAdjustments: Codable, Equatable, Sendable {
         dehaze = try fields.decodeIfPresent(Double.self, forKey: .dehaze) ?? 0
         sharpness = try fields.decodeIfPresent(Double.self, forKey: .sharpness) ?? 0
         noise = try fields.decodeIfPresent(Double.self, forKey: .noise) ?? 0
+        moire = try fields.decodeIfPresent(Double.self, forKey: .moire) ?? 0
+        defringe = try fields.decodeIfPresent(Double.self, forKey: .defringe) ?? 0
         guard isValid else {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Mask color settings are invalid"))
         }
@@ -53,7 +57,7 @@ nonisolated struct MaskColorAdjustments: Codable, Equatable, Sendable {
     var isValid: Bool {
         [exposure, temperature, tint, hue, saturation, colorHue, colorAmount].allSatisfy(\.isFinite)
             && (-4...4).contains(exposure)
-            && [temperature, tint, hue, saturation, contrast, highlights, shadows, whites, blacks, texture, clarity, dehaze, sharpness, noise].allSatisfy { (-100...100).contains($0) }
+            && [temperature, tint, hue, saturation, contrast, highlights, shadows, whites, blacks, texture, clarity, dehaze, sharpness, noise, moire, defringe].allSatisfy { (-100...100).contains($0) }
             && (0...360).contains(colorHue) && (0...100).contains(colorAmount)
     }
     mutating func colorize(hue: Double) {

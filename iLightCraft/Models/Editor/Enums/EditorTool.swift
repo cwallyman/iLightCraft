@@ -17,10 +17,10 @@ nonisolated enum EditorTool: String, Sendable, CaseIterable {
         }
     }
     
-    var systemImage: String {
+    var lightCraftIcon: String {
         switch self {
-            case .move  : "pointer.arrow"
-            case .adjust: "slider.horizontal.3"
+            case .move  : "LightCraft-Target"
+            case .adjust: "LightCraft-Sliders"
         }
     }
 }

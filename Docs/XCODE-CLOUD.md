@@ -1,6 +1,13 @@
 # iLightCraft Xcode Cloud
 
-Last updated: 2026-10-25.
+Last updated: 2026-10-26.
+
+## Current release scope
+
+Version 0.11.0 is **iOS/iPadOS only**, per the user's 2026-10-26 decision. Keep any
+Mac Build action for development checks only; do not add Mac Archive/TestFlight
+delivery or submit the previously uploaded Mac build. The remote workflow has not
+been edited for this decision.
 
 ## Verified workflow
 
@@ -46,7 +53,7 @@ packages, signing keys, identity overrides, device backups or `.xcode-cloud` env
 
 ## Archive and TestFlight next steps
 
-Add Release Archive actions for iOS and Mac Catalyst, retaining the Catalyst destination.
+Add a Release Archive action for iOS only. Mac distribution is deferred.
 Check App Store Connect's existing build numbers before setting Cloud numbering; local
 source uses build number 1 and the prior uploads let Xcode manage distribution numbering.
 Confirm each archive processes successfully before adding an internal TestFlight group.

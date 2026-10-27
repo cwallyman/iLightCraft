@@ -62,3 +62,12 @@ not bundled with this source or app. The specific offered variants, pinned revis
 source URLs and use limitations are in Docs/Models/README.md. License texts are retained in
 Unveil/Resources/Model-LICENSE-APACHE.txt and Model-LICENSE-BSD.txt and copied into installations.
 The native bridge does not enable RawNIND/GPL or face identity model downloads.
+
+
+LightCraft native focused backports
+
+crates/inpaint (lightcraft-inpaint) ports the inpainting (PatchMatch completion) and Poisson membrane
+fill code of PhotoCraft (https://github.com/storytold/photocraft, crates/algo/src/inpaint.rs and
+poisson.rs), Copyright the PhotoCraft contributors, licensed under the MIT License or the Apache
+License 2.0, at your option. The port was modified by the LightCraft contributors (2026); each
+ported file says so.

@@ -10,10 +10,10 @@ struct EditorUnavailableView: View {
     let reason: String
 
     var body: some View {
-        ContentUnavailableView(
-            "Unable to Start Editor",
-            systemImage : "exclamationmark.triangle",
-            description : Text(reason)
-        )
+        ContentUnavailableView {
+            Label("Unable to Start Editor", lightCraftIcon: "LightCraft-Info")
+        } description: {
+            Text(reason)
+        }
     }
 }

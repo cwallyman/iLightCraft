@@ -14,6 +14,9 @@ fn io(error: impl ToString) -> Failure {
 }
 
 pub fn run(session: &mut Session, command: &str, params: &Value) -> Result<Value, Failure> {
+    if command == "ilightcraft.maskPin" {
+        return mask_pin(session, params);
+    }
     let path = params
         .get("path")
         .and_then(Value::as_str)
@@ -25,7 +28,24 @@ pub fn run(session: &mut Session, command: &str, params: &Value) -> Result<Value
         .map(PhotoId)
         .or_else(|| session.active())
         .ok_or_else(|| Failure::invalid("no photo selected"))?;
-    let (bytes, width, height) = if command == "ilightcraft.hdrExport" {
+    let (bytes, width, height) = if command == "ilightcraft.comparisonPreview" {
+        let edge = params
+            .get("longEdge")
+            .and_then(Value::as_u64)
+            .unwrap_or(1400)
+            .clamp(256, 1600) as usize;
+        let before = params.get("before").and_then(Value::as_bool).unwrap_or(false);
+        let job = session
+            .render_job(id, edge, edge, before, true)
+            .ok_or_else(|| Failure::invalid("Cannot prepare comparison preview"))?;
+        let rendered = job.run().rendered.map_err(io)?;
+        let options = ExportOptions {
+            format: ExportFormat::Png,
+            ..Default::default()
+        };
+        let bytes = encode_rendered(&rendered, &options, None).map_err(io)?;
+        (bytes, rendered.image.width, rendered.image.height)
+    } else if command == "ilightcraft.hdrExport" {
         let settings = session
             .develop_of(id)
             .ok_or_else(|| Failure::invalid("photo not found"))?;
@@ -101,9 +121,28 @@ pub fn run(session: &mut Session, command: &str, params: &Value) -> Result<Value
             }
             job.with_overlay(lightcraft_pipeline::Overlay::Mask {
                 id,
-                view: lightcraft_pipeline::MaskView::Color,
-                color: [242, 165, 22],
-                opacity: 35,
+                view: params
+                    .get("overlayMode")
+                    .and_then(Value::as_str)
+                    .and_then(lightcraft_pipeline::MaskView::parse)
+                    .unwrap_or_default(),
+                color: params
+                    .get("overlayColor")
+                    .and_then(Value::as_array)
+                    .filter(|v| v.len() == 3)
+                    .and_then(|v| {
+                        Some([
+                            u8::try_from(v.first()?.as_u64()?).ok()?,
+                            u8::try_from(v.get(1)?.as_u64()?).ok()?,
+                            u8::try_from(v.get(2)?.as_u64()?).ok()?,
+                        ])
+                    })
+                    .unwrap_or([242, 165, 22]),
+                opacity: params
+                    .get("overlayOpacity")
+                    .and_then(Value::as_u64)
+                    .map(|v| v.min(100) as u8)
+                    .unwrap_or(35),
             })
         } else {
             job
@@ -139,4 +178,61 @@ pub fn run(session: &mut Session, command: &str, params: &Value) -> Result<Value
         return Err(io(error));
     }
     Ok(json!({"path": Path::new(path), "width": width, "height": height}))
+}
+
+/// The selected component's anchor, or the centroid of its stored foreground coverage.
+fn mask_pin(session: &Session, params: &Value) -> Result<Value, Failure> {
+    use lightcraft_develop::MaskShape;
+    let id = session
+        .active()
+        .ok_or_else(|| Failure::invalid("no photo selected"))?;
+    let settings = session
+        .develop_of(id)
+        .ok_or_else(|| Failure::invalid("photo not found"))?;
+    let mask_id = params
+        .get("maskID")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| Failure::invalid("missing mask ID"))?;
+    let mask = settings
+        .masks
+        .iter()
+        .find(|m| u64::from(m.id) == mask_id)
+        .ok_or_else(|| Failure::invalid("mask not found"))?;
+    let point = mask
+        .components
+        .iter()
+        .find_map(|component| match &component.shape {
+            MaskShape::Linear { start, .. } => Some((start.x, start.y)),
+            MaskShape::Radial { center, .. } => Some((center.x, center.y)),
+            MaskShape::Brush { strokes } => {
+                strokes.first().and_then(|s| s.points.first()).map(|p| (p.x, p.y))
+            }
+            MaskShape::Object { seg: Some(seg), .. } | MaskShape::Prompt { seg: Some(seg), .. } => {
+                let side = usize::try_from(seg.side).ok()?;
+                if side == 0 {
+                    return None;
+                }
+                let logits = seg.logits()?;
+                let bounds = seg.bounds()?;
+                let (mut x, mut y, mut count) = (0.0, 0.0, 0.0);
+                for (i, value) in logits.iter().enumerate() {
+                    if *value > 0.0 {
+                        x += (i % side) as f64 + 0.5;
+                        y += (i / side) as f64 + 0.5;
+                        count += 1.0;
+                    }
+                }
+                (count > 0.0).then(|| {
+                    (
+                        bounds[0] + x / count / side as f64 * (bounds[2] - bounds[0]),
+                        bounds[1] + y / count / side as f64 * (bounds[3] - bounds[1]),
+                    )
+                })
+            }
+            _ => None,
+        })
+        .filter(|(x, y)| {
+            x.is_finite() && y.is_finite() && (0.0..=1.0).contains(x) && (0.0..=1.0).contains(y)
+        });
+    Ok(json!({"point": point.map(|(x, y)| [x, y])}))
 }

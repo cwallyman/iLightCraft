@@ -1,8 +1,14 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ToneCurveSheet<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoImporting>: View {
     @State private var session: ToneCurveSession<Engine, Importer>
     @State private var dragging = false
+    @State private var savingPreset = false
+    @State private var presetName = ""
+    @State private var importingPresets = false
+    @State private var sharingPresets = false
+    @State private var exportedPresets: URL?
     @GestureState private var graphTouchActive = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
@@ -28,14 +34,8 @@ struct ToneCurveSheet<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoI
     }
 
     var body: some View {
-        EditorToolPresentation(title: "Tone Curves", header: {
-            Button("Undo", systemImage: "arrow.uturn.backward") { Task { await session.undo() } }
-                .help("Undo").disabled(!session.model.canUndo || session.busy || dragging)
-            Button("Redo", systemImage: "arrow.uturn.forward") { Task { await session.undo(redo: true) } }
-                .help("Redo").disabled(!session.model.canRedo || session.busy || dragging)
-            Button("Done") { closeTool() }.disabled(session.busy || dragging)
-        }) {
-            ScrollView {
+        EditorToolPresentation(title: "Tone Curve", header: { EmptyView() }) {
+            EditorPanelScroll {
                 VStack(spacing: 18) {
                     if !isDocked {
                     if let image = session.image {
@@ -46,12 +46,23 @@ struct ToneCurveSheet<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoI
                         ProgressView("Preparing photo…").frame(height: 140)
                     }
                     }
-                    Picker("Curve channel", selection: $session.channel) {
-                        ForEach(ToneCurveChannel.allCases) { channel in Text(channel.title).tag(channel) }
-                    }
-                    .pickerStyle(.segmented)
-                    .disabled(session.busy || dragging)
-                    .onChange(of: session.channel) { _, _ in session.selectedPoint = nil }
+                    HStack(spacing: 14) {
+                        Image(lightCraftIcon: "LightCraft-Curve").foregroundStyle(LightCraftPanelStyle.label)
+                        ForEach(ToneCurveChannel.allCases) { channel in
+                            Button {
+                                session.channel = channel; session.selectedPoint = nil
+                            } label: {
+                                Circle().stroke(channelColor(channel), lineWidth: 2)
+                                    .frame(width: 20, height: 20)
+                                    .padding(5)
+                                    .background(session.channel == channel ? LightCraftPanelStyle.label.opacity(0.15) : .clear, in: .circle)
+                            }
+                            .accessibilityLabel("\(channel.title) curve")
+                            .accessibilityAddTraits(session.channel == channel ? .isSelected : [])
+                            .contextMenu { Button("Reset Channel") { Task { await session.reset(all: false) } } }
+                        }
+                        Spacer(minLength: 0)
+                    }.buttonStyle(.plain).disabled(session.busy || dragging)
 
                     graph
                         .aspectRatio(1, contentMode: .fit)
@@ -59,19 +70,30 @@ struct ToneCurveSheet<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoI
                         // Leave scrollable space beside the graph's point-drag gesture.
                         .padding(.horizontal, 16)
                         .disabled(session.busy || !session.loaded)
-                    Text("Tap to add a point. Drag to change it; release to update the photo.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-
-                    if session.loaded {
-                        pointControls
-                    }
                     HStack {
-                        Button("Reset Channel") { Task { await session.reset(all: false) } }
-                        Spacer()
-                        Button("Reset All Channels") { Task { await session.reset(all: true) } }
+                        Text("Point Curve").foregroundStyle(session.currentPreset == "Linear" ? LightCraftPanelStyle.label : LightCraftPanelStyle.changed)
+                        Menu(session.currentPreset) {
+                            ForEach(session.presetNames, id: \.self) { name in
+                                Button(name) { Task { await session.presetCommand("curve.applyPreset", params: ["name": name]) } }
+                            }
+                            Divider()
+                            Button("Save Point Curve…") { presetName = ""; savingPreset = true }.disabled(session.currentPreset == "Linear")
+                            Button("Import Presets…") { importingPresets = true }
+                            Button("Export Presets…") {
+                                Task {
+                                    let file = URL.temporaryDirectory.appending(path: "Curves-\(UUID()).lccurve")
+                                    await session.presetCommand("curve.exportPresets", params: ["path": file.path])
+                                    if session.error == nil { exportedPresets = file; sharingPresets = true }
+                                }
+                            }.disabled(session.userPresetNames.isEmpty)
+                        }.foregroundStyle(session.currentPreset == "Linear" ? LightCraftPanelStyle.label : LightCraftPanelStyle.changed)
+                        Spacer(minLength: 0)
+                        Button("Reset") { Task { await session.resetAllCurves() } }.buttonStyle(.bordered)
+                    }.font(.system(size: 14)).disabled(session.busy || dragging)
+                    DisclosureGroup("Point Details") {
+                        Text("Tap the graph to add a point. Drag a point to adjust it.").font(.caption)
+                        if session.loaded { pointControls }
                     }
-                    .disabled(session.busy || dragging)
                     if session.busy { ProgressView("Updating photo…") }
                     if let error = session.error {
                         Text(error).font(.footnote).foregroundStyle(.red).textSelection(.enabled)
@@ -81,7 +103,7 @@ struct ToneCurveSheet<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoI
             }
 
             .interactiveDismissDisabled(session.busy || dragging)
-            .task { await session.load() }
+            .task { await session.load(showsPreview: !isDocked) }
             .onChange(of: scenePhase) { _, phase in
                 if phase != .active && dragging {
                     dragging = false
@@ -89,10 +111,29 @@ struct ToneCurveSheet<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoI
                 }
             }
         }
+        .alert("Save Point Curve", isPresented: $savingPreset) {
+            TextField("Preset name", text: $presetName)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") { Task { await session.presetCommand("curve.savePreset", params: ["name": presetName]) } }
+                .disabled(presetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || presetName.count > 256)
+        }
+        .fileImporter(isPresented: $importingPresets, allowedContentTypes: [.item]) { result in
+            switch result {
+            case .success(let url): Task { await session.importPresets(url) }
+            case .failure(let error): session.error = error.localizedDescription
+            }
+        }
+        .sheet(isPresented: $sharingPresets, onDismiss: {
+            if let exportedPresets { try? FileManager.default.removeItem(at: exportedPresets) }
+            exportedPresets = nil
+        }) { if let exportedPresets { PhotoShareSheet(files: [exportedPresets]) } }
         .preferredColorScheme(.dark)
         .modifier(EditorToolBusyReporter(busy: session.busy || dragging))
     }
 
+    private func channelColor(_ channel: ToneCurveChannel) -> Color {
+        switch channel { case .master: LightCraftPanelStyle.text; case .red: .red; case .green: .green; case .blue: .blue }
+    }
     private var graph: some View {
         GeometryReader { geometry in
             let size = geometry.size
@@ -131,7 +172,7 @@ struct ToneCurveSheet<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoI
                     context.stroke(dot, with: .color(.black), lineWidth: 1)
                 }
             }
-            .background(.black.opacity(0.5), in: .rect(cornerRadius: 12))
+            .background(LightCraftPanelStyle.inset, in: .rect(cornerRadius: 3))
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .updating($graphTouchActive) { _, active, _ in active = true }
@@ -171,24 +212,35 @@ struct ToneCurveSheet<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoI
                         Text("Point \(index + 1)").tag(Optional(index))
                     }
                 }
-                Button("Add Point", systemImage: "plus") { Task { await session.addPoint() } }
+                Button("Add Point", lightCraftIcon: "LightCraft-Plus") { Task { await session.addPoint() } }
                     .labelStyle(.iconOnly).help("Add Point").disabled(session.points.count >= 64)
-                Button("Delete Point", systemImage: "minus") { Task { await session.deletePoint() } }
+                Button("Delete Point", lightCraftIcon: "LightCraft-Minus") { Task { await session.deletePoint() } }
                     .labelStyle(.iconOnly).help("Delete Point")
                     .disabled(session.selectedPoint == nil || session.selectedPoint == 0 || session.selectedPoint == session.points.count - 1)
             }
             if let point = session.selected {
-                Text("Input \(Int((point.x * 255).rounded())) · Output \(Int((point.y * 255).rounded()))")
-                    .font(.caption.monospacedDigit())
-                Slider(value: Binding(get: { session.selected?.x ?? 0 }, set: { session.move(x: $0, y: session.selected?.y ?? 0) }),
-                       in: 0...1, step: 1.0 / 255, onEditingChanged: { editing in
+                HStack {
+                    Text("Input")
+                    LightCraftNumberButton(title: "Curve Input", value: point.x * 255, range: 0...255, step: 1) { number in
+                        session.move(x: number / 255, y: session.selected?.y ?? point.y)
+                        Task { await session.commit() }
+                    }.disabled(point.x == 0 || point.x == 1)
+                    Text("Output")
+                    LightCraftNumberButton(title: "Curve Output", value: point.y * 255, range: 0...255, step: 1) { number in
+                        session.move(x: session.selected?.x ?? point.x, y: number / 255)
+                        Task { await session.commit() }
+                    }
+                }.font(.caption.monospacedDigit())
+                    .foregroundStyle(LightCraftPanelStyle.isChanged(point.x, from: point.y) ? LightCraftPanelStyle.changed : LightCraftPanelStyle.label)
+                LightCraftSlider(value: Binding(get: { session.selected?.x ?? 0 }, set: { session.move(x: $0, y: session.selected?.y ?? 0) }),
+                       in: 0...1, step: 1.0 / 255, defaultValue: point.y, onEditingChanged: { editing in
                     dragging = editing
                     if !editing { Task { await session.commit() } }
                 })
                 .accessibilityLabel("Curve input")
                 .disabled(point.x == 0 || point.x == 1)
-                Slider(value: Binding(get: { session.selected?.y ?? 0 }, set: { session.move(x: session.selected?.x ?? 0, y: $0) }),
-                       in: 0...1, step: 1.0 / 255, onEditingChanged: { editing in
+                LightCraftSlider(value: Binding(get: { session.selected?.y ?? 0 }, set: { session.move(x: session.selected?.x ?? 0, y: $0) }),
+                       in: 0...1, step: 1.0 / 255, defaultValue: point.x, onEditingChanged: { editing in
                     dragging = editing
                     if !editing { Task { await session.commit() } }
                 })

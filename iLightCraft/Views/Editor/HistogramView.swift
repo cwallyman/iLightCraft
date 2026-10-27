@@ -68,13 +68,20 @@ struct HistogramView<Engine: EngineDriving, Importer: PhotoImporting>: View {
                     )
                 }
 
-            if showsCaptureSummary, let capture = viewModel.captureSummary {
-                Text(capture)
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+            if showsCaptureSummary {
+                HStack(spacing: 4) {
+                    ForEach(Array(viewModel.captureDetails.displayValues.enumerated()), id: \.offset) { _, value in
+                        Text(value).frame(maxWidth: .infinity)
+                    }
+                }
+                .font(.system(size: 12))
+                .monospacedDigit()
+                .foregroundStyle(LightCraftPanelStyle.label)
+                .lineLimit(1).minimumScaleFactor(0.7)
+                .padding(.vertical, 4)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Capture settings")
+                .accessibilityIdentifier("histogram-capture-settings")
             }
         }
     }

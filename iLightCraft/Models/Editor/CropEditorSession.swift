@@ -15,6 +15,10 @@ final class CropEditorSession<Engine: EngineDriving & EngineDiagnosing, Importer
     var draft: CropSettings
     var aspect = "free"
     var portrait = false
+    var overlay = "thirds"
+    var flipOverlay = false
+    var straightening = false
+    var straightenStroke: [CGPoint] = []
     private(set) var image: UIImage?
     private(set) var isLoading = false
     var error: String?
@@ -103,6 +107,37 @@ final class CropEditorSession<Engine: EngineDriving & EngineDiagnosing, Importer
         draft.crop.aspect = [UInt32((ratio * 10000).rounded()), 10000]
     }
 
+    func lockAspect(_ locked: Bool) {
+        if !locked { aspect = "free"; draft.crop.aspect = nil; return }
+        guard let image else { return }
+        let rectangle = selection.cgRect
+        guard rectangle.height > 0, image.size.height > 0 else { return }
+        setCustomAspect(Double(rectangle.width * image.size.width), Double(rectangle.height * image.size.height))
+    }
+    func setCustomAspect(_ width: Double, _ height: Double) {
+        guard width.isFinite, height.isFinite, width > 0, height > 0, let image, image.size.width > 0 else { return }
+        let ratio = min(20, max(0.05, width / height))
+        let normalized = ratio * Double(image.size.height / image.size.width)
+        guard normalized.isFinite, normalized > 0 else { return }
+        let w = min(1, normalized), h = min(1, 1 / normalized)
+        selection = .init(CGRect(x: (1-w)/2, y: (1-h)/2, width: w, height: h))
+        draft.crop.aspect = [UInt32((ratio * 10000).rounded()), 10000]
+        aspect = "current"
+    }
+    func swapAspect() {
+        guard let ratio else { return }
+        setCustomAspect(1, Double(ratio))
+    }
+    func finishStraightening() {
+        guard let a = straightenStroke.first, let b = straightenStroke.last, let image else { return }
+        let dx = (b.x - a.x) * image.size.width, dy = (b.y - a.y) * image.size.height
+        guard hypot(dx,dy) > 2 else { return }
+        var angle = atan2(dy, dx) * 180 / .pi
+        while angle > 45 { angle -= 90 }
+        while angle < -45 { angle += 90 }
+        draft.crop.geometry.angle = min(45, max(-45, draft.crop.geometry.angle - Double(angle)))
+        straightening = false; straightenStroke = []
+    }
     func rotate(clockwise: Bool) async {
         draft.rotate(clockwise: clockwise)
         aspect = "free"
