@@ -441,7 +441,7 @@ struct EditorView<
         .disabled(!session.canZoom || interactionLocked || usesPhotoTools || photoPanel.mode == .beforeAfter)
     }
 
-    /// beforeShortcut is the backslash key, Lightroom's before and after, as a toggle: the keyboard
+    /// beforeShortcut is the backslash key, before and after, as a toggle: the keyboard
     /// reports no key release to SwiftUI, so a hold would need a UIKit key handler. Invisible and
     /// zero-size like zoomInAliases; the More menu has the same toggle for touch.
     private var beforeShortcut: some View {

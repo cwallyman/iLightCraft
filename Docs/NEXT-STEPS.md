@@ -1,9 +1,9 @@
 # iLightCraft next steps
 
-Last updated: 2026-10-20. Development branch: `ipad-lightcraft`.
-The [full roadmap](Plans/2026-10-19-lightroom-priorities.md) defines task scope;
+Last updated: 2026-10-28. Development branch: `ipad-lightcraft`.
+The [full roadmap](Plans/feature-priorities.md) defines task scope;
 the [change history](../CHANGELOG.md) records implementation so far.
-See the [prioritized missing-feature list](MISSING-FEATURES.md) for a concise implementation queue.
+See the [prioritized missing-feature list](MISSING-FEATURES.md) for a concise implementation queue and the [comparison with other photo editors](OTHER-PHOTO-EDITORS-COMPARISON.md) for a feature checklist.
 App Store identity/packaging work is recorded in [App Store readiness](APP-STORE-READINESS.md); unsigned Release archives passed on 2026-10-21, while distribution signing and physical acceptance remain.
 Unchecked implemented work still needs acceptance. Build, install, visual and physical evidence differ.
 
@@ -64,7 +64,7 @@ All remaining agreed tasks are listed here; details and dependencies are in the 
 | P3 | U3.2 Search/culling | Metadata filters, saved searches, multi-selection and side-by-side comparison |
 | P3 | U3.3 Metadata | Captions, copyright, keywords, IPTC/GPS, capture times and sidecar/interchange |
 | P3 | U3.4 Device sync | Optional private CloudKit sync, originals/edits, offline recovery and two-device conflicts |
-| P3 | U3.5 Backup/migration | Native backup/restore and supported Lightroom import with unsupported-settings reports |
+| P3 | U3.5 Backup/migration | Native backup/restore and supported catalog import from other photo editors with unsupported-settings reports |
 | P4 | U4.1 Semantic masks | Subject/sky/background/object/people/landscape/depth, refinement and recomputation |
 | P4 | U4.2 AI enhancement | Licensed Denoise/Raw Details/Super Resolution models, setup/progress/cancel |
 | P4 | U4.3 Lens Blur | Depth/focus range, blur/bokeh and depth refinement |
@@ -78,6 +78,7 @@ All remaining agreed tasks are listed here; details and dependencies are in the 
 | P5 | U5.5 Print/presentation | Soft proofing, print/book layouts, slideshows with titles/music and export |
 | P5 | U5.6 Publishing/extensions | Publish queues, galleries, external-editor round trips and extension interfaces |
 | P5 | U5.7 Learning/community | Guided help, tutorials, shared edits and presets if hosting is adopted |
+| Future | U5.8 MCP integration | Explore a local MCP server for Mac Catalyst connected to the active native editor session, with explicit access controls and safe command handling; determine iPhone/iPad feasibility separately |
 
 P4 rows are partially implemented; the table describes full task scope. Other unchecked rows remain plans. Adaptive presets depend on semantic masks;
 face/semantic search depends on U4.5. Hosted work needs a service design. AI requires permissive
@@ -122,7 +123,7 @@ The camera RAW test requires `ILIGHTCRAFT_RAW_FIXTURE` pointing to a suitable lo
 The Photos queue-crash test is opt-in: set `ILIGHTCRAFT_RUN_PHOTOS_SAVE_REGRESSION=1` in the test
 scheme and grant the test host Photos read/write access yourself. It creates, edits and deletes
 its own generated asset. It must not select personal media. See verification notes for prerequisites.
-Benchmarks and measured Lightroom rendering comparisons remain pending.
+Benchmarks and measured rendering comparisons with other photo editors remain pending.
 
 ## 5. Cross-cutting and release work
 

@@ -9,7 +9,7 @@ and Apple Photos editing are implemented; ARW routing and a Photos save crash ha
 corrected and delivered to iPhone. Their complete device round trips still need confirmation.
 Priority 4 now has a first native **on-device tools** implementation for items 18–23. Several advanced
 subfeatures and real-output acceptance remain; see the [implementation/acceptance table](Docs/Verification/priority4-on-device.md).
-This is not a claim of Lightroom parity or App Store readiness.
+Feature coverage and App Store readiness remain subject to verification.
 
 Point Color, grading, optics, manual masks, repair refinements, presets/batch, versions/history and portable backup/restore now have native workflows. Physical acceptance is pending; [scope and limits](Docs/MISSING-FEATURES.md).
 
@@ -38,7 +38,8 @@ engine update remains deferred to the next version. See [release preparation](Do
 - [Xcode Cloud setup](Docs/XCODE-CLOUD.md): generated engine/model inputs and Apple/GitHub workflow setup.
 
 - [Next steps](Docs/NEXT-STEPS.md): immediate checks, every remaining feature and release work.
-- [Full prioritized roadmap](Docs/Plans/2026-10-19-lightroom-priorities.md): task IDs and detailed scope.
+- [Comparison with other photo editors](Docs/OTHER-PHOTO-EDITORS-COMPARISON.md): feature checklist and current native status.
+- [Full prioritized roadmap](Docs/Plans/feature-priorities.md): task IDs and detailed scope.
 - [Change history](CHANGELOG.md): all native iLightCraft changes since the upstream native baseline.
 - [Verification notes](Docs/Verification/): build, visual, device and saved-test evidence.
 - [Artwork attribution](assets/ATTRIBUTION.md), [engine modifications](Engine/CHANGES.md)
@@ -140,7 +141,7 @@ acceptance work. Priority 4 is partially implemented; remaining subfeatures stay
 - The initial HEIC phase completed a Rust bridge suite before testing was paused. Subsequent
   suites and benchmarks are **saved, not run**, at the user's request to conserve credits.
 - RAW support/color follows Apple's installed decoder, not universal camera compatibility or
-  Lightroom-identical rendering. The native 80-megapixel cap and memory guard do not guarantee
+  identical rendering to other photo editors. The native 80-megapixel cap and memory guard do not guarantee
   every file below that cap fits a particular device.
 - Same-item Photos editing handles still images; Live Photos/video are rejected. The separate
   wrapper's private CloudKit sync has not been migrated.

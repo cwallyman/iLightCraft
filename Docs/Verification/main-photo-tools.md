@@ -34,13 +34,11 @@ This is not a claim of new HDR spatial-preview or full-resolution loupe support.
 
 ## Tool order
 
-The core order is **Edit → Crop & Rotate → Remove → Masks**, following the relative tool-strip
-order in [Adobe's Develop module documentation](https://helpx.adobe.com/lightroom-classic/desktop/process-and-develop-photos/develop-module-tools.html#tools-in-the-tool-strip)
-for the implemented tools (no Red Eye button is added). Remaining standalone shortcuts follow:
+The core order is **Edit → Crop & Rotate → Remove → Masks**, for the implemented tools (no Red Eye button is added). Remaining standalone shortcuts follow:
 Profiles → Tone Curves → HSL Mixer → Lens Blur → AI Enhancement → Library Analysis → Merge →
 HDR Editing → Show Original → Reset All, followed by Undo/Redo and Export. The iPhone More menu
 uses the same tool ordering. Profiles/Curves/HSL remain standalone shortcuts by the user's prior
-request; this is not a claim that every extra shortcut exists in Lightroom's toolbar.
+request.
 
 Only published behavior/layout documentation was consulted. No Adobe app bundle, icons, profiles,
 artwork or other assets were read or copied. New main-photo graphics are simple original paths,

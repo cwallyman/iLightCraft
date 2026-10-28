@@ -32,6 +32,11 @@ Video/Live Photos; camera tethering; maps/geotagging; soft proofing/print/books/
 publishing and external-editor/extensions; optional hosted galleries/collaboration; guided learning.
 Intel Mac support and App Store/TestFlight release packaging are not complete.
 
+- **MCP integration — planned:** explore a local server for Mac Catalyst that can inspect and operate
+  the active native editor session, with explicit access controls, safe command handling and clear
+  error reporting. Assess iPhone/iPad support separately. The upstream LightCraft MCP server does
+  not currently control iLightCraft, and this feature has not been implemented.
+
 ## Implemented, but acceptance still pending
 
 RAW/HDR camera coverage, Photos save-on-Back/reopen/conflicts, HSL/profile/curve persistence and
@@ -39,7 +44,7 @@ output, real AI/mask/merge quality, large-file memory, accessibility and physica
 These are verification gaps, not wholly missing features. HEIC and general export/crop milestones
 have received user acceptance; their detailed edge cases remain listed in NEXT-STEPS.
 
-Sources: [next steps](NEXT-STEPS.md), [roadmap](Plans/2026-10-19-lightroom-priorities.md),
+Sources: [next steps](NEXT-STEPS.md), [roadmap](Plans/feature-priorities.md),
 [advanced-tool status](Verification/priority4-on-device.md), [HSL/profiles](Verification/hsl-profiles.md).
 
 See [implementation and delivery evidence](Verification/remaining-features.md). These are first native workflows, not a parity claim.

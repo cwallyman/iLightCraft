@@ -1,7 +1,7 @@
 # iLightCraft feature priorities
 
-Last updated: 2026-10-20. Scope: the native SwiftUI/Metal app on iPad, iPhone and Mac Catalyst.
-This is the implementation queue for the Lightroom comparison, not the vendored engine's feature checklist.
+Last updated: 2026-10-28. Scope: the native SwiftUI/Metal app on iPad, iPhone and Mac Catalyst.
+This is the implementation queue for comparisons with other photo editors, not the vendored engine's feature checklist.
 An engine capability counts as delivered only after the native workflow is usable and verified.
 
 Start with [the current next steps](../NEXT-STEPS.md); implementation history is in
@@ -56,7 +56,7 @@ Start with [the current next steps](../NEXT-STEPS.md); implementation history is
     sidecar/interchange policy, capture-time editing and original preservation.
 16. [ ] **U3.4 Device sync.** Migrate optional private CloudKit sync, originals and complete edits;
     albums, versions, offline recovery, conflict resolution and account changes. Verify two devices.
-17. [ ] **U3.5 Backup and migration.** Native library backup/restore and supported Lightroom
+17. [ ] **U3.5 Backup and migration.** Native library backup/restore and supported photo-editor
     catalog/settings import, with explicit reporting of settings/looks that cannot transfer.
 
 ## Priority 4: computational photography and AI
@@ -99,6 +99,10 @@ Start with [the current next steps](../NEXT-STEPS.md); implementation history is
 30. [ ] **U5.7 Learning and community.** Guided tool help/tutorials, community edits and recommended
     presets, if a hosted community becomes part of the product.
 
+31. [ ] **U5.8 MCP integration.** Explore a local Mac Catalyst server connected to the active
+    native editor, with explicit access controls, safe command handling and clear errors. Assess
+    iPhone and iPad support separately.
+
 ## Delivery requirements
 
 At the user's request, save automated tests and benchmarks for manual use; do not run them automatically.
@@ -106,13 +110,15 @@ Every user-facing task needs meaningful regression coverage, an actual app run a
 plus import/edit/export/reopen checks where relevant. Distinguish build, automated, simulator,
 Mac and physical-device evidence. Accessibility, touch/Pencil use, responsiveness, safe areas,
 original preservation and actionable errors apply throughout. Never mark a task complete from
-an engine API or build result alone. No promises of Lightroom-identical rendering without measurement.
+an engine API or build result alone. No promises of identical rendering to other photo editors without measurement.
 
 The current HEIC evidence and outstanding checks are recorded in `../Verification/heic-support.md`.
 Export/crop evidence and the saved tests are in `../Verification/export-and-crop.md`.
 RAW/HDR/Photos evidence and user checks are in `../Verification/raw-hdr-photos.md`.
 
 ## Revision history
+
+- 2026-10-28: Reframed the feature comparison around other photo editors and recorded future MCP integration.
 
 - 2026-10-20: User moved Priority 4 ahead of Priority 2. Counted HEIC as item 1 so U4.1–U4.6 are items 18–23. Added partial implementation notes; no Priority 4 row is marked complete. On-device processing chosen; hosted sharing remains separate.
 

@@ -5,7 +5,7 @@
 
 import SwiftUI
 
-/// ClippingToggle is one of the histogram's corner triangles, Lightroom style: lit in the colour of
+/// ClippingToggle is one of the histogram's corner triangles, lit in the colour of
 /// the channels that clip at its end (their additive mix, white when all three do), dim when none
 /// does. It toggles the canvas overlay that marks those pixels (blue for shadows, red for
 /// highlights), ringed in that colour while on. The triangle is small; its touch target is 44 pt.

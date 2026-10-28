@@ -38,7 +38,7 @@ includes the subsequent native-HDR reset-default and memory-guard refinements.
 Automated tests and benchmarks are saved for the user and were not run for this change.
 
 Camera coverage follows the installed Apple RAW decoder; this is not universal RAW compatibility
-or measured Lightroom color parity. Input is capped at 80 megapixels with an available-memory
+or measured color parity with other photo editors. Input is capped at 80 megapixels with an available-memory
 check before native decoding. Large files can still exceed a device's practical memory budget.
 Actual EDR brightness depends on display support, brightness and current headroom. An SDR
 screenshot cannot establish HDR brightness. Mac/iPad runtime and physical RAW/HDR/PhotoKit

@@ -76,4 +76,4 @@ verification limitation, not evidence that decoding works or fails.
 - `/tmp/ilightcraft-heic-xcframework.log`: native engine framework build attempt.
 - `/tmp/ilightcraft-heic-fmt.log`: initial formatting check; the reported test formatting was corrected.
 
-Priority queue: [iLightCraft feature priorities](../Plans/2026-10-19-lightroom-priorities.md).
+Priority queue: [iLightCraft feature priorities](../Plans/feature-priorities.md).

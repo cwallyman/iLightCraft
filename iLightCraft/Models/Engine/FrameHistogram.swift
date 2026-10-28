@@ -35,7 +35,7 @@ nonisolated struct FrameHistogram: Equatable, Sendable {
     var isShadowClipped   : Bool { shadowClipping > Self.clippingThreshold }
     var isHighlightClipped: Bool { highlightClipping > Self.clippingThreshold }
 
-    /// shadowChannels and highlightChannels are which of R, G, B clip at that end, Lightroom style:
+    /// shadowChannels and highlightChannels are which of R, G, B clip at that end, using per-channel indicators:
     /// each channel above the threshold, or all three when luminance itself reaches the end bin
     /// (true black or white, not one saturated primary).
     var shadowChannels   : [Bool] { channels(clippedLow, lumaBin: 0) }

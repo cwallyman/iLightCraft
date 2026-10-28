@@ -44,7 +44,7 @@ Sources are full-resolution file originals/working copies; merge does not bake e
   behavior still needs device verification. The full signed Mac app and iPad runtime were not exercised.
 
 Build/install/launch or a screen capture does not prove Vision selections, Core ML inference, photo merges,
-Photos round trips, rendering quality, thermal/memory behavior or Lightroom parity.
+Photos round trips, rendering quality, thermal/memory behavior or parity with other photo editors.
 
 ## Saved checks for the user
 
