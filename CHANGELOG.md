@@ -4,6 +4,13 @@ Changes through 2026-10-27, relative to the upstream native baseline `79be4e4`. 
 [`2f71fe9`](https://github.com/cwallyman/iLightCraft/commit/2f71fe9ad954352cdf0eec2ab64f765f56c0f3bc).
 Implementation, delivery and acceptance are recorded separately.
 
+## Liquid Glass editor toolbar (2026-10-28)
+
+- Replaced the iPad editor's sideways-scrolling icon strip with floating Liquid Glass groups: Back; the photo title with an Edited or Original status (tapping it opens Info); Zoom; the editing modes Adjust, Crop, Masks, Remove and Presets in the middle; Undo and Redo; Export and More. The selected mode uses the amber accent.
+- Mode names show under their icons at 1000 points or wider; narrower iPad windows show icons only. Below 720 points, and on iPhone, the modes move into More, as the phone layout did before.
+- Red Eye, Versions, History, Keywords and Info moved from the top bar into a More section on iPad. The home screen is unchanged.
+- Not yet built or run: written on Linux without Xcode, syntax-checked with `swiftc -parse` only.
+
 ## Top-left Back button (2026-10-27)
 
 - Restored Back to the top-left on iPhone and iPad, enlarged its icon to 26 points with a 44-point tap target, and removed its iPhone More-menu entry.

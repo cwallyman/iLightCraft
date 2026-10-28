@@ -468,26 +468,55 @@ struct EditorView<
         reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.25)
     }
 
-    /// The desktop side rail becomes a single ordered row, with the same tool groups.
+    /// usesCompactToolbar folds the editing modes into More when the editor is too narrow for the
+    /// glass groups: on iPhone, and on iPad in a narrow window or in Split View.
+    private var usesCompactToolbar: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone || editorWidth < 720
+    }
+
+    /// showsModeNames writes each mode's name under its icon when the full row fits.
+    private var showsModeNames: Bool { editorWidth >= 1000 }
+
+    /// topToolbar floats the editor controls as Liquid Glass groups over the surround: back, title
+    /// and zoom on the leading side, the editing modes in the middle, history and output on the
+    /// trailing side. Tools used less often live in More, so nothing scrolls sideways.
     private var topToolbar: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 10) {
             backButton
-            if UIDevice.current.userInterfaceIdiom == .phone {
-                photoName.frame(maxWidth: .infinity, alignment: .leading)
+                .glassEffect(.regular, in: .capsule)
+            if usesCompactToolbar {
+                photoTitle.frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                photoName.frame(width: 120)
-                toolbarZoom.frame(minWidth: 58)
-                toolbarTool("Export", icon: "Share", tool: .export).accessibilityIdentifier("export-button")
-                ScrollView(.horizontal) { HStack(spacing: 4) { sharedTopTools } }
-                    .scrollIndicators(.hidden).defaultScrollAnchor(.trailing, for: .alignment)
+                photoTitle
+                    .padding(.horizontal, 14)
+                    .frame(maxWidth: 220, minHeight: 44, alignment: .leading)
+                    .glassEffect(.regular, in: .capsule)
+                toolbarZoom
+                    .frame(minWidth: 58, minHeight: 44)
+                    .padding(.horizontal, 6)
+                    .glassEffect(.regular, in: .capsule)
+                Spacer(minLength: 0)
+                editingModes
+                    .padding(3)
+                    .glassEffect(.regular, in: .capsule)
+                Spacer(minLength: 0)
             }
-            historyActions
-            moreMenu
+            HStack(spacing: 0) { historyActions }
+                .padding(.horizontal, 2)
+                .glassEffect(.regular, in: .capsule)
+            HStack(spacing: 0) {
+                if !usesCompactToolbar {
+                    toolbarTool("Export", icon: "Share", tool: .export).accessibilityIdentifier("export-button")
+                }
+                moreMenu
+            }
+            .padding(.horizontal, 2)
+            .glassEffect(.regular, in: .capsule)
         }
         .labelStyle(.iconOnly).buttonStyle(.plain)
-        .padding(.horizontal, 8).frame(height: 52)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Rectangle().fill(LightCraftPanelStyle.divider).frame(height: 1) }
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .frame(height: 64)
+        .background(EditorSurround.color)
         .accessibilityIdentifier("editor-top-toolbar")
     }
     private var backButton: some View {
@@ -498,37 +527,78 @@ struct EditorView<
         .accessibilityLabel("Back")
         .accessibilityIdentifier("home-button").disabled(interactionLocked)
     }
-    private var sharedTopTools: some View {
-        Group {
-                    toolbarTool("Presets", icon: "Presets", tool: .presets)
-                    Button("Edit", lightCraftIcon: "LightCraft-Sliders") {
-                        closeTool()
-                        session.select(session.isCardOpen ? .move : .adjust)
-                    }
-                    .editorToolSelected(session.isCardOpen || ([EditorDockTool.profiles, .curves, .hsl, .pointColor, .grading, .optics, .whiteBalance].contains { $0 == dockTool })).editorHoverHelp("Edit")
-                    .accessibilityIdentifier("adjust-button")
-                    .accessibilityValue(session.isCardOpen ? "Editing panel open" : "Editing panel closed")
-                    .disabled(!session.viewModel.isPhotoOpen || interactionLocked)
-                    toolbarDivider
-                    toolbarTool("Crop", icon: "Crop", tool: .crop)
-                    computationalToolButton(.remove)
-                    computationalToolButton(.masks)
-                    toolbarTool("Red Eye", icon: "Eye", tool: .redEye)
-                    toolbarDivider
-                    toolbarTool("Versions", icon: "Versions", tool: .versions)
-                    toolbarTool("History", icon: "Clock", tool: .history)
-                    toolbarTool("Keywords", icon: "Tag", tool: .keywords)
-                    toolbarTool("Info", icon: "Info", tool: .info)
+
+    /// editingModes are the editor's main modes, named under their icons as iPadOS 27 toolbars do.
+    /// Adjust toggles the Edit panel; the others open their tool in the same panel.
+    private var editingModes: some View {
+        HStack(spacing: 2) {
+            modeButton("Adjust", lightCraftIcon: "LightCraft-Sliders", isSelected: isAdjusting) {
+                closeTool()
+                session.select(session.isCardOpen ? .move : .adjust)
+            }
+            .accessibilityIdentifier("adjust-button")
+            .accessibilityValue(session.isCardOpen ? "Editing panel open" : "Editing panel closed")
+            .disabled(!session.viewModel.isPhotoOpen || interactionLocked)
+            modeButton("Crop", lightCraftIcon: "LightCraft-Crop", isSelected: dockTool == .crop || dockTool == .geometry) {
+                presentTool(.crop)
+            }
+            .accessibilityIdentifier("toolbar-crop")
+            .disabled(isToolUnavailable)
+            ForEach([ComputationalTool.masks, .remove]) { tool in
+                modeButton(tool == .masks ? "Masks" : tool.title, lightCraftIcon: tool.symbol, isSelected: dockTool == .computational(tool.rawValue)) {
+                    presentTool(.computational(tool.rawValue))
+                }
+                .accessibilityIdentifier("tool-\(tool.rawValue)")
+                .disabled(isToolUnavailable)
+            }
+            modeButton("Presets", lightCraftIcon: "LightCraft-Presets", isSelected: dockTool == .presets) {
+                presentTool(.presets)
+            }
+            .accessibilityIdentifier("toolbar-presets")
+            .disabled(isToolUnavailable)
         }
     }
 
-    private var toolbarDivider: some View {
-        Divider().frame(height: 28).padding(.horizontal, 4).accessibilityHidden(true)
+    /// isAdjusting is true while the Edit panel, or a tool opened from inside it, is showing.
+    private var isAdjusting: Bool {
+        session.isCardOpen || [EditorDockTool.profiles, .curves, .hsl, .pointColor, .grading, .optics, .whiteBalance].contains { $0 == dockTool }
+    }
+
+    /// isToolUnavailable blocks the tools that edit the photo: none is open, a tool is busy, or the
+    /// original is showing.
+    private var isToolUnavailable: Bool {
+        !session.viewModel.isPhotoOpen || interactionLocked || session.viewModel.isShowingBefore
+    }
+
+    private func modeButton(
+        _ title       : String,
+        lightCraftIcon: String,
+        isSelected    : Bool,
+        action        : @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            EditorModeLabel(
+                title     : title,
+                icon      : lightCraftIcon,
+                isSelected: isSelected,
+                showsTitle: showsModeNames
+            )
+        }
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func toolbarTool(_ title: String, icon: String, tool: EditorDockTool) -> some View {
         Button(title, lightCraftIcon: "LightCraft-\(icon)") { presentTool(tool) }
             .editorToolSelected(dockTool == tool || (tool == .crop && dockTool == .geometry)).editorHoverHelp(title)
+            .accessibilityIdentifier("toolbar-\(title.lowercased().replacingOccurrences(of: " ", with: "-"))")
+            .disabled(!session.viewModel.isPhotoOpen || interactionLocked || (tool != .info && tool != .export && session.viewModel.isShowingBefore))
+    }
+
+    /// menuTool is a tool as a plain menu item: menus draw their own items, so the hover and
+    /// selection wrappers of the toolbar buttons stay out of them.
+    private func menuTool(_ title: String, lightCraftIcon: String, tool: EditorDockTool) -> some View {
+        Button(title, lightCraftIcon: lightCraftIcon) { presentTool(tool) }
             .accessibilityIdentifier("toolbar-\(title.lowercased().replacingOccurrences(of: " ", with: "-"))")
             .disabled(!session.viewModel.isPhotoOpen || interactionLocked || (tool != .info && tool != .export && session.viewModel.isShowingBefore))
     }
@@ -573,17 +643,51 @@ struct EditorView<
             .accessibilityIdentifier("photo-name")
     }
 
+    /// photoTitle is the open photo's name with its status under it ("Edited" when any control
+    /// differs from its default, otherwise "Original"). Tapping it opens Info.
+    private var photoTitle: some View {
+        Button { presentTool(.info) } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                photoName
+                Text(session.viewModel.isEdited ? "Edited" : "Original")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(session.viewModel.isEdited ? Color.accentColor : Color.secondary)
+                    .accessibilityIdentifier("photo-status")
+            }
+            .contentShape(Rectangle())
+        }
+        .accessibilityHint("Shows the photo info")
+        .disabled(!session.viewModel.isPhotoOpen || interactionLocked)
+    }
+
     /// Native-only workflows stay outside the shared LightCraft tool panels.
     private var moreMenu: some View {
         Menu {
-            if UIDevice.current.userInterfaceIdiom == .phone {
+            if usesCompactToolbar {
                 Section {
                     Button("Zoom (\(ZoomScale.label(forPercent: photoPanel.mode == .beforeAfter || usesPhotoTools ? toolZoomPercent ?? session.zoomPercent : session.zoomPercent))%)…") { phoneZoomEntry = true }
                         .disabled(!session.canZoom)
-                    toolbarTool("Export", icon: "Share", tool: .export)
+                    menuTool("Export", lightCraftIcon: "LightCraft-Share", tool: .export)
                 }.labelStyle(.titleAndIcon)
-                Section { sharedTopTools }.labelStyle(.titleAndIcon)
+                Section {
+                    Button("Adjust", lightCraftIcon: "LightCraft-Sliders") {
+                        closeTool()
+                        session.select(session.isCardOpen ? .move : .adjust)
+                    }
+                    .disabled(!session.viewModel.isPhotoOpen || interactionLocked)
+                    menuTool("Crop", lightCraftIcon: "LightCraft-Crop", tool: .crop)
+                    menuTool("Masks", lightCraftIcon: ComputationalTool.masks.symbol, tool: .computational(ComputationalTool.masks.rawValue))
+                    menuTool(ComputationalTool.remove.title, lightCraftIcon: ComputationalTool.remove.symbol, tool: .computational(ComputationalTool.remove.rawValue))
+                    menuTool("Presets", lightCraftIcon: "LightCraft-Presets", tool: .presets)
+                }.labelStyle(.titleAndIcon)
             }
+            Section {
+                menuTool("Red Eye", lightCraftIcon: "LightCraft-Eye", tool: .redEye)
+                menuTool("Versions", lightCraftIcon: "LightCraft-Versions", tool: .versions)
+                menuTool("History", lightCraftIcon: "LightCraft-Clock", tool: .history)
+                menuTool("Keywords", lightCraftIcon: "LightCraft-Tag", tool: .keywords)
+                menuTool("Info", lightCraftIcon: "LightCraft-Info", tool: .info)
+            }.labelStyle(.titleAndIcon)
             if session.photoContext != nil {
                 Button("Save to Apple Photos", lightCraftIcon: "LightCraft-Photos") { Task { await session.saveToPhotos() } }
                     .disabled(session.isSavingPhotos)
@@ -729,5 +833,37 @@ private extension View {
             ToolbarHoverLabel(content: self, label: label)
                 .frame(width: 44, height: 44)
         }
+    }
+}
+
+/// EditorModeLabel draws one editing mode: its icon, its name when there is room, and an accent
+/// capsule behind the selected mode. It dims itself when disabled, since explicit colors opt out of
+/// the button's own dimming.
+private struct EditorModeLabel: View {
+
+    let title     : String
+    let icon      : String
+    let isSelected: Bool
+    let showsTitle: Bool
+
+    @Environment(\.isEnabled)
+    private var isEnabled
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Image(lightCraftIcon: icon)
+                .resizable().scaledToFit()
+                .frame(width: 20, height: 20)
+            if showsTitle {
+                Text(title).font(.caption2.weight(.semibold)).lineLimit(1)
+            }
+        }
+        .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+        .opacity(isEnabled ? 1 : 0.35)
+        .frame(width: showsTitle ? 64 : 44, height: showsTitle ? 46 : 38)
+        .background {
+            if isSelected { Capsule().fill(Color.accentColor.opacity(0.22)) }
+        }
+        .contentShape(Capsule())
     }
 }
