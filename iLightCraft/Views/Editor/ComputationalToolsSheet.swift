@@ -15,15 +15,27 @@ struct ComputationalToolsSheet<Engine: EngineDriving & EngineDiagnosing, Importe
     @Environment(\.dismiss) private var dismiss
     @State private var section = 0
     @State private var colorDragging = false
+    @State private var showLensBlurInfo = false
+    @State private var showsAddMask = false
+    private let splitMaskLayout: Bool
 
     @Environment(\.editorToolClose) private var closeDock
     @Environment(\.editorToolDocked) private var isDocked
+
+    private var isPadStyle: Bool {
+        #if targetEnvironment(macCatalyst)
+        false
+        #else
+        UIDevice.current.userInterfaceIdiom == .pad
+        #endif
+    }
 
     private func closeTool() {
         if let closeDock { closeDock() } else { dismiss() }
     }
 
-    init(model: EditorViewModel<Engine, Importer>, initialSection: Int = 0, sharedSession: ComputationalToolsSession<Engine, Importer>? = nil, onMerged: @escaping @MainActor (PhotoID, URL) async -> Void, onRendered: @escaping @MainActor (URL) async -> Void, onIndexed: @escaping @MainActor (PhotoID, URL) async -> Void) {
+    init(model: EditorViewModel<Engine, Importer>, initialSection: Int = 0, sharedSession: ComputationalToolsSession<Engine, Importer>? = nil, splitMaskLayout: Bool = false, onMerged: @escaping @MainActor (PhotoID, URL) async -> Void, onRendered: @escaping @MainActor (URL) async -> Void, onLensBlurred: @escaping @MainActor (URL) async -> Void, onIndexed: @escaping @MainActor (PhotoID, URL) async -> Void) {
+        self.splitMaskLayout = splitMaskLayout
         _section = State(initialValue: initialSection)
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-iLightCraftShowComputational"), let value = UserDefaults.standard.string(forKey: "iLightCraftComputationalTool"), let tool = Int(value), (0...5).contains(tool) {
@@ -32,11 +44,12 @@ struct ComputationalToolsSheet<Engine: EngineDriving & EngineDiagnosing, Importe
         #endif
         _session = State(initialValue: sharedSession ?? ComputationalToolsSession(model: model, onIndexed: onIndexed))
         _enhancementSession = State(initialValue: EnhancementSession(model: model, onOpen: onRendered))
-        _lensSession = State(initialValue: LensBlurSession(model: model, onOpen: onRendered))
+        _lensSession = State(initialValue: LensBlurSession(model: model, onOpen: onLensBlurred))
         _mergeSession = State(initialValue: PhotoMergeSession(model: model, onOpen: onMerged))
     }
     var body: some View {
-        EditorToolPresentation(title: ComputationalTool(rawValue: section)?.title ?? "On-device Tools", header: {
+        EditorToolPresentation(title: section == 0 && splitMaskLayout ? (session.masks.first(where: { $0.id == session.selectedMask })?.name ?? "Masks") : (ComputationalTool(rawValue: section)?.title ?? "On-device Tools"),
+                               titleAccessory: section == 4 ? AnyView(lensBlurInfo) : nil, header: {
             if section >= 2 {
                 Button("Done") { closeTool() }.disabled(colorDragging || session.busy || mergeSession.working || lensSession.busy || enhancementSession.busy)
             }
@@ -56,9 +69,10 @@ struct ComputationalToolsSheet<Engine: EngineDriving & EngineDiagnosing, Importe
                     .disabled(colorDragging || session.busy || mergeSession.working || lensSession.busy || enhancementSession.busy)
                     }
                     if section < 3 && (!isDocked || section == 2) { preview }
-                    if section == 0 { masks }
-                    if section == 1 { removal }
-                    if section == 2 { analysis }
+                    // AnyView keeps the nested view type small; the full type overflowed the stack on iPad.
+                    if section == 0 { AnyView(masks) }
+                    if section == 1 { AnyView(removal) }
+                    if section == 2 { AnyView(analysis) }
                     if section == 3 { PhotoMergePanel(session: mergeSession) }
                     if section == 4 { LensBlurPanel(session: lensSession) }
                     if section == 5 { EnhancementPanel(session: enhancementSession) }
@@ -89,6 +103,23 @@ struct ComputationalToolsSheet<Engine: EngineDriving & EngineDiagnosing, Importe
         .preferredColorScheme(.dark)
         .modifier(EditorToolBusyReporter(busy: colorDragging || session.busy || mergeSession.working || lensSession.busy || enhancementSession.busy))
     }
+    private var lensBlurInfo: some View {
+        Button { showLensBlurInfo = true } label: {
+            Image(systemName: "info.circle").font(.system(size: 16))
+        }
+        .accessibilityLabel("About Lens Blur")
+        .popover(isPresented: $showLensBlurInfo) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Lens Blur").font(.headline)
+                Text("Depth estimation runs on your device. Focus uses relative depth, not meters. The result is a separate TIFF copy; Undo returns to the original photo. The original is not overwritten.")
+                Text("Bokeh shapes and painted depth refinement are not available yet.")
+                if let url = URL(string: DepthModelStore.modelPage) { Link("Model and Apache-2.0 license", destination: url) }
+            }
+            .font(.subheadline).padding(20).frame(maxWidth: 320)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
     @ViewBuilder private var preview: some View {
         if let image = session.displayedImage {
             Image(uiImage: image)
@@ -135,6 +166,27 @@ struct ComputationalToolsSheet<Engine: EngineDriving & EngineDiagnosing, Importe
     }
     private var masks: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if !splitMaskLayout && isPadStyle {
+                HStack(spacing: 8) {
+                    Button { showsAddMask = true } label: {
+                        Label("Add Mask", systemImage: "plus").frame(maxWidth: .infinity, minHeight: 46)
+                            .lightCraftGlassButton(prominent: true)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(session.busy || colorDragging || session.image == nil)
+                    .popover(isPresented: $showsAddMask) {
+                        MaskTypeGrid(session: session) { showsAddMask = false }
+                            .padding(16).frame(width: 340)
+                            .presentationCompactAdaptation(.popover)
+                    }
+                    Menu {
+                        Button("Reset Mask Adjustments", action: session.resetMaskColor).disabled(session.selectedMask == nil)
+                    } label: {
+                        Image(systemName: "ellipsis").frame(width: 46, height: 46).glassEffect(.regular, in: .circle)
+                    }
+                    .accessibilityLabel("Masking Options").disabled(session.busy)
+                }
+            } else if !splitMaskLayout {
             HStack {
                 Text("Create New Mask").foregroundStyle(.secondary)
                 Spacer()
@@ -144,6 +196,7 @@ struct ComputationalToolsSheet<Engine: EngineDriving & EngineDiagnosing, Importe
                 }.labelStyle(.iconOnly).disabled(session.busy)
             }
             maskTiles
+            }
             if session.maskingContentAware {
                 Text("Content-Aware").font(.system(size: 15, weight: .semibold))
                 Text("Paint the area to fill on the photo, then apply. The area is rebuilt using surrounding texture.").font(.footnote)
@@ -151,9 +204,11 @@ struct ComputationalToolsSheet<Engine: EngineDriving & EngineDiagnosing, Importe
             } else if session.manualKind != "none" {
                 manualMaskControls
             }
+            if !splitMaskLayout {
             Divider()
             HStack {
-                Text("Masks").font(.system(size: 15, weight: .semibold))
+                Text("Masks").font(.system(size: isPadStyle ? 16 : 15, weight: isPadStyle ? .bold : .semibold))
+                    .foregroundStyle(isPadStyle ? Color.white : LightCraftPanelStyle.label)
                 Spacer()
                 Button(session.showMaskOverlay ? "Hide Overlay" : "Show Overlay", lightCraftIcon: session.showMaskOverlay ? "LightCraft-Eye" : "LightCraft-EyeOff") { session.showMaskOverlay.toggle() }
                     .labelStyle(.iconOnly).frame(width: 44, height: 44)
@@ -165,7 +220,17 @@ struct ComputationalToolsSheet<Engine: EngineDriving & EngineDiagnosing, Importe
                     Button {
                         session.beginManual("none"); session.selectedMask = mask.id; session.savedMaskChanged()
                     } label: {
-                        Label(mask.name, lightCraftIcon: "LightCraft-Mask").frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 44)
+                        if isPadStyle {
+                            HStack(spacing: 10) {
+                                Image(lightCraftIcon: "LightCraft-Mask").resizable().scaledToFit().frame(width: 18, height: 18)
+                                    .frame(width: 40, height: 32)
+                                    .background(Color.white.opacity(0.08), in: .rect(cornerRadius: 8))
+                                Text(mask.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+                        } else {
+                            Label(mask.name, lightCraftIcon: "LightCraft-Mask").frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 44)
+                        }
                     }.buttonStyle(.plain)
                     .accessibilityValue(active ? "Selected" : "")
                     .accessibilityAddTraits(active ? .isSelected : [])
@@ -173,9 +238,18 @@ struct ComputationalToolsSheet<Engine: EngineDriving & EngineDiagnosing, Importe
                         .labelStyle(.iconOnly).frame(width: 44, height: 44)
                 }
                 .padding(.horizontal, 8)
-                .foregroundStyle(active ? LightCraftPanelStyle.changed : LightCraftPanelStyle.label)
-                .background(active ? LightCraftPanelStyle.changed.opacity(0.14) : LightCraftPanelStyle.inset, in: .rect(cornerRadius: 5))
+                .foregroundStyle(isPadStyle ? Color.white : (active ? LightCraftPanelStyle.changed : LightCraftPanelStyle.label))
+                .background {
+                    if isPadStyle {
+                        if active { RoundedRectangle(cornerRadius: 12).fill(LightCraftPanelStyle.highlight.opacity(0.28)) }
+                        else { Color.clear.lightCraftCardSurface(cornerRadius: 12) }
+                    } else {
+                        RoundedRectangle(cornerRadius: 5).fill(active ? LightCraftPanelStyle.changed.opacity(0.14) : LightCraftPanelStyle.inset)
+                    }
+                }
+                .overlay { if isPadStyle && active { RoundedRectangle(cornerRadius: 12).strokeBorder(LightCraftPanelStyle.highlight.opacity(0.3)) } }
                 .disabled(session.busy || colorDragging)
+            }
             }
             if session.selectedMask != nil {
                 maskOverlayControls
@@ -186,11 +260,13 @@ struct ComputationalToolsSheet<Engine: EngineDriving & EngineDiagnosing, Importe
                                   apply: session.applyMaskAdjustments,
                                   colorize: session.colorizeMask,
                                   reset: session.resetMaskColor,
-                                  onEditingChanged: { colorDragging = $0 })
+                                  onEditingChanged: { colorDragging = $0 }, grouped: isPadStyle)
                 LightCraftSliderRow("Edge refinement", value: $session.refinement, in: 0...100, defaultValue: 0, step: 1) { editing in
                     colorDragging = editing
                     if !editing { session.refineMask() }
                 }.accessibilityLabel("Mask edge refinement")
+            } else if splitMaskLayout {
+                Text("Select or create a mask to adjust it.").foregroundStyle(.secondary)
             }
         }
     }
@@ -315,7 +391,95 @@ struct ComputationalToolsSheet<Engine: EngineDriving & EngineDiagnosing, Importe
             }.buttonStyle(.bordered)
         }.disabled(session.busy)
     }
-    private var removal: some View {
+    @ViewBuilder private var removal: some View {
+        if isPadStyle { padRemoval } else { classicRemoval }
+    }
+    /// padRemoval is the iPad Remove panel in the card style used by Crop and Masks.
+    private var padRemoval: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Remove").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                ForEach([("remove", "Remove"), ("fill", "Content-Aware"), ("heal", "Heal"), ("clone", "Clone")], id: \.0) { mode, title in
+                    removalCard(title, selected: session.removalMode == mode) {
+                        session.removalMode = mode
+                        if mode == "fill" { session.sourcePoint = nil; session.isPickingSource = false }
+                    }
+                }
+            }.disabled(session.busy)
+            VStack(spacing: 14) {
+                LightCraftSliderRow("Brush size", value: $session.brushSize, in: 0.001...0.25, defaultValue: 0.025)
+                LightCraftSliderRow("Feather", value: $session.removalFeather, in: 0...100, defaultValue: 60)
+                LightCraftSliderRow("Opacity", value: $session.removalOpacity, in: 0...100, defaultValue: 100)
+            }
+            .padding(14).lightCraftCardSurface(cornerRadius: 14)
+            if session.removalMode != "fill" {
+                Text("Source").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+                HStack(spacing: 8) {
+                    removalCard("Automatic", selected: session.sourcePoint == nil && !session.isPickingSource) {
+                        session.sourcePoint = nil; session.isPickingSource = false
+                    }
+                    removalCard(session.isPickingSource ? "Tap Photo…" : "Pick on Photo", selected: session.isPickingSource || session.sourcePoint != nil) {
+                        session.isPickingSource.toggle()
+                    }
+                }.disabled(session.busy)
+            }
+            HStack(spacing: 8) {
+                Button("Clear Stroke") { session.stroke = [] }.buttonStyle(.plain).lightCraftGlassButton()
+                Spacer(minLength: 0)
+                Button("Apply", action: session.removeStroke).buttonStyle(.plain).lightCraftGlassButton(prominent: true)
+                    .accessibilityLabel("Apply repair")
+            }.disabled(session.busy || session.stroke.isEmpty)
+            HStack(spacing: 8) {
+                Text("Spots").font(.system(size: 16, weight: .bold)).foregroundStyle(.white)
+                Text("\(session.savedSpots.count)").font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.55))
+                Spacer(minLength: 0)
+                Button("Find Dust", action: session.findDustSpots).buttonStyle(.plain).lightCraftGlassButton().disabled(session.busy)
+            }
+            if !session.savedSpots.isEmpty {
+                HStack {
+                    Text("Repair").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                    Spacer(minLength: 0)
+                    Menu {
+                        Button { session.selectedSpot = nil; session.restoreSpotControls() } label: {
+                            if session.selectedSpot == nil { Label("New repair", systemImage: "checkmark") } else { Text("New repair") }
+                        }
+                        ForEach(session.savedSpots.indices, id: \.self) { index in
+                            Button { session.selectedSpot = index; session.restoreSpotControls() } label: {
+                                if session.selectedSpot == index { Label("Repair \(index + 1)", systemImage: "checkmark") } else { Text("Repair \(index + 1)") }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(session.selectedSpot.map { "Repair \($0 + 1)" } ?? "New repair").lineLimit(1)
+                            Image(systemName: "chevron.up.chevron.down").font(.system(size: 11, weight: .semibold))
+                        }
+                        .font(.subheadline.weight(.medium)).foregroundStyle(.white)
+                        .padding(.horizontal, 12).frame(minHeight: 32)
+                        .lightCraftCardSurface(cornerRadius: 16).contentShape(.capsule)
+                    }
+                }
+                if session.selectedSpot != nil {
+                    HStack(spacing: 8) {
+                        removalCard("Update", action: session.updateSavedSpot)
+                        removalCard("New Source", action: session.changeSpotSource).disabled(session.removalMode == "fill")
+                        removalCard("Delete", destructive: true, action: session.deleteSavedSpot)
+                    }
+                }
+                removalCard("Delete All Spots", destructive: true, action: session.deleteAllSpots).disabled(session.busy)
+            }
+        }
+    }
+    private func removalCard(_ title: String, selected: Bool = false, destructive: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                .foregroundStyle(destructive ? Color.red : (selected ? LightCraftPanelStyle.highlight : Color.white))
+                .frame(maxWidth: .infinity, minHeight: 40).padding(.horizontal, 8)
+                .lightCraftCardSurface(cornerRadius: 12)
+                .overlay { if selected { RoundedRectangle(cornerRadius: 12).strokeBorder(LightCraftPanelStyle.highlight.opacity(0.5)) } }
+                .contentShape(.rect)
+        }.buttonStyle(.plain)
+    }
+    private var classicRemoval: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Remove").font(.system(size: 15, weight: .semibold))
             Picker("Repair mode", selection: $session.removalMode) {
@@ -377,7 +541,7 @@ struct ComputationalToolsSheet<Engine: EngineDriving & EngineDiagnosing, Importe
             Button("Clear Private Analysis Index", role: .destructive, action: session.clearIndex)
                 .disabled(session.busy)
             TextField("Search labels, visible text or people", text: $session.query)
-                .textFieldStyle(.roundedBorder)
+                .lightCraftTextField()
                 .accessibilityLabel("Search private analysis index")
             ForEach(session.results.prefix(50)) { result in
                 Button { session.openIndexed(result) } label: {

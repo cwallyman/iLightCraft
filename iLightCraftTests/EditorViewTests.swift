@@ -13,6 +13,18 @@ import UIKit
 @MainActor
 struct EditorViewTests {
 
+    /// On iPad, constructing the hidden editor toolbar during workspace launch must not overflow the stack.
+    @Test
+    func ipadWorkspaceLaunchConstructsToolbarWithoutCrashing() async throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { return }
+        let fixture = try Fixture(hostsWorkspace: true)
+        defer { fixture.window.isHidden = true }
+        await fixture.session.open(pickedURL: URL(filePath: "/tmp/toolbar-regression.RAF"))
+        try await waitUntil(seconds: 3) { fixture.session.isEditorPresented && !fixture.canvas.bounds.isEmpty }
+        #expect(fixture.model.isPhotoOpen)
+        #expect(findCanvas(in: fixture.host.view) === fixture.canvas)
+    }
+
     /// dockedCardReservesPhotoSpace checks actual hosted canvas bounds on phone and tablet layouts.
     /// Opening and closing the dock must resize the same Metal view without covering its center.
     @Test(arguments: [true, false])

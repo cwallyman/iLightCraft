@@ -897,7 +897,7 @@ final class EditorViewModel<Engine: EngineDriving, Importer: PhotoImporting> {
 extension EditorViewModel where Engine: EngineDiagnosing {
 
     /// openCatalogResult selects a saved local draft without re-decoding its linear DNG as sensor RAW.
-    func openCatalogResult(_ photo: PhotoID, source: URL) async -> Bool {
+    func openCatalogResult(_ photo: PhotoID, source: URL, title: String? = nil) async -> Bool {
         await finishPendingEdits()
         let previous = openPhoto
         var opened = false
@@ -914,7 +914,7 @@ extension EditorViewModel where Engine: EngineDiagnosing {
                 self.presetReplacementState = nil
                 self.openPhoto = photo
                 self.openCopyURL = source
-                self.photoTitle = source.deletingPathExtension().lastPathComponent
+                self.photoTitle = title ?? source.deletingPathExtension().lastPathComponent
                 self.photoType = info.format
                 self.photoSize = info.size
                 self.developDefaults = info.developDefaults
@@ -937,6 +937,13 @@ extension EditorViewModel where Engine: EngineDiagnosing {
             }
         }
         return opened
+    }
+
+    /// Restore in-memory history when undoing a derived-copy transition back to its source.
+    func restoreHistory(undo: [EditSnapshot], redo: [EditSnapshot], for photo: PhotoID) {
+        guard openPhoto == photo else { return }
+        undoStack = Array(undo.suffix(Self.maxUndoSteps))
+        redoStack = Array(redo.suffix(Self.maxUndoSteps))
     }
 
     /// performPhotoEdit serializes a non-slider edit and records all its saved settings for undo.

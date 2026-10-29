@@ -7,12 +7,20 @@ struct MaskColorControls: View {
     let colorize: (Double) -> Void
     let reset: () -> Void
     let onEditingChanged: (Bool) -> Void
+    var grouped = false
+    @State private var expanded: Set<String> = ["Light", "Color"]
 
     private let swatches: [(String, Double)] = [
         ("Red", 0), ("Orange", 30), ("Yellow", 60), ("Green", 120),
         ("Cyan", 180), ("Blue", 240), ("Purple", 270), ("Magenta", 300)
     ]
     var body: some View {
+        Group {
+            if grouped { groupedControls } else { legacyControls }
+        }.disabled(busy)
+    }
+
+    private var legacyControls: some View {
         VStack(alignment: .leading, spacing: 14) {
             slider("Temp", value: $values.temperature)
             slider("Tint", value: $values.tint)
@@ -59,13 +67,83 @@ struct MaskColorControls: View {
             slider("Color amount", value: $values.colorAmount, range: 0...100, suffix: "%")
             Text("Swatches replace the mask’s original color while retaining shading. For natural skin, use Temperature, Tint, Hue shift and Saturation. Release sliders to apply.")
                 .font(.caption).foregroundStyle(.secondary)
-            Button("Apply Mask Adjustments", action: apply).buttonStyle(.borderedProminent)
+            applyButton
             Button("Reset Mask Color", action: reset)
             Text("Use separate Subject and Background masks for different colors, such as a red subject and blue background.")
                 .font(.caption).foregroundStyle(.secondary)
         }
-        .disabled(busy)
     }
+
+    private var groupedControls: some View {
+        VStack(spacing: 12) {
+            section("Light", content: AnyView(VStack(spacing: 14) {
+                slider("Exposure", value: $values.exposure, range: -4...4, step: 0.01)
+                slider("Contrast", value: $values.contrast)
+                slider("Highlights", value: $values.highlights)
+                slider("Shadows", value: $values.shadows)
+                slider("Whites", value: $values.whites)
+                slider("Blacks", value: $values.blacks)
+            }))
+            section("Color", content: AnyView(VStack(alignment: .leading, spacing: 14) {
+                slider("Temp", value: $values.temperature)
+                slider("Tint", value: $values.tint)
+                slider("Hue shift", value: $values.hue)
+                slider("Saturation", value: $values.saturation)
+                Text("Colorize").font(.subheadline.weight(.semibold))
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 8) {
+                    ForEach(swatches, id: \.0) { name, hue in
+                        Button { colorize(hue) } label: {
+                            VStack(spacing: 4) {
+                                Circle().fill(Color(hue: hue / 360, saturation: 1, brightness: 1)).frame(width: 20, height: 20)
+                                Text(name).font(.caption).lineLimit(1).minimumScaleFactor(0.8)
+                            }.frame(maxWidth: .infinity, minHeight: 48)
+                                .background(values.colorAmount > 0 && values.colorHue == hue ? Color.accentColor.opacity(0.18) : .clear, in: .rect(cornerRadius: 8))
+                        }.buttonStyle(.plain).accessibilityLabel("Colorize mask \(name)")
+                    }
+                }
+                slider("Target hue", value: $values.colorHue, range: 0...360, suffix: "°")
+                slider("Color amount", value: $values.colorAmount, range: 0...100, suffix: "%")
+                Text("Swatches replace the mask’s original color while retaining shading. For natural skin, use Temperature, Tint, Hue shift and Saturation. Release sliders to apply.").font(.caption).foregroundStyle(.secondary)
+            }))
+            section("Presence", content: AnyView(VStack(spacing: 14) {
+                slider("Texture", value: $values.texture)
+                slider("Clarity", value: $values.clarity)
+                slider("Dehaze", value: $values.dehaze)
+            }))
+            section("Detail", content: AnyView(VStack(spacing: 14) {
+                slider("Sharpness", value: $values.sharpness)
+                slider("Noise", value: $values.noise)
+                slider("Moiré", value: $values.moire)
+                slider("Defringe", value: $values.defringe)
+            }))
+            applyButton
+            Button("Reset Mask Color", action: reset)
+            Text("Use separate Subject and Background masks for different colors, such as a red subject and blue background.").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// applyButton is amber with black text on iPad so the label stays readable.
+    @ViewBuilder private var applyButton: some View {
+        if LightCraftPanelStyle.isPad {
+            Button("Apply", action: apply).buttonStyle(.plain).lightCraftGlassButton(prominent: true)
+                .accessibilityLabel("Apply mask adjustments")
+        } else {
+            Button("Apply Mask Adjustments", action: apply).buttonStyle(.borderedProminent)
+        }
+    }
+
+    private func section(_ title: String, content: AnyView) -> some View {
+        DisclosureGroup(isExpanded: Binding(get: { expanded.contains(title) }, set: { isOpen in
+            if isOpen { expanded.insert(title) } else { expanded.remove(title) }
+        })) {
+            content.padding(.top, 12)
+        } label: {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(LightCraftPanelStyle.text)
+        }
+        .padding(14)
+        .background(LightCraftPanelStyle.iPadInset, in: .rect(cornerRadius: 14))
+    }
+
     private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double> = -100...100,
                         step: Double = 1, suffix: String = "") -> some View {
         VStack(spacing: 6) {

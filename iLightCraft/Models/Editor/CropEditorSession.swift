@@ -37,7 +37,14 @@ final class CropEditorSession<Engine: EngineDriving & EngineDiagnosing, Importer
         draft = model.cropSettings
         if let pair = draft.crop.aspect, pair.count == 2 {
             aspect = "current"
+        } else if Self.isUncropped(draft.crop.geometry.rect.cgRect) {
+            // An uncropped photo starts locked to its own shape; an existing free crop stays free.
+            aspect = "original"
         }
+    }
+
+    private static func isUncropped(_ rect: CGRect) -> Bool {
+        abs(rect.minX) < 0.0001 && abs(rect.minY) < 0.0001 && abs(rect.width - 1) < 0.0001 && abs(rect.height - 1) < 0.0001
     }
 
     var ratio: CGFloat? {
@@ -78,6 +85,7 @@ final class CropEditorSession<Engine: EngineDriving & EngineDiagnosing, Importer
             guard let image = UIImage(data: data) else { throw EngineError.engine("Cannot read the crop preview") }
             self.image = image
             if aspect == "free" { portrait = image.size.height > image.size.width }
+            if aspect == "original" && draft.crop.aspect == nil { chooseAspect() }
         } catch {
             self.error = (error as? EngineError)?.message ?? error.localizedDescription
         }

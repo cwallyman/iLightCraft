@@ -8,6 +8,7 @@ struct ProfilesPanel<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoIm
     @Environment(\.dismiss) private var dismiss
     @Environment(\.editorToolClose) private var closeDock
     @Environment(\.editorToolDocked) private var isDocked
+    private let pad = LightCraftPanelStyle.isPad
 
     init(model: EditorViewModel<Engine, Importer>) {
         _session = State(initialValue: ProfileEditorSession(model: model))
@@ -24,7 +25,7 @@ struct ProfilesPanel<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoIm
                             .frame(maxHeight: 180).accessibilityLabel("Photo with selected profile")
                     }
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Current: \(session.currentName)").font(.headline).foregroundStyle(session.selectedID == "lc.color" ? LightCraftPanelStyle.label : LightCraftPanelStyle.changed)
+                        Text("Current: \(session.currentName)").font(pad ? .system(size: 16, weight: .bold) : .headline).foregroundStyle(session.selectedID == "lc.color" ? LightCraftPanelStyle.label : LightCraftPanelStyle.changed)
                         HStack {
                             Text("Amount")
                             Spacer()
@@ -38,13 +39,17 @@ struct ProfilesPanel<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoIm
                         })
                         .accessibilityLabel("Profile amount")
                         .disabled(!session.loaded || session.busy || session.model.isShowingBefore)
-                        Text("Release to apply the amount.").font(.caption).foregroundStyle(.secondary)
-                        Button("Reset Profile to Color") { Task { await session.reset() } }
-                            .disabled(!session.loaded || session.busy || dragging || session.model.isShowingBefore)
+                        if !pad { Text("Release to apply the amount.").font(.caption).foregroundStyle(.secondary) }
+                        resetButton
                     }
-                    TextField("Search profiles", text: $query).textFieldStyle(.roundedBorder)
-                        .accessibilityLabel("Search profiles")
+                    if pad { padSearch } else {
+                        TextField("Search profiles", text: $query).textFieldStyle(.roundedBorder)
+                            .accessibilityLabel("Search profiles")
+                    }
                     Toggle("Favorites only", isOn: $favoritesOnly)
+                        .tint(LightCraftPanelStyle.highlight)
+                        .font(pad ? .subheadline.weight(.semibold) : .body)
+                        .foregroundStyle(pad ? .white : LightCraftPanelStyle.label)
                     if let menu = session.menu {
                         if !favoritesOnly && query.isEmpty && !menu.recent.isEmpty {
                             profileGroup("Recent", profiles: menu.recent)
@@ -60,7 +65,8 @@ struct ProfilesPanel<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoIm
                         Text(error).font(.footnote).foregroundStyle(.red)
                     }
                 }
-                .padding(16)
+                .padding(pad ? 0 : 16)
+                .padding(.vertical, pad ? 4 : 0)
             }
             .scrollDisabled(dragging)
             .task { await session.load(showsPreview: !isDocked) }
@@ -68,6 +74,29 @@ struct ProfilesPanel<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoIm
         }
         .preferredColorScheme(.dark)
         .modifier(EditorToolBusyReporter(busy: session.busy || dragging))
+    }
+    @ViewBuilder private var resetButton: some View {
+        let button = Button("Reset Profile to Color") { Task { await session.reset() } }
+            .disabled(!session.loaded || session.busy || dragging || session.model.isShowingBefore)
+        if pad {
+            button.buttonStyle(.plain).foregroundStyle(.white).lightCraftGlassButton().padding(.top, 4)
+        } else {
+            button
+        }
+    }
+    /// padSearch is the iPad search field: a rounded card with a magnifying glass and a clear button.
+    private var padSearch: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.55))
+            TextField("Search profiles", text: $query).foregroundStyle(.white)
+                .accessibilityLabel("Search profiles")
+            if !query.isEmpty {
+                Button("Clear search", systemImage: "xmark.circle.fill") { query = "" }
+                    .labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(.white.opacity(0.55))
+            }
+        }
+        .padding(.horizontal, 14).frame(minHeight: 44)
+        .lightCraftCardSurface(cornerRadius: 14)
     }
     private func filtered(_ profiles: [NativeProfile]) -> [NativeProfile] {
         profiles.filter { profile in
@@ -77,18 +106,22 @@ struct ProfilesPanel<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoIm
     }
     private func profileGroup(_ title: String, profiles: [NativeProfile]) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+            Text(title).font(pad ? .system(size: 16, weight: .bold) : .subheadline.weight(.semibold))
+                .foregroundStyle(pad ? Color.white : Color.secondary).padding(.top, pad ? 6 : 0)
             ForEach(profiles) { profile in
+                let selected = session.selectedID == profile.id
                 HStack(spacing: 8) {
                     Button {
                         Task { await session.select(profile) }
                     } label: {
                         HStack {
-                            Image(lightCraftIcon: session.selectedID == profile.id ? "LightCraft-Check" : "LightCraft-Circle")
-                                .foregroundStyle(session.selectedID == profile.id ? Color.accentColor : .secondary)
+                            Image(lightCraftIcon: selected ? "LightCraft-Check" : "LightCraft-Circle")
+                                .foregroundStyle(selected ? (pad ? LightCraftPanelStyle.highlight : Color.accentColor) : .secondary)
                             Text(profile.name).frame(maxWidth: .infinity, alignment: .leading)
+                                .font(pad ? .subheadline.weight(.semibold) : .body)
+                                .foregroundStyle(pad ? .white : LightCraftPanelStyle.label)
                         }
-                        .contentShape(Rectangle()).frame(minHeight: 40)
+                        .contentShape(Rectangle()).frame(minHeight: pad ? 44 : 40)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(profile.name)
@@ -99,7 +132,7 @@ struct ProfilesPanel<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoIm
                     .labelStyle(.iconOnly)
                     .buttonStyle(.plain)
                     .frame(width: 44, height: 44)
-                    .foregroundStyle(profile.favorite ? Color.accentColor : .secondary)
+                    .foregroundStyle(profile.favorite ? (pad ? LightCraftPanelStyle.highlight : Color.accentColor) : .secondary)
                     .help(profile.favorite ? "Remove favorite" : "Favorite")
                 }
                 .disabled(session.busy || dragging || !session.loaded || session.model.isShowingBefore)

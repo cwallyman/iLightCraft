@@ -149,14 +149,15 @@ struct AdjustmentSlider: View {
     /// by half a thumb so the thumb stays inside at both ends. The whole 32 pt band takes the drag.
     private var track: some View {
         GeometryReader { proxy in
-            let usable = max(proxy.size.width - Self.thumbSize, 1)
+            let usable = max(proxy.size.width - 2 * LightCraftSliderTrack.inset, 1)
             let fill   = SliderFill(
                 value        : value,
                 range        : kind.range,
                 defaultValue : defaultValue
             )
 
-            LightCraftSliderTrack(fraction: fill.thumb, controlID: kind.rawValue, isChanged: !isAtDefault)
+            LightCraftSliderTrack(fraction: fill.thumb, controlID: kind.rawValue, isChanged: !isAtDefault,
+                                  anchor: fill.thumb == fill.start ? fill.end : fill.start)
             .frame(width: proxy.size.width, height: proxy.size.height)
             .contentShape(Rectangle())
             .gesture(trackDrag(usableWidth: usable, height: proxy.size.height))

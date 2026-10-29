@@ -9,8 +9,127 @@ import SwiftUI
 struct PhotoPanelControls<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoImporting>: View {
     @Bindable var session: PhotoPanelSession<Engine, Importer>
     let locked: Bool
+    var floating = false
+    var onHold: ((Bool) -> Void)? = nil
+    var onFit: (() -> Void)? = nil
+    var clipping: Binding<ClippingOverlay>? = nil
+    var openPhoto: ((UInt64) -> Void)? = nil
     let chooseMode: (PhotoPanelMode) -> Void
+    @State private var barWidth: CGFloat = 0
     var body: some View {
+        Group { if floating { floatingBar } else { classicBar } }
+        .disabled(locked || session.busy || !session.model.isPhotoOpen)
+        .accessibilityIdentifier("photo-panel-controls")
+        .task(id: session.model.openPhoto) { await session.load() }
+        .alert("Photo panel", isPresented: Binding(get: { session.error != nil }, set: { if !$0 { session.error = nil } })) {
+            Button("OK") { session.error = nil }
+        } message: { Text(session.error ?? "") }
+        .accessibilityValue(session.status)
+    }
+
+    /// floatingBar is the iPad's glass capsule over the photo, with a filmstrip at its leading edge
+    /// when there is room. Rating, flags, sort and copy settings stay one tap away in its menus.
+    private var floatingBar: some View {
+        ZStack {
+            if let openPhoto, barWidth >= 760 {
+                HStack { PhotoFilmstrip(session: session, open: openPhoto); Spacer() }
+            }
+            HStack(spacing: 4) {
+                let comparing = session.mode == .beforeAfter
+                glassIcon(PhotoPanelMode.beforeAfter.title, lightCraft: PhotoPanelMode.beforeAfter.icon, selected: comparing) {
+                    chooseMode(comparing ? .detail : .beforeAfter)
+                }
+                if let onHold {
+                    Text("Hold for Original").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                        .padding(.horizontal, 16).frame(height: 40)
+                        .background(Color.white.opacity(0.1), in: .capsule)
+                        .contentShape(.capsule)
+                        .onLongPressGesture(minimumDuration: 0, maximumDistance: 60, perform: {}, onPressingChanged: onHold)
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityIdentifier("hold-for-original")
+                }
+                if let onFit {
+                    glassIcon("Zoom to Fit", system: "viewfinder", action: onFit)
+                }
+                if let clipping {
+                    let on = !clipping.wrappedValue.isEmpty
+                    glassIcon(on ? "Hide Clipping" : "Show Clipping", system: "exclamationmark.triangle", tint: on ? .red : Color(red: 1, green: 0.42, blue: 0.4), selected: on) {
+                        clipping.wrappedValue = on ? [] : [.shadows, .highlights]
+                    }
+                }
+                Rectangle().fill(Color.white.opacity(0.15)).frame(width: 1, height: 24).padding(.horizontal, 4)
+                ratingMenu
+                Menu {
+                    Button(session.hasClipboard ? "Paste Edit Settings" : "Copy Edit Settings") { Task { await session.copyOrPaste() } }
+                        .disabled(session.groups.isEmpty)
+                    Button("Copy Edit Settings") { Task { await session.copyOrPaste(copyOnly: true) } }
+                        .disabled(session.groups.isEmpty)
+                    copySettingsMenu
+                    sortMenu
+                    Section("View") {
+                        ForEach([PhotoPanelMode.detail, .photoGrid, .squareGrid, .compare, .survey]) { mode in
+                            Button(mode.title, lightCraftIcon: "LightCraft-\(mode.icon)") { chooseMode(mode) }
+                        }
+                    }
+                } label: {
+                    Image(lightCraftIcon: "LightCraft-More").resizable().scaledToFit().frame(width: 20, height: 20)
+                        .frame(width: 40, height: 40).contentShape(.circle)
+                }
+                .accessibilityLabel("Photo Options").accessibilityIdentifier("photo-panel-copy-settings")
+            }
+            .padding(5)
+            .lightCraftFloatingGlass(.capsule)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16).padding(.bottom, 12)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { barWidth = $0 }
+    }
+
+    private var ratingMenu: some View {
+        Menu {
+            Section("Rating") {
+                ForEach((0...5).reversed(), id: \.self) { rating in
+                    Button { Task { await session.setRating(rating) } } label: {
+                        selection(rating == 0 ? "No Rating" : String(repeating: "★", count: rating), session.rating == rating)
+                    }
+                }
+            }
+            Section("Flag") {
+                Button { Task { await session.setFlag("pick") } } label: { selection("Pick", session.flag == "pick") }
+                Button { Task { await session.setFlag("reject") } } label: { selection("Reject", session.flag == "reject") }
+                Button { Task { await session.setFlag("none") } } label: { selection("Unflagged", session.flag == "none") }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(lightCraftIcon: session.rating > 0 ? "LightCraft-StarFilled" : "LightCraft-Star").resizable().scaledToFit().frame(width: 18, height: 18)
+                if session.rating > 0 { Text("\(session.rating)").font(.subheadline.weight(.semibold)).monospacedDigit() }
+                if session.flag != "none" {
+                    Image(lightCraftIcon: session.flag == "pick" ? "LightCraft-FlagPick" : "LightCraft-FlagReject").resizable().scaledToFit().frame(width: 16, height: 16)
+                }
+            }
+            .foregroundStyle(session.rating > 0 || session.flag != "none" ? LightCraftPanelStyle.highlight : .white)
+            .padding(.horizontal, 10).frame(minWidth: 40, minHeight: 40).contentShape(.capsule)
+        }
+        .accessibilityLabel("Rating and Flag").accessibilityIdentifier("photo-panel-rating")
+    }
+
+    private func glassIcon(_ title: String, lightCraft: String? = nil, system: String? = nil, tint: Color = .white, selected: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Group {
+                if let lightCraft { Image(lightCraftIcon: "LightCraft-\(lightCraft)").resizable().scaledToFit().frame(width: 20, height: 20) }
+                else if let system { Image(systemName: system).font(.system(size: 17, weight: .medium)) }
+            }
+            .foregroundStyle(tint)
+            .frame(width: 40, height: 40)
+            .background(selected ? LightCraftPanelStyle.highlight.opacity(0.3) : .clear, in: .circle)
+            .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title).help(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var classicBar: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 4) {
                 ForEach([PhotoPanelMode.detail, .beforeAfter]) { mode in
@@ -42,13 +161,6 @@ struct PhotoPanelControls<Engine: EngineDriving & EngineDiagnosing, Importer: Ph
         }
         .scrollIndicators(.hidden).frame(height: 52)
         .background(.bar)
-        .disabled(locked || session.busy || !session.model.isPhotoOpen)
-        .accessibilityIdentifier("photo-panel-controls")
-        .task(id: session.model.openPhoto) { await session.load() }
-        .alert("Photo panel", isPresented: Binding(get: { session.error != nil }, set: { if !$0 { session.error = nil } })) {
-            Button("OK") { session.error = nil }
-        } message: { Text(session.error ?? "") }
-        .accessibilityValue(session.status)
     }
     private func icon(_ title: String, _ name: String, selected: Bool = false, width: CGFloat = 40, action: @escaping () -> Void) -> some View {
         Button(title, lightCraftIcon: "LightCraft-\(name)", action: action)
@@ -198,5 +310,53 @@ private struct PhotoPanelTile<Engine: EngineDriving & EngineDiagnosing, Importer
             do { image = try await session.thumbnail(photo.id, large: large) }
             catch is CancellationError {} catch { self.error = error.localizedDescription }
         }
+    }
+}
+
+/// PhotoFilmstrip shows the open photo's neighbours as round thumbnails; tapping one opens it.
+struct PhotoFilmstrip<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoImporting>: View {
+    let session: PhotoPanelSession<Engine, Importer>
+    let open: (UInt64) -> Void
+    private var nearby: [PhotoMergeSession<Engine, Importer>.Photo] {
+        let current = session.photos.firstIndex { $0.id == session.model.openPhoto?.rawValue } ?? 0
+        let start = max(0, min(current - 2, session.photos.count - 5))
+        return Array(session.photos.dropFirst(start).prefix(5))
+    }
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(nearby) { photo in
+                PhotoFilmstripTile(session: session, photo: photo, selected: photo.id == session.model.openPhoto?.rawValue) { open(photo.id) }
+            }
+        }
+        .padding(5)
+        .lightCraftFloatingGlass(.capsule)
+        .opacity(session.photos.isEmpty ? 0 : 1)
+        .task(id: session.model.openPhoto) {
+            // The panel's own load runs first and holds the busy flag.
+            while session.busy { try? await Task.sleep(for: .milliseconds(150)) }
+            if session.photos.isEmpty { await session.reloadPhotos() }
+        }
+        .accessibilityIdentifier("photo-filmstrip")
+    }
+}
+
+private struct PhotoFilmstripTile<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoImporting>: View {
+    let session: PhotoPanelSession<Engine, Importer>
+    let photo: PhotoMergeSession<Engine, Importer>.Photo
+    let selected: Bool
+    let open: () -> Void
+    @State private var image: UIImage?
+    var body: some View {
+        Button(action: open) {
+            Group {
+                if let image { Image(uiImage: image).resizable().scaledToFill() } else { Color.white.opacity(0.08) }
+            }
+            .frame(width: 40, height: 40).clipShape(.circle)
+            .overlay(Circle().strokeBorder(selected ? LightCraftPanelStyle.highlight : .clear, lineWidth: 2))
+            .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open \(photo.name)")
+        .task(id: photo.id) { image = try? await session.thumbnail(photo.id) }
     }
 }

@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 /// LightCraftSliderPalette uses the retained LightCraft control track colors.
 enum LightCraftSliderPalette {
@@ -58,16 +59,40 @@ struct LightCraftSliderTrack: View {
     let fraction: Double
     let controlID: String
     var isChanged = false
+    /// anchor is where the iPad's amber fill starts: the default for centred controls, else the low end.
+    var anchor = 0.5
     @Environment(\.isEnabled) private var isEnabled
+    private var isPadStyle: Bool { LightCraftPanelStyle.isPad }
+    /// inset keeps the whole thumb, its ring and its shadow inside the frame at both ends,
+    /// so a value at its minimum or maximum is never clipped by the row.
+    static var inset: CGFloat { LightCraftPanelStyle.isPad ? 14 : 10 }
     var body: some View {
         GeometryReader { geometry in
-            let width = max(0, geometry.size.width - 20)
+            let inset = Self.inset
+            let width = max(0, geometry.size.width - 2 * inset)
+            let position = min(1, max(0, fraction)) * width
+            let anchorX = min(1, max(0, anchor)) * width
+            let colors = LightCraftSliderPalette.colors(controlID)
+            let isNeutral = colors.allSatisfy { $0 == colors[0] }
             ZStack(alignment: .leading) {
-                Rectangle().fill(LinearGradient(colors: LightCraftSliderPalette.colors(controlID), startPoint: .leading, endPoint: .trailing))
-                    .frame(width: width, height: 2).offset(x: 10)
-                Circle().fill(isChanged ? LightCraftPanelStyle.changed : LightCraftPanelStyle.background)
-                    .overlay(Circle().stroke(isChanged ? LightCraftPanelStyle.changed : LightCraftSliderPalette.color(0x999999), lineWidth: 2))
-                    .frame(width: 18, height: 18).offset(x: 1 + min(1, max(0, fraction)) * width)
+                if isPadStyle && isNeutral {
+                    Capsule().fill(LightCraftPanelStyle.iPadTrack).frame(width: width, height: 4).offset(x: inset)
+                    if anchor > 0.01 && anchor < 0.99 {
+                        Capsule().fill(Color.white.opacity(0.35)).frame(width: 2, height: 10).offset(x: inset - 1 + anchorX)
+                    }
+                    if isChanged {
+                        Capsule().fill(LightCraftPanelStyle.highlight)
+                            .frame(width: abs(position - anchorX), height: 4)
+                            .offset(x: inset + min(position, anchorX))
+                    }
+                } else {
+                    Capsule().fill(LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing))
+                        .frame(width: width, height: isPadStyle ? 4 : 2).offset(x: inset)
+                }
+                Circle().fill(isPadStyle ? Color.white : (isChanged ? LightCraftPanelStyle.changed : LightCraftPanelStyle.background))
+                    .overlay(Circle().stroke(isPadStyle ? Color.white : (isChanged ? LightCraftPanelStyle.changed : LightCraftSliderPalette.color(0x999999)), lineWidth: 2))
+                    .shadow(color: .black.opacity(isPadStyle ? 0.35 : 0), radius: 3, y: 1)
+                    .frame(width: isPadStyle ? 22 : 18, height: isPadStyle ? 22 : 18).offset(x: isPadStyle ? position + inset - 11 : 1 + position)
             }
             .frame(height: geometry.size.height)
         }
@@ -94,7 +119,8 @@ struct LightCraftSlider: View {
     var body: some View {
         GeometryReader { geometry in
             let span = range.upperBound - range.lowerBound
-            LightCraftSliderTrack(fraction: span > 0 ? (value - range.lowerBound) / span : 0, controlID: controlID, isChanged: LightCraftPanelStyle.isChanged(value, from: defaultValue))
+            LightCraftSliderTrack(fraction: span > 0 ? (value - range.lowerBound) / span : 0, controlID: controlID, isChanged: LightCraftPanelStyle.isChanged(value, from: defaultValue),
+                                  anchor: SliderFill.fraction(of: range.lowerBound < 0 ? defaultValue : range.lowerBound, in: range))
                 .contentShape(Rectangle())
                 .gesture(DragGesture(minimumDistance: 8)
                     .updating($touching) { _, active, _ in active = true }
@@ -105,7 +131,7 @@ struct LightCraftSlider: View {
                             startValue = value; onEditingChanged(true)
                         }
                         guard let startValue else { return }
-                        set(startValue + Double(gesture.translation.width / max(1, geometry.size.width - 20)) * span)
+                        set(startValue + Double(gesture.translation.width / max(1, geometry.size.width - 2 * LightCraftSliderTrack.inset)) * span)
                     }
                     .onEnded { _ in finish() })
         }

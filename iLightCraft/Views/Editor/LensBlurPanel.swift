@@ -5,27 +5,25 @@
 
 import SwiftUI
 
-/// LensBlurPanel exposes an optional local depth model and explicit copy-based rendering.
+/// LensBlurPanel renders a separate copy using the on-device depth model.
 struct LensBlurPanel<Engine: EngineDriving & EngineDiagnosing, Importer: PhotoImporting>: View {
     @Bindable var session: LensBlurSession<Engine, Importer>
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Depth estimation runs locally using Depth Anything V2 Small. This first implementation creates a rendered TIFF copy; return to the source to change the blur. It does not overwrite a Photos item.")
-                .font(.footnote).foregroundStyle(.secondary)
             if !session.installed {
-                if let url = URL(string: DepthModelStore.modelPage) { Link("Model and Apache-2.0 license", destination: url) }
-                Text("Download approximately 50 MB once. By downloading, you accept the linked Apache-2.0 terms. No photos are sent to the download host.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Button("Download On-device Depth Model", action: session.download)
-                    .buttonStyle(.borderedProminent).disabled(session.busy)
+                Text("The bundled depth model is unavailable. Rebuild the app with its model resources.")
+                    .font(.footnote).foregroundStyle(LightCraftPanelStyle.text)
             } else {
                 LightCraftSliderRow("Blur Amount", value: $session.amount, in: 0...100, defaultValue: 25, step: 1)
                 LightCraftSliderRow("Relative Focus", value: $session.focus, in: 0...1, defaultValue: 0.5, step: 0.01)
                 LightCraftSliderRow("In-Focus Range", value: $session.range, in: 0...0.9, defaultValue: 0.15, step: 0.01)
-                Text("Focus is relative model depth, not meters. Bokeh shape and painted depth refinement are not implemented.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Button("Create Blurred Copy", action: session.render).buttonStyle(.borderedProminent).disabled(session.busy)
-                Button("Remove Downloaded Model", role: .destructive, action: session.removeModel).disabled(session.busy)
+                Button(action: session.render) {
+                    Text("Create Blurred Copy").font(.body.weight(.semibold))
+                        .foregroundStyle(Color.black)
+                        .frame(maxWidth: .infinity).padding(.vertical, 12)
+                        .background(Color(red: 242.0 / 255, green: 165.0 / 255, blue: 22.0 / 255), in: RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain).disabled(session.busy).opacity(session.busy ? 0.5 : 1)
             }
             if session.busy {
                 ProgressView(session.status)

@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import UIKit
 import Observation
 
 /// LightCraftEditSession reads every shared slider from the retained engine's control specs.
@@ -87,6 +88,13 @@ struct LightCraftEditPanel<Engine: EngineDriving & EngineDiagnosing, Importer: P
     let onColorPicker: (AdvancedColorSession<Engine, Importer>?) -> Void
     @State private var openSections: Set<String>
     @State private var soloMode = false
+    private var isPadStyle: Bool {
+        #if targetEnvironment(macCatalyst)
+        false
+        #else
+        UIDevice.current.userInterfaceIdiom == .pad
+        #endif
+    }
     init(model: EditorViewModel<Engine, Importer>, group: AdjustmentGroup = .light, clipping: Binding<ClippingOverlay>, openTool: @escaping (EditorDockTool) -> Void, onColorPicker: @escaping (AdvancedColorSession<Engine, Importer>?) -> Void = { _ in }, onWhiteBalancePicker: @escaping (EditorAuxiliarySession<Engine, Importer>?) -> Void = { _ in }) {
         self.model = model; _clipping = clipping; self.openTool = openTool
         self.onColorPicker = onColorPicker
@@ -99,24 +107,44 @@ struct LightCraftEditPanel<Engine: EngineDriving & EngineDiagnosing, Importer: P
     }
     var body: some View {
         VStack(spacing: 0) {
+            if isPadStyle {
+                HStack(spacing: 8) {
+                    Text("Edit").font(.system(size: 24, weight: .bold)).foregroundStyle(.white)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                    Spacer(minLength: 4)
+                    Button { Task { await session.command("develop.auto", params: [String: String]()) } } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "sparkle").foregroundStyle(LightCraftPanelStyle.highlight)
+                            Text("Auto")
+                        }.lightCraftGlassButton().fixedSize()
+                    }
+                    Button { Task { await model.resetAll(); await session.load() } } label: { Text("Reset").lightCraftGlassButton().fixedSize() }
+                }.padding(.horizontal, 16).padding(.top, 14)
+            }
             HistogramView(viewModel: model, clipping: $clipping, fixedPlotHeight: 68, showsCaptureSummary: true)
-                .padding(.horizontal, 12).padding(.top, 10)
+                .padding(isPadStyle ? 12 : 0)
+                .modifier(PadCardSurface(enabled: isPadStyle))
+                .padding(.horizontal, isPadStyle ? 14 : 12).padding(.top, 10)
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: isPadStyle ? 12 : 14) {
                     HStack {
-                        Text("Edit").font(.system(size: 17, weight: .semibold)).foregroundStyle(LightCraftPanelStyle.text)
-                        Spacer()
-                        Button("Auto") { Task { await session.command("develop.auto", params: [String: String]()) } }
-                        Button("B&W") { Task { await session.command("develop.treatment", params: [String: String]()) } }
-                            .foregroundStyle(session.isBlackAndWhite ? Color.accentColor : LightCraftPanelStyle.label)
-                        Button("HDR") { Task { await model.setHDR(!model.hdrEnabled); await session.load() } }
-                            .foregroundStyle(model.hdrEnabled ? Color.accentColor : LightCraftPanelStyle.label)
-                        Button("Reset") { Task { await model.resetAll(); await session.load() } }
+                        if !isPadStyle {
+                            Text("Edit").font(.system(size: 17, weight: .semibold)).foregroundStyle(LightCraftPanelStyle.text)
+                            Spacer()
+                            Button("Auto") { Task { await session.command("develop.auto", params: [String: String]()) } }
+                        }
+                        Button { Task { await session.command("develop.treatment", params: [String: String]()) } } label: {
+                            treatmentChip("B&W", on: session.isBlackAndWhite)
+                        }
+                        Button { Task { await model.setHDR(!model.hdrEnabled); await session.load() } } label: {
+                            treatmentChip("HDR", on: model.hdrEnabled)
+                        }
+                        if !isPadStyle { Button("Reset") { Task { await model.resetAll(); await session.load() } } }
                     }
                     inlineTool("Profile: \(session.profileName)", icon: "LightCraft-ProfileGrid", changed: session.profileName != "Color" || LightCraftPanelStyle.isChanged(session.values["profile.amount"] ?? 100, from: 100)) {
                         ProfilesPanel(model: model)
                     }
-                    Divider()
+                    if !isPadStyle { Divider() }
                     section("Light", id: "light") {
                         rows(["light"])
                         inlineTool("Curve", icon: "LightCraft-Curve") {
@@ -125,14 +153,32 @@ struct LightCraftEditPanel<Engine: EngineDriving & EngineDiagnosing, Importer: P
                         }
                     }
                     section("Color", id: "color") {
-                        HStack {
+                        HStack(spacing: isPadStyle ? 10 : 8) {
                             Text("White Balance").foregroundStyle(session.whiteBalanceMode == "asShot" ? LightCraftPanelStyle.label : LightCraftPanelStyle.changed)
                             Spacer()
-                            Menu(whiteBalanceTitle) {
+                            Menu {
                                 ForEach([("As Shot", "asShot"), ("Auto", "auto"), ("Daylight", "daylight"), ("Cloudy", "cloudy"), ("Shade", "shade"), ("Tungsten", "tungsten"), ("Fluorescent", "fluorescent"), ("Flash", "flash")], id: \.1) { title, mode in
-                                    Button(title) { Task { await session.command("develop.wb", params: ["mode": mode]) } }
+                                    Button { Task { await session.command("develop.wb", params: ["mode": mode]) } } label: {
+                                        if session.whiteBalanceMode == mode { Label(title, systemImage: "checkmark") } else { Text(title) }
+                                    }
                                 }
-                            }.foregroundStyle(session.whiteBalanceMode == "asShot" ? LightCraftPanelStyle.label : LightCraftPanelStyle.changed)
+                            } label: {
+                                if isPadStyle {
+                                    // A pill with an up-down chevron reads as a pop-up menu, like system pickers.
+                                    HStack(spacing: 6) {
+                                        Text(whiteBalanceTitle).lineLimit(1)
+                                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 11, weight: .semibold))
+                                    }
+                                    .font(.subheadline.weight(.medium))
+                                    .padding(.horizontal, 12).frame(minHeight: 32)
+                                    .lightCraftCardSurface(cornerRadius: 16)
+                                    .contentShape(.capsule)
+                                } else {
+                                    Text(whiteBalanceTitle)
+                                }
+                            }
+                            .foregroundStyle(session.whiteBalanceMode == "asShot" ? (isPadStyle ? LightCraftPanelStyle.text : LightCraftPanelStyle.label) : LightCraftPanelStyle.changed)
+                            .accessibilityLabel("White Balance Preset")
                             Button("White Balance Selector", lightCraftIcon: "LightCraft-Picker") {
                                 pointColor.picking = false
                                 whiteBalancePicking.toggle()
@@ -142,8 +188,12 @@ struct LightCraftEditPanel<Engine: EngineDriving & EngineDiagnosing, Importer: P
                                 }
                             }
                                 .labelStyle(.iconOnly).help("White Balance Selector")
+                                .foregroundStyle(whiteBalancePicking ? LightCraftPanelStyle.highlight : LightCraftPanelStyle.text)
+                                .frame(width: 36, height: 36)
+                                .background(whiteBalancePicking ? LightCraftPanelStyle.highlight.opacity(0.22) : .clear, in: .circle)
+                                .accessibilityAddTraits(whiteBalancePicking ? .isSelected : [])
                         }
-                        if whiteBalancePicking {
+                        if whiteBalancePicking && !isPadStyle {
                             Text("Tap a neutral area on the photo. Tap the selector again to finish.").font(.caption)
                         }
                         whiteBalanceSliders
@@ -203,10 +253,20 @@ struct LightCraftEditPanel<Engine: EngineDriving & EngineDiagnosing, Importer: P
                     }
                     if session.busy { ProgressView() }
                     if let error = session.error { Text(error).foregroundStyle(.red).font(.footnote) }
-                }.padding(20)
+                }.padding(isPadStyle ? 14 : 20)
             }.scrollDisabled(dragging)
+            .contentMargins(.bottom, isPadStyle ? 28 : 0, for: .scrollContent)
+            // A gap and a short fade, so controls scroll out softly under the tab bar.
+            .padding(.top, isPadStyle ? 6 : 0)
+            .mask {
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: isPadStyle ? 18 : 0)
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: isPadStyle ? 28 : 0)
+                }
+            }
         }
-        .lightCraftPanelContent().buttonStyle(.plain)
+        .lightCraftPanelContent(iPadStyle: isPadStyle).buttonStyle(.plain)
         .disabled(model.isShowingBefore || !model.isPhotoOpen)
         .task { await session.load() }
         .modifier(EditorToolBusyReporter(busy: session.busy || dragging || childBusy.values.contains(true)))
@@ -230,8 +290,32 @@ struct LightCraftEditPanel<Engine: EngineDriving & EngineDiagnosing, Importer: P
             Label(title, lightCraftIcon: icon).font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(changed ? LightCraftPanelStyle.changed : LightCraftPanelStyle.label).frame(minHeight: 40)
         }
-        .padding(.horizontal, 8)
-        .background(LightCraftPanelStyle.inset, in: .rect(cornerRadius: 6))
+        .padding(.horizontal, isPadStyle ? 12 : 8)
+        .background(isPadStyle ? .clear : LightCraftPanelStyle.inset, in: .rect(cornerRadius: 6))
+        .modifier(PadCardSurface(enabled: isPadStyle))
+    }
+    @ViewBuilder private func treatmentChip(_ title: String, on: Bool) -> some View {
+        if isPadStyle {
+            Text(title).font(.footnote.weight(.semibold))
+                .foregroundStyle(on ? Color.black : LightCraftPanelStyle.text)
+                .padding(.horizontal, 14).frame(minHeight: 32)
+                .background {
+                    if on { Capsule().fill(LightCraftPanelStyle.highlight) }
+                    else { Capsule().fill(.clear).lightCraftCardSurface(cornerRadius: 16) }
+                }
+                .contentShape(.capsule)
+        } else {
+            Text(title).foregroundStyle(on ? Color.accentColor : LightCraftPanelStyle.label)
+        }
+    }
+    /// sectionChanged lights the amber dot beside a section title when any of its controls moved.
+    private func sectionChanged(_ id: String) -> Bool {
+        let prefixes = id == "effects" ? ["effects.", "vignette.", "grain."] : [id + "."]
+        if id == "color" && session.whiteBalanceMode != "asShot" { return true }
+        return session.controls.contains { control in
+            prefixes.contains { control.id.hasPrefix($0) }
+                && LightCraftPanelStyle.isChanged(session.values[control.id] ?? control.value, from: control.defaultValue)
+        }
     }
     private var whiteBalanceSliders: some View {
         ForEach([DevelopAdjustmentKind.temperature, .tint], id: \.self) { kind in
@@ -258,7 +342,12 @@ struct LightCraftEditPanel<Engine: EngineDriving & EngineDiagnosing, Importer: P
         }
     }
     private var whiteBalanceTitle: String { session.whiteBalanceMode == "asShot" ? "As Shot" : session.whiteBalanceMode.capitalized }
-    private func subheading(_ title: String) -> some View { Text(title).font(.system(size: 13, weight: .semibold)).padding(.top, 6) }
+    /// subheading names a group of rows; on iPad it outranks the row labels beneath it.
+    private func subheading(_ title: String) -> some View {
+        Text(title).font(.system(size: isPadStyle ? 16 : 13, weight: isPadStyle ? .bold : .semibold))
+            .foregroundStyle(isPadStyle ? Color.white : LightCraftPanelStyle.label)
+            .padding(.top, isPadStyle ? 10 : 6)
+    }
     private func tool(_ title: String, _ tool: EditorDockTool) -> some View {
         Button { openTool(tool) } label: { HStack { Text(title); Spacer(); Image(lightCraftIcon: "LightCraft-ChevronRight") } }
             .buttonStyle(.plain).frame(minHeight: 32)
@@ -303,10 +392,14 @@ struct LightCraftEditPanel<Engine: EngineDriving & EngineDiagnosing, Importer: P
             if expanded { if soloMode { openSections = [title] } else { openSections.insert(title) } }
             else { openSections.remove(title) }
         })) {
-            VStack(alignment: .leading, spacing: 12) { content() }.padding(.vertical, 10)
+            VStack(alignment: .leading, spacing: 12) { content() }.padding(.top, isPadStyle ? 6 : 10).padding(.bottom, 10)
         } label: {
-            HStack {
-                Text(title).font(.system(size: 15, weight: .semibold))
+            HStack(spacing: 6) {
+                Text(title).font(.system(size: isPadStyle ? 20 : 15, weight: isPadStyle ? .bold : .semibold))
+                    .foregroundStyle(isPadStyle ? Color.white : LightCraftPanelStyle.label)
+                if isPadStyle && sectionChanged(id) {
+                    Circle().fill(LightCraftPanelStyle.highlight).frame(width: 6, height: 6).accessibilityLabel("Edited")
+                }
                 Spacer()
                 Button {
                     Task { await session.command("develop.sectionEnabled", params: SectionToggle(section: id, enabled: session.disabledSections.contains(id))) }
@@ -315,9 +408,11 @@ struct LightCraftEditPanel<Engine: EngineDriving & EngineDiagnosing, Importer: P
                         .frame(width: 44, height: 44).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).accessibilityLabel("Toggle \(title)").disabled(session.busy)
-                .padding(.trailing, 20)
+                .padding(.trailing, isPadStyle ? 14 : 20)
             }
         }
+        .padding(.horizontal, isPadStyle ? 14 : 0).padding(.vertical, isPadStyle ? 4 : 0)
+        .modifier(PadCardSurface(enabled: isPadStyle))
         .contextMenu {
             Toggle("Solo Mode", isOn: $soloMode)
             Button("Reset \(title)") { Task { await session.command("develop.resetSection", params: ["section": id]) } }
@@ -348,5 +443,13 @@ private struct LightCraftCoreSliderRow<Engine: EngineDriving & EngineDiagnosing,
                          }, onNudge: { delta in Task.immediate { await model.nudge(kind, by: delta) } },
                          onReset: { Task.immediate { await model.reset(kind) } }, isCompact: true)
             .equatable()
+    }
+}
+
+/// PadCardSurface applies the raised iPad card only where the iPad design is in use.
+struct PadCardSurface: ViewModifier {
+    let enabled: Bool
+    func body(content: Content) -> some View {
+        if enabled { content.lightCraftCardSurface() } else { content }
     }
 }

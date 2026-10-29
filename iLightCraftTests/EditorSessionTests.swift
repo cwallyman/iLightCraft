@@ -195,6 +195,43 @@ struct EditorSessionTests {
     }
 
     @Test
+    func undoLensBlurReturnsToSourceAndKeepsItsEditHistory() async {
+        let engine = FakeEngine()
+        let model = EditorViewModel(engine: engine, importer: FakeImporter(), previewPixels: 64)
+        let session = EditorSession(viewModel: model, libraryLoader: ControlledPhotoLibraryLoader())
+        let source = URL(filePath: "/tmp/source.RAF")
+        await session.open(pickedURL: source)
+        await model.drag(.exposure, to: 1)
+        await model.endDrag(.exposure)
+        let sourcePhoto = model.openPhoto
+        let historyCount = model.undoStack.count
+        #expect(historyCount > 0)
+
+        let opened = await session.openLensBlurCopy(URL(filePath: "/tmp/blur.tiff"))
+        #expect(opened)
+        #expect(model.openPhoto != sourcePhoto)
+        #expect(session.canUndoLensBlur)
+        let undone = await session.undoLensBlur()
+        #expect(undone)
+        #expect(model.openPhoto == sourcePhoto)
+        #expect(model.openCopyURL == source)
+        #expect(model.undoStack.count == historyCount)
+        #expect(!session.canUndoLensBlur)
+    }
+
+    @Test
+    func undoLensBlurIsClearedWhenAnotherPhotoIsOpened() async {
+        let model = EditorViewModel(engine: FakeEngine(), importer: FakeImporter(), previewPixels: 64)
+        let session = EditorSession(viewModel: model, libraryLoader: ControlledPhotoLibraryLoader())
+        await session.open(pickedURL: URL(filePath: "/tmp/source.RAF"))
+        let opened = await session.openLensBlurCopy(URL(filePath: "/tmp/blur.tiff"))
+        #expect(opened)
+        await session.open(pickedURL: URL(filePath: "/tmp/another.RAF"))
+        #expect(!session.canUndoLensBlur)
+        #expect(!(await session.undoLensBlur()))
+    }
+
+    @Test
     func goingHomeKeepsPhotoAndValues() async {
         let model = EditorViewModel(
             engine        : FakeEngine(),

@@ -61,26 +61,57 @@ struct EditorDockHost<Content: View>: UIViewControllerRepresentable {
 struct EditorToolPresentation<Header: View, Content: View>: View {
     @Environment(\.editorToolEmbedded) private var isEmbedded
     let title: String
+    let titleAccessory: AnyView?
     let header: Header
     let content: Content
     @Environment(\.editorToolDocked) private var isDocked
+    @Environment(\.editorToolClose) private var close
 
-    init(title: String, @ViewBuilder header: () -> Header, @ViewBuilder content: () -> Content) {
+    init(title: String, titleAccessory: AnyView? = nil, @ViewBuilder header: () -> Header, @ViewBuilder content: () -> Content) {
         self.title = title
+        self.titleAccessory = titleAccessory
         self.header = header()
         self.content = content()
     }
 
     var body: some View {
-        presentation.lightCraftPanelContent().preferredColorScheme(.dark)
+        // Embedded tools sit on Edit's card, so they must not paint a panel background of their own.
+        if isEmbedded {
+            content.font(.system(size: 14)).tint(LightCraftPanelStyle.label).foregroundStyle(LightCraftPanelStyle.label)
+                .scrollContentBackground(.hidden).preferredColorScheme(.dark)
+        } else {
+            presentation.lightCraftPanelContent().preferredColorScheme(.dark)
+        }
     }
     @ViewBuilder private var presentation: some View {
         if isEmbedded {
             content
+        } else if isDocked && LightCraftPanelStyle.isPad {
+            // iPad inspector: a large title with glass actions, then grouped cards.
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Text(title).font(.system(size: 24, weight: .bold)).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.7)
+                    if let titleAccessory { titleAccessory }
+                    Spacer(minLength: 4)
+                    if Header.self != EmptyView.self {
+                        header.labelStyle(.iconOnly).buttonStyle(.borderless)
+                            .padding(.horizontal, 6).frame(minHeight: 40)
+                            .glassEffect(.regular, in: .capsule)
+                    }
+                    if let close {
+                        Button("Done", action: close).buttonStyle(.plain).lightCraftGlassButton()
+                            .accessibilityIdentifier("tool-done")
+                    }
+                }
+                .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
+                content.frame(maxWidth: .infinity, maxHeight: .infinity).lightCraftPanelContent(iPadStyle: true)
+            }
+            .background(LightCraftPanelStyle.iPadBackground)
         } else if isDocked {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
                     Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(LightCraftPanelStyle.text).lineLimit(1)
+                    if let titleAccessory { titleAccessory }
                     Spacer(minLength: 4)
                     header.labelStyle(.iconOnly).buttonStyle(.borderless)
                 }
@@ -99,6 +130,7 @@ struct EditorToolPresentation<Header: View, Content: View>: View {
                     .toolbarBackground(.visible, for: .navigationBar)
                     .toolbarColorScheme(.dark, for: .navigationBar)
                     .toolbar {
+                        ToolbarItemGroup(placement: .topBarLeading) { if let titleAccessory { titleAccessory } }
                         ToolbarItemGroup(placement: .topBarTrailing) { header }
                     }
             }

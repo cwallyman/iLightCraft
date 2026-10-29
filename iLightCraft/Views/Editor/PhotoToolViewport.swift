@@ -60,7 +60,7 @@ final class PhotoToolScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRe
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = UIColor(white: 0.1, alpha: 1)
+        backgroundColor = EditorSurround.uiColor
         delegate = self
         minimumZoomScale = 1; maximumZoomScale = 8
         showsHorizontalScrollIndicator = false; showsVerticalScrollIndicator = false
@@ -296,11 +296,14 @@ private final class PhotoToolDrawingView: UIView {
             context.saveGState(); context.clip(to: crop)
             grid.lineWidth = 0.5 / max(1, handleScale); grid.stroke()
             context.restoreGState()
-            UIColor.white.setFill()
-            let radius = 6 / max(1, handleScale)
-            for x in [crop.minX, crop.maxX] { for y in [crop.minY, crop.maxY] {
-                UIBezierPath(ovalIn: CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2)).fill()
+            // Corner brackets sit inside the crop, so they are never clipped at the photo's edge.
+            let weight = 4 / max(1, handleScale), arm = min(24 / max(1, handleScale), crop.width / 3, crop.height / 3)
+            let inner = crop.insetBy(dx: weight / 2, dy: weight / 2)
+            let brackets = UIBezierPath(); brackets.lineWidth = weight; brackets.lineCapStyle = .round
+            for (x, dx) in [(inner.minX, arm), (inner.maxX, -arm)] { for (y, dy) in [(inner.minY, arm), (inner.maxY, -arm)] {
+                brackets.move(to: CGPoint(x: x + dx, y: y)); brackets.addLine(to: CGPoint(x: x, y: y)); brackets.addLine(to: CGPoint(x: x, y: y + dy))
             } }
+            UIColor.white.setStroke(); brackets.stroke()
         }
     }
 }

@@ -24,7 +24,12 @@ struct EditorView<
     private var horizontalSizeClass
 
     @AppStorage("editor.controlsSide") private var controlsSide = "right"
+    /// panelWidth is the iPad panel width the user dragged to; 0 keeps the automatic width.
+    @AppStorage("editor.panelWidth") private var panelWidth: Double = 0
+    @State private var panelDragStart: CGFloat?
     @State private var isSettingsShown = false
+    @State private var isAllToolsShown = false
+    @State private var canvasWidth: CGFloat = 800
     @State private var phoneZoomEntry = false
     @State private var dockTool: EditorDockTool?
     @State private var dockIsBusy = false
@@ -37,7 +42,7 @@ struct EditorView<
     @State private var mainPhotoInteracting = false
     @State private var toolZoomPercent: Double?
     @State private var toolZoomRequest: PhotoToolViewport.ZoomRequest?
-    private var interactionLocked: Bool { dockIsBusy || mainPhotoInteracting }
+    private var interactionLocked: Bool { dockIsBusy || mainPhotoInteracting || session.isImporting }
     private var usesPhotoTools: Bool { (auxiliary?.mode == .redEye || auxiliary?.mode == .whiteBalance) || spatialCrop != nil || spatialSelection != nil || (advancedColor?.pointColor == true || advancedColor?.guiding == true) }
 
     @Environment(\.layoutDirection) private var contentLayoutDirection
@@ -83,7 +88,7 @@ struct EditorView<
             GeometryReader { geometry in
                 let placement = EditorControlsLayout(size: geometry.size, isPhone: UIDevice.current.userInterfaceIdiom == .phone)
                 let isBottom = placement.isBottom
-                let dockWidth = placement.sideWidth
+                let dockWidth = usesPadEditorDesign ? resolvedPanelWidth(total: geometry.size.width, automatic: placement.sideWidth) : placement.sideWidth
                 let layout = isBottom
                     ? AnyLayout(VStackLayout(spacing: 8))
                     : AnyLayout(HStackLayout(spacing: 8))
@@ -129,23 +134,38 @@ struct EditorView<
                         }
                     }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
-                        PhotoPanelControls(session: photoPanel, locked: interactionLocked || session.viewModel.isShowingBefore) { mode in
+                        PhotoPanelControls(session: photoPanel, locked: interactionLocked || (!usesPadEditorDesign && session.viewModel.isShowingBefore),
+                                           floating: usesPadEditorDesign,
+                                           onHold: { holding in
+                                               guard session.canZoom && !usesPhotoTools else { return }
+                                               setShowingBefore(holding)
+                                           },
+                                           onFit: zoomPhotoToFit,
+                                           clipping: $session.clipping,
+                                           openPhoto: { id in Task { await openPanelPhoto(id) } }) { mode in
                             guard !interactionLocked else { return }
                             if mode == .beforeAfter && usesPhotoTools { closeTool(); session.select(.move) }
                             toolZoomPercent = nil; toolZoomRequest = .init(action: .fit)
                             Task { await photoPanel.choose(mode) }
                         }
                     }
+                    // On iPad the toolbar belongs to the photo column; side panels run full height.
+                    .safeAreaInset(edge: .top, spacing: 0) { if usesPadEditorDesign { modernPadToolbar } }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { canvasWidth = $0 }
 
-                    controlsPanel(isBottom: isBottom, width: isBottom ? geometry.size.width : dockWidth, height: max(0, geometry.size.height - 52))
+                    controlsPanel(isBottom: isBottom, width: isBottom ? geometry.size.width : dockWidth, height: max(0, geometry.size.height - (usesPadEditorDesign ? 0 : 52)))
                         .environment(\.layoutDirection, contentLayoutDirection)
+                        .transition(usesPadEditorDesign && !reduceMotion ? .move(edge: .trailing).combined(with: .opacity) : .opacity)
                 }
+                .animation(cardAnimation, value: dockTool)
+                .animation(cardAnimation, value: session.isCardOpen)
                 // Reverse only the layout order, preserving canvas and tool identities/drafts.
                 .environment(\.layoutDirection, !isBottom && controlsSide == "left" ? .rightToLeft : .leftToRight)
 
                 .overlay(alignment: .top) {
                     if session.viewModel.isShowingBefore {
                         BeforeCapsule()
+                            .padding(.top, usesPadEditorDesign ? 72 : 0)
                             .transition(.opacity)
                     }
                 }
@@ -168,7 +188,7 @@ struct EditorView<
                 .background { beforeShortcut }
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { editorWidth = $0 }
                 .toolbar(.hidden, for: .navigationBar)
-                .safeAreaInset(edge: .top, spacing: 0) { topToolbar }
+                .safeAreaInset(edge: .top, spacing: 0) { if !usesPadEditorDesign { existingToolbar } }
             }
             .sheet(isPresented: $isSettingsShown) {
                 NavigationStack {
@@ -201,6 +221,7 @@ struct EditorView<
             }
             .onChange(of: session.isEditorPresented) { _, shown in
                 if !shown { closeTool() }
+                else if usesPadEditorDesign && dockTool == nil { session.select(.adjust) }
                 #if DEBUG
                 if shown {
                     let arguments = ProcessInfo.processInfo.arguments
@@ -272,7 +293,9 @@ struct EditorView<
     }
 
     private func changeHistory(redo: Bool) async {
-        if redo { await session.viewModel.redo() } else { await session.viewModel.undo() }
+        if redo { await session.viewModel.redo() }
+        else if session.viewModel.canUndo { await session.viewModel.undo() }
+        else if await session.undoLensBlur() { closeTool(); session.select(.move); await photoPanel.load() }
         await spatialSelection?.refreshAfterHistory()
         await spatialCrop?.refreshAfterHistory()
         await advancedColor?.load()
@@ -370,14 +393,16 @@ struct EditorView<
         if dockTool != nil || session.isCardOpen {
             Group {
                 if let dockTool {
-                    EditorDockHost(content: dockContent(dockTool)
-                        .id(dockTool)
-                        .environment(\.editorToolDocked, true)
-                        .environment(\.editorToolClose, { closeTool() })
-                        .environment(\.editorToolBusy, $dockIsBusy)
-                        .environment(\.colorScheme, .dark))
-                        .background(LightCraftPanelStyle.background)
-                        .clipShape(.rect(cornerRadius: 8))
+                    VStack(spacing: 0) {
+                        EditorDockHost(content: dockContent(dockTool)
+                            .id(dockTool)
+                            .environment(\.editorToolDocked, true)
+                            .environment(\.editorToolClose, { closeTool() })
+                            .environment(\.editorToolBusy, $dockIsBusy)
+                            .environment(\.colorScheme, .dark))
+                    }
+                    .background(usesPadEditorDesign ? LightCraftPanelStyle.iPadBackground : LightCraftPanelStyle.background)
+                    .clipShape(.rect(cornerRadius: usesPadEditorDesign ? 0 : 8))
                 } else {
                     LightCraftEditPanel(model: session.viewModel, group: session.selectedGroup, clipping: $session.clipping, openTool: presentTool, onColorPicker: { if dockTool == nil { auxiliary = nil; advancedColor = $0 } }, onWhiteBalancePicker: { if dockTool == nil { advancedColor = nil; auxiliary = $0 } })
 
@@ -387,7 +412,13 @@ struct EditorView<
             .frame(width: width)
             .frame(height: isBottom ? EditorControlsLayout.bottomHeight(available: height) : height)
             .clipped()
+            // After the clip, so the panel's surface can reach behind the status bar and home indicator.
+            .background { if usesPadEditorDesign && !isBottom { fullHeightPanelBackground(border: .leading) } }
+            .overlay(alignment: controlsSide == "left" ? .trailing : .leading) {
+                if usesPadEditorDesign && !isBottom { panelResizeHandle(width: width) }
+            }
             .accessibilityIdentifier("editor-controls-panel")
+            .transition(usesPadEditorDesign && !reduceMotion ? .move(edge: .trailing).combined(with: .opacity) : .opacity)
         }
     }
 
@@ -419,6 +450,8 @@ struct EditorView<
         }, onRendered: { source in
             await session.open(pickedURL: source)
             closeTool()
+        }, onLensBlurred: { source in
+            if await session.openLensBlurCopy(source) { closeTool() }
         }, onIndexed: { photo, source in
             if await session.openMergedCopy(photo, source: source, merged: false) { closeTool() }
         })
@@ -468,8 +501,55 @@ struct EditorView<
         reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.25)
     }
 
-    /// The desktop side rail becomes a single ordered row, with the same tool groups.
-    private var topToolbar: some View {
+    private var usesPadEditorDesign: Bool {
+        #if targetEnvironment(macCatalyst)
+        false
+        #else
+        UIDevice.current.userInterfaceIdiom == .pad
+        #endif
+    }
+
+    /// resolvedPanelWidth keeps a dragged width between 280 pt and half the editor.
+    private func resolvedPanelWidth(total: CGFloat, automatic: CGFloat) -> CGFloat {
+        guard panelWidth > 0 else { return automatic }
+        return min(max(CGFloat(panelWidth), 280), max(280, total * 0.5))
+    }
+
+    /// panelResizeHandle is a grip on the panel's inner edge: drag to resize, double-tap for automatic.
+    private func panelResizeHandle(width: CGFloat) -> some View {
+        let outward: CGFloat = controlsSide == "left" ? 1 : -1
+        return Capsule().fill(Color.white.opacity(panelDragStart == nil ? 0.28 : 0.6))
+            .frame(width: 5, height: 44)
+            .frame(width: 28).frame(maxHeight: .infinity)
+            .contentShape(.rect)
+            .offset(x: outward * 14)
+            .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                .onChanged { drag in
+                    let start = panelDragStart ?? width
+                    panelDragStart = start
+                    panelWidth = Double(min(max(start + outward * drag.translation.width, 280), max(280, editorWidth * 0.5)))
+                }
+                .onEnded { _ in panelDragStart = nil })
+            .simultaneousGesture(TapGesture(count: 2).onEnded { panelWidth = 0 })
+            .sensoryFeedback(.selection, trigger: panelDragStart == nil)
+            .accessibilityElement()
+            .accessibilityLabel("Resize Panel")
+            .accessibilityValue("\(Int(width)) points")
+            .accessibilityAdjustableAction { direction in
+                panelWidth = Double(min(max(width + (direction == .increment ? 20 : -20), 280), max(280, editorWidth * 0.5)))
+            }
+            .accessibilityAction(named: "Automatic Width") { panelWidth = 0 }
+            .accessibilityIdentifier("panel-resize-handle")
+    }
+
+    /// fullHeightPanelBackground carries a side panel's colour up behind the status bar.
+    private func fullHeightPanelBackground(border: Alignment) -> some View {
+        LightCraftPanelStyle.iPadBackground
+            .shadow(color: .black.opacity(0.6), radius: 18, x: border == .leading ? -6 : 6)
+            .ignoresSafeArea(edges: [.top, .bottom])
+    }
+
+    private var existingToolbar: some View {
         HStack(spacing: 4) {
             backButton
             if UIDevice.current.userInterfaceIdiom == .phone {
@@ -490,6 +570,170 @@ struct EditorView<
         .overlay(alignment: .bottom) { Rectangle().fill(LightCraftPanelStyle.divider).frame(height: 1) }
         .accessibilityIdentifier("editor-top-toolbar")
     }
+
+    /// iOS 27 layout: grouped glass capsules above the photo. The five most used tools sit in the
+    /// centre capsule; every other tool is one tap away in its labeled All Tools grid.
+    private var modernPadToolbar: some View {
+        // Widths measured from the capsules: one row down to 790 pt, then the tools wrap below.
+        let showsZoom = canvasWidth >= 1000
+        let titleWidth: CGFloat = canvasWidth >= 1000 ? 180 : (canvasWidth >= 870 ? 140 : 110)
+        return Group {
+            if canvasWidth >= 790 {
+                HStack(spacing: 10) {
+                    backButton.frame(width: 48, height: 48).lightCraftFloatingGlass(.circle)
+                    titleCapsule(width: titleWidth)
+                    if showsZoom {
+                        toolbarZoom.padding(.horizontal, 8).frame(height: 48).lightCraftFloatingGlass(.capsule)
+                    }
+                    Spacer(minLength: 0)
+                    primaryToolCapsule
+                    Spacer(minLength: 0)
+                    trailingToolbarCapsules
+                }
+            } else {
+                VStack(spacing: 8) {
+                    HStack(spacing: 10) {
+                        backButton.frame(width: 48, height: 48).lightCraftFloatingGlass(.circle)
+                        titleCapsule(width: 160)
+                        Spacer(minLength: 0)
+                        trailingToolbarCapsules
+                    }
+                    primaryToolCapsule
+                }
+            }
+        }
+        .labelStyle(.iconOnly).buttonStyle(.plain)
+        .padding(.horizontal, 16).padding(.vertical, 8)
+        .background(EditorSurround.color)
+        .accessibilityIdentifier("editor-top-toolbar")
+    }
+
+    private func titleCapsule(width: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            photoName.foregroundStyle(.white)
+            Text(session.viewModel.isEdited ? "Edited" : "Original")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(session.viewModel.isEdited ? LightCraftPanelStyle.highlight : LightCraftPanelStyle.label)
+        }
+        .padding(.horizontal, 16).frame(height: 48)
+        .frame(maxWidth: width, alignment: .leading)
+        .lightCraftFloatingGlass(.capsule)
+    }
+
+    @ViewBuilder private var trailingToolbarCapsules: some View {
+        HStack(spacing: 0) { historyActions }
+            .padding(.horizontal, 4).frame(height: 48)
+            .lightCraftFloatingGlass(.capsule)
+        HStack(spacing: 0) {
+            toolbarTool("Export", icon: "Share", tool: .export).accessibilityIdentifier("export-button")
+            AnyView(moreMenu)
+        }
+        .padding(.horizontal, 4).frame(height: 48)
+        .lightCraftFloatingGlass(.capsule)
+    }
+
+    private var toolLabelWidth: CGFloat { canvasWidth < 870 ? 54 : 62 }
+
+    private static var adjustTools: [EditorDockTool] { [.profiles, .curves, .hsl, .pointColor, .grading, .optics, .whiteBalance] }
+    private static var primaryTools: [EditorDockTool] { [.crop, .computational(ComputationalTool.masks.rawValue), .computational(ComputationalTool.remove.rawValue), .presets] }
+
+    private var primaryToolCapsule: some View {
+        HStack(spacing: 2) {
+            labeledDockTool("Presets", icon: "Presets", tool: .presets)
+            labeledTool("Edit", icon: "Sliders", selected: session.isCardOpen || Self.adjustTools.contains { $0 == dockTool }, identifier: "adjust-button") {
+                closeTool(); session.select(session.isCardOpen ? .move : .adjust)
+            }
+            labeledDockTool("Crop", icon: "Crop", tool: .crop)
+            labeledComputationalTool(.remove)
+            labeledComputationalTool(.masks)
+            let secondaryActive = dockTool.map { tool in !Self.adjustTools.contains(tool) && !Self.primaryTools.contains(tool) } ?? false
+            Button { isAllToolsShown.toggle() } label: {
+                NamedEditorToolLabel(title: "All Tools", asset: "LightCraft-GridSquare", selected: secondaryActive || isAllToolsShown, minWidth: toolLabelWidth)
+            }
+            .disabled(!session.viewModel.isPhotoOpen || interactionLocked)
+            .accessibilityIdentifier("toolbar-all-tools")
+            .popover(isPresented: $isAllToolsShown, arrowEdge: .top) { allToolsGrid }
+        }
+        .padding(4)
+        .lightCraftFloatingGlass(.capsule)
+        .accessibilityIdentifier("editor-labeled-tools")
+    }
+
+    /// allToolsGrid lists every tool outside the main capsule, grouped like the desktop menus.
+    private var allToolsGrid: some View {
+        let columns = Array(repeating: GridItem(.fixed(84), spacing: 6), count: 4)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                allToolsSection("Develop", columns: columns) {
+                    labeledDockTool("Profiles", icon: "ProfileGrid", tool: .profiles)
+                    labeledDockTool("Point Color", icon: "Picker", tool: .pointColor)
+                    labeledDockTool("Red Eye", icon: "Eye", tool: .redEye)
+                }
+                allToolsSection("Computational", columns: columns) {
+                    ForEach([ComputationalTool.lensBlur, .enhancement, .analysis, .merge]) { tool in
+                        labeledComputationalTool(tool)
+                    }
+                }
+                allToolsSection("Organize", columns: columns) {
+                    labeledDockTool("Batch", icon: "Presets", tool: .batch)
+                    labeledDockTool("Versions", icon: "Versions", tool: .versions)
+                    labeledDockTool("History", icon: "Clock", tool: .history)
+                    labeledDockTool("Keywords", icon: "Tag", tool: .keywords)
+                    labeledDockTool("Info", icon: "Info", tool: .info)
+                    labeledDockTool("Export", icon: "Share", tool: .export)
+                }
+                allToolsSection("View", columns: columns) {
+                    labeledTool("HDR Editing", icon: "Sun", selected: session.viewModel.hdrEnabled, identifier: "toolbar-hdr") {
+                        Task { await session.viewModel.setHDR(!session.viewModel.hdrEnabled) }
+                    }
+                    labeledTool("Show Original", icon: "BeforeAfter", selected: session.viewModel.isShowingBefore, identifier: "toolbar-original", allowsBefore: true) {
+                        setShowingBefore(!session.viewModel.isShowingBefore)
+                    }.disabled(!session.canZoom || usesPhotoTools)
+                    labeledTool("Reset All", icon: "Rotate", selected: false, identifier: "toolbar-reset") {
+                        Task { await session.viewModel.resetAll(); await spatialSelection?.refreshAfterHistory(); await advancedColor?.load() }
+                    }.disabled(!session.viewModel.isEdited || spatialCrop != nil)
+                }
+            }
+            .padding(16)
+        }
+        .frame(width: 4 * 84 + 3 * 6 + 32, height: 520)
+        .buttonStyle(.plain)
+        .presentationCompactAdaptation(.popover)
+        .presentationBackground(.regularMaterial)
+        .preferredColorScheme(.dark)
+    }
+
+    private func allToolsSection<Content: View>(_ title: String, columns: [GridItem], @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.footnote.weight(.semibold)).foregroundStyle(LightCraftPanelStyle.label)
+            LazyVGrid(columns: columns, spacing: 6) { content() }
+        }
+    }
+
+    private func labeledDockTool(_ title: String, icon: String, tool: EditorDockTool) -> some View {
+        labeledTool(title, icon: icon, selected: dockTool == tool, identifier: "toolbar-\(title.lowercased().replacingOccurrences(of: " ", with: "-"))", allowsBefore: tool == .info) { presentTool(tool) }
+    }
+
+    private func labeledComputationalTool(_ tool: ComputationalTool) -> some View {
+        labeledTool(tool.title, asset: tool.symbol, selected: dockTool == .computational(tool.rawValue), identifier: "tool-\(tool.rawValue)") { presentTool(.computational(tool.rawValue)) }
+    }
+
+    private func labeledTool(_ title: String, icon: String, selected: Bool, identifier: String, allowsBefore: Bool = false, action: @escaping () -> Void) -> some View {
+        labeledTool(title, asset: "LightCraft-\(icon)", selected: selected, identifier: identifier, allowsBefore: allowsBefore, action: action)
+    }
+
+    private func labeledTool(_ title: String, asset: String, selected: Bool, identifier: String, allowsBefore: Bool = false, action: @escaping () -> Void) -> some View {
+        Button {
+            isAllToolsShown = false
+            action()
+        } label: {
+            NamedEditorToolLabel(title: title, asset: asset, selected: selected, minWidth: toolLabelWidth)
+        }
+        .disabled(!session.viewModel.isPhotoOpen || interactionLocked || (!allowsBefore && session.viewModel.isShowingBefore))
+        .accessibilityLabel(title).accessibilityIdentifier(identifier)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
     private var backButton: some View {
         Button { if !interactionLocked { session.goHome() } } label: {
             Image(lightCraftIcon: "LightCraft-Back").resizable().scaledToFit()
@@ -558,7 +802,7 @@ struct EditorView<
             .frame(width: 44, height: 44)
             .accessibilityIdentifier("undo-button")
             .editorHoverHelp("Undo")
-            .disabled(!session.viewModel.canUndo || session.viewModel.isShowingBefore || interactionLocked)
+            .disabled((!session.viewModel.canUndo && !session.canUndoLensBlur) || session.viewModel.isShowingBefore || interactionLocked)
         Button("Redo", lightCraftIcon: "LightCraft-RotateClockwise") { Task { await changeHistory(redo: true) } }
             .keyboardShortcut("z", modifiers: [.command, .shift])
             .frame(width: 44, height: 44)
@@ -582,25 +826,22 @@ struct EditorView<
                         .disabled(!session.canZoom)
                     toolbarTool("Export", icon: "Share", tool: .export)
                 }.labelStyle(.titleAndIcon)
-                Section { sharedTopTools }.labelStyle(.titleAndIcon)
+                Section { AnyView(sharedTopTools) }.labelStyle(.titleAndIcon)
             }
             if session.photoContext != nil {
                 Button("Save to Apple Photos", lightCraftIcon: "LightCraft-Photos") { Task { await session.saveToPhotos() } }
                     .disabled(session.isSavingPhotos)
             }
-            Section("Additional Tools") {
-                ForEach([ComputationalTool.lensBlur, .enhancement, .analysis, .merge]) { tool in
-                    computationalToolButton(tool)
-                }
-                Toggle("Show Original", isOn: Binding(get: { session.viewModel.isShowingBefore }, set: setShowingBefore))
-                    .disabled(!session.canZoom || usesPhotoTools)
-            }
+            // On iPad these tools live in the All Tools grid and the bottom bar.
+            if !usesPadEditorDesign { AnyView(additionalToolsMenu) }
             Button("Settings", lightCraftIcon: "LightCraft-Gear") { isSettingsShown = true }
         } label: {
             Image(lightCraftIcon: "LightCraft-More").resizable().scaledToFit()
                 .frame(width: 26, height: 26).frame(width: 48, height: 48).contentShape(Rectangle())
         }
+        .editorToolSelected(session.viewModel.isShowingBefore)
         .accessibilityLabel("More")
+        .accessibilityValue(session.viewModel.isShowingBefore ? "Showing original" : "Showing edited photo")
         .accessibilityIdentifier("more-menu").disabled(interactionLocked)
         .popover(isPresented: $phoneZoomEntry) {
             LightCraftTenKey(title: "Zoom Percent", value: usesPhotoTools || photoPanel.mode == .beforeAfter ? toolZoomPercent ?? session.zoomPercent : session.zoomPercent,
@@ -611,6 +852,21 @@ struct EditorView<
             } cancel: { phoneZoomEntry = false }
             .presentationCompactAdaptation(.popover)
         }
+    }
+
+    /// Keep the menu's SwiftUI type shallow; the iPad toolbar evaluates it at app launch.
+    private var additionalToolsMenu: some View {
+        Section("Additional Tools") {
+            ForEach([ComputationalTool.lensBlur, .enhancement, .analysis, .merge]) { tool in
+                Button(tool.title, lightCraftIcon: tool.symbol) { presentTool(.computational(tool.rawValue)) }
+                    .accessibilityIdentifier("tool-\(tool.rawValue)")
+                    .disabled(!session.viewModel.isPhotoOpen || session.viewModel.isShowingBefore || interactionLocked)
+            }
+            Toggle("Show Original", lightCraftIcon: "LightCraft-BeforeAfter",
+                   isOn: Binding(get: { session.viewModel.isShowingBefore }, set: setShowingBefore))
+                .accessibilityIdentifier("show-original-toggle")
+                .disabled(!session.canZoom || usesPhotoTools)
+        }.labelStyle(.titleAndIcon)
     }
 
     private func openPanelPhoto(_ id: UInt64) async {
@@ -698,6 +954,31 @@ struct EditorView<
         }
         .editorHoverHelp("Reset All")
         .disabled(!session.viewModel.isEdited || session.viewModel.isShowingBefore || interactionLocked || spatialCrop != nil)
+    }
+}
+
+private struct NamedEditorToolLabel: View {
+    let title: String
+    let asset: String
+    let selected: Bool
+    var minWidth: CGFloat = 62
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Image(lightCraftIcon: asset).resizable().scaledToFit().frame(width: 20, height: 20)
+            Text(title).font(.caption2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .foregroundStyle(selected ? Color.white : Color.white.opacity(0.78))
+        .opacity(isEnabled ? 1 : 0.4)
+        .padding(.horizontal, minWidth < 62 ? 5 : 8).frame(minWidth: minWidth, minHeight: 50)
+        .background {
+            if selected && isEnabled {
+                Capsule().fill(LightCraftPanelStyle.highlight.opacity(0.32))
+                    .overlay(Capsule().strokeBorder(LightCraftPanelStyle.highlight.opacity(0.25)))
+            }
+        }
+        .contentShape(.capsule)
     }
 }
 

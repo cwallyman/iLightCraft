@@ -42,7 +42,7 @@ struct PresetVersionPanel<Engine: EngineDriving & EngineDiagnosing, Importer: Ph
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if !historyMode && (versionsMode || appExtras) {
-                        TextField(versionsMode ? "Version / copy name" : "Preset name", text: $session.name).textFieldStyle(.roundedBorder)
+                        TextField(versionsMode ? "Version / copy name" : "Preset name", text: $session.name).lightCraftTextField()
                     }
                     if historyMode { history } else if versionsMode { versions } else if appExtras { presets } else { groupedPresets }
                     if session.busy { ProgressView("Working…") }
@@ -141,7 +141,7 @@ struct PresetVersionPanel<Engine: EngineDriving & EngineDiagnosing, Importer: Ph
     private var groupedPresets: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
             if showsPresetSearch {
-                TextField("Search presets", text: $session.query).textFieldStyle(.roundedBorder).padding(.bottom, 10)
+                TextField("Search presets", text: $session.query).lightCraftTextField().padding(.bottom, 10)
             }
             ForEach(session.presetGroups) { group in
                 Button {
@@ -248,7 +248,7 @@ struct PresetVersionPanel<Engine: EngineDriving & EngineDiagnosing, Importer: Ph
                 Button("Copy Settings") { Task { await session.copySettings() } }
                 Button("Paste to This Photo") { Task { await session.pasteSettings(batch: false) } }
             }.disabled(session.groups.isEmpty)
-            TextField("Search presets", text: $session.query).textFieldStyle(.roundedBorder)
+            TextField("Search presets", text: $session.query).lightCraftTextField()
             Toggle("Favorites only", isOn: $session.favoritesOnly)
             HStack {
                 Text("Preset amount")

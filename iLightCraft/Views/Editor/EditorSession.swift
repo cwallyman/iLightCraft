@@ -49,6 +49,19 @@ final class EditorSession<
     private(set) var isSavingPhotos = false
     private(set) var isReturningHome = false
     private var photosBaseline: String?
+    private struct LensBlurUndo {
+        let sourcePhoto: PhotoID
+        let sourceURL: URL
+        let sourceTitle: String
+        let sourceContext: PhotoEditContext?
+        let sourceBaseline: String?
+        let sourceSettings: String?
+        let sourceUndo: [EditSnapshot]
+        let sourceRedo: [EditSnapshot]
+        let blurredPhoto: PhotoID
+    }
+    private var lensBlurUndo: LensBlurUndo?
+    var canUndoLensBlur: Bool { lensBlurUndo?.blurredPhoto == viewModel.openPhoto && lensBlurUndo != nil }
     var conflictedAssetIdentifier: String?
     var photosStatus: String?
 
@@ -183,6 +196,7 @@ final class EditorSession<
     }
 
     private func finishGoingHome() {
+        lensBlurUndo = nil
         tool                = .move
         isEditorPresented   = false
         toolClosedByTouch   = nil
@@ -199,7 +213,42 @@ final class EditorSession<
         isImporting = true
         defer { isImporting = false }
 
-        if await openAndPresent(pickedURL) { photoContext = nil }
+        if await openAndPresent(pickedURL) { photoContext = nil; lensBlurUndo = nil }
+    }
+
+    /// A blurred result is a separate file; keep the source available as an undo step.
+    func openLensBlurCopy(_ url: URL) async -> Bool {
+        guard !isImporting, let sourcePhoto = viewModel.openPhoto, let sourceURL = viewModel.openCopyURL else { return false }
+        isImporting = true
+        defer { isImporting = false }
+        await viewModel.finishPendingEdits()
+        guard viewModel.errorMessage == nil, viewModel.openPhoto == sourcePhoto else { return false }
+        let context = photoContext, baseline = photosBaseline, title = viewModel.photoTitle
+        let settings = try? await viewModel.photoCommand("develop.get", params: [String: String]())
+        guard viewModel.openPhoto == sourcePhoto else { return false }
+        let undo = viewModel.undoStack, redo = viewModel.redoStack
+        guard await openAndPresent(url), let result = viewModel.openPhoto, result != sourcePhoto else { return false }
+        photoContext = nil
+        lensBlurUndo = LensBlurUndo(sourcePhoto: sourcePhoto, sourceURL: sourceURL, sourceTitle: title, sourceContext: context,
+                                    sourceBaseline: baseline, sourceSettings: settings,
+                                    sourceUndo: undo, sourceRedo: redo, blurredPhoto: result)
+        return true
+    }
+
+    /// Returns to the original photo; the generated copy remains in the library.
+    func undoLensBlur() async -> Bool {
+        guard !isImporting, let previous = lensBlurUndo, previous.blurredPhoto == viewModel.openPhoto else { return false }
+        isImporting = true
+        defer { isImporting = false }
+        guard await viewModel.openCatalogResult(previous.sourcePhoto, source: previous.sourceURL, title: previous.sourceTitle) else { return false }
+        let settings = try? await viewModel.photoCommand("develop.get", params: [String: String]())
+        if let original = previous.sourceSettings, settings == original {
+            viewModel.restoreHistory(undo: previous.sourceUndo, redo: previous.sourceRedo, for: previous.sourcePhoto)
+        }
+        photoContext = previous.sourceContext
+        photosBaseline = previous.sourceBaseline
+        lensBlurUndo = nil
+        return true
     }
 
     /// importLibraryPhoto copies a library photo to a staging file and holds it through the
@@ -221,6 +270,7 @@ final class EditorSession<
             if await openAndPresent(pickedURL, title: title, initialSettings: context?.initialSettings,
                                     versionKey: context.map { $0.assetIdentifier + "/" + $0.sourceFile }) {
                 photoContext = context
+                lensBlurUndo = nil
                 photosBaseline = try? await viewModel.photoCommand("develop.get", params: [String: String]())
                 if let copy = viewModel.openCopyURL {
                     do { photoContext?.rawDecoderVersion = try NativeImageInfo.read(for: copy)?.rawDecoderVersion ?? context?.rawDecoderVersion }
@@ -268,6 +318,7 @@ extension EditorSession where Engine: EngineDiagnosing {
     func openMergedCopy(_ photo: PhotoID, source: URL, merged: Bool = true) async -> Bool {
         photoContext = nil
         let opened = await viewModel.openCatalogResult(photo, source: source)
+        if opened { lensBlurUndo = nil }
         photosStatus = opened ? (merged ? "Merged copy opened. Source Photos items are unchanged." : "Local draft opened. Use the Photos browser for same-item Photos editing.") : "The local catalog copy could not be opened."
         return opened
     }
