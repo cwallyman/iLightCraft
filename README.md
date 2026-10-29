@@ -11,6 +11,10 @@ Priority 4 now has a first native **on-device tools** implementation for items 1
 subfeatures and real-output acceptance remain; see the [implementation/acceptance table](Docs/Verification/priority4-on-device.md).
 Feature coverage and App Store readiness remain subject to verification.
 
+**iPad editor redesign (2026-10-29):** the iPad editor now uses Liquid Glass toolbars, card-style
+inspector panels and amber accents across Edit, Crop, Profiles, Color Grading, Masks and Remove.
+It is installed and running on the user's iPad; see [iPad redesign notes](Docs/Verification/2026-10-28-ipad-editor-redesign.md).
+
 Point Color, grading, optics, manual masks, repair refinements, presets/batch, versions/history and portable backup/restore now have native workflows. Physical acceptance is pending; [scope and limits](Docs/MISSING-FEATURES.md).
 
 ## Release status — 0.11.0
@@ -62,6 +66,7 @@ engine update remains deferred to the next version. See [release preparation](Do
 | AI enhancement/Lens Blur | Optional pinned local Core ML RGB denoise/2× enhancement and depth-based TIFF blur copies | Builds passed; actual model inference/quality pending; no sensor-domain Raw Details |
 | Library analysis | Local labels/OCR/face count, imported-photo index, keyword/local label-text vector search | No identity recognition or joint image-text model; bounded private index |
 | Photo merge | Ordered HDR/panorama/HDR-panorama jobs, deghost/projection/crop, cancel/memory guard and new DNG | Builds passed; real source/output acceptance pending |
+| iPad editor | Floating Liquid Glass toolbar groups, a scrolling tool strip, card-style panels, black photo surround; Masks and Remove fully in the right panel with an Add Mask pop-out | Built, installed and used on iPad; startup and panel crashes fixed; full interaction acceptance pending |
 | Branding | iLightCraft name, yellow accents, winking lynx icon and floating home logo | Simulator reviewed; iPhone update installed and launched |
 
 An engine capability is not automatically an exposed or verified native app feature.
@@ -74,7 +79,7 @@ An engine capability is not automatically an exposed or verified native app feat
 4. Use **Crop** in the top toolbar for crop handles, presets, rotation and straightening.
 4. Use the **Edit > HDR** to control HDR processing; native RAW/HDR imports enable it by default.
 5. Use **Export** for output options, batch selection and the system share sheet/Save to Files.
-6. On iPad, the editor has floating toolbar groups and a horizontally scrollable strip showing the existing tool icons and names. The Adjust panel opens alongside the photo; in wide layouts, Masking also shows a mask-selection sidebar. Amber marks selected tools and changed controls. iPhone keeps Back, the photo name, Undo, Redo and More visible, with zoom/export and tool buttons inside More. App-only extras and Settings are in More. The bottom photo strip has Single Photo and side-by-side Before / Edited views of the same photo, sorting, ratings/flags and Copy Edit Settings options.
+6. On iPad, the editor has floating Liquid Glass toolbar groups and a horizontally scrollable strip showing the existing tool icons and names. The Adjust panel opens alongside the photo in card-style sections. Masking lives in the right panel: **Add Mask** opens a pop-out of 13 mask types, followed by the mask list and its adjustments. Crop has Portrait/Landscape buttons, a one-tap Aspect menu (default Original, plus Custom) and bracket corners. Remove has mode cards, a slider card and an amber **Apply**. Amber marks selected tools and changed controls. iPhone keeps Back, the photo name, Undo, Redo and More visible, with zoom/export and tool buttons inside More. App-only extras and Settings are in More. The bottom photo strip has Single Photo and side-by-side Before / Edited views of the same photo, sorting, ratings/flags and Copy Edit Settings options.
    The depth model is bundled; enhancement models download only when you choose Download; photos stay on device. Lens Blur
    and enhancement create rendered copies. RGB enhancement requires explicitly disabling HDR Editing.
 7. For an image opened from Photos, choose **three-dot menu > Save to Apple Photos** to request a save to that item.
@@ -153,9 +158,10 @@ Evidence: [HEIC](Docs/Verification/heic-support.md), [export/crop](Docs/Verifica
 
 ## Source and licenses
 
-Repository: [cwallyman/iLightCraft](https://github.com/cwallyman/iLightCraft). Default branch:
-`ipad-lightcraft`. Native baseline: `79be4e4`; first combined implementation: `2f71fe9`.
-Original upstream history and its remote are preserved.
+Repository: [cwallyman/iLightCraft](https://github.com/cwallyman/iLightCraft). Default and only branch:
+`main`. Native baseline: `79be4e4`; first combined implementation: `2f71fe9`.
+On 2026-10-29 `main` was replaced with the iLightCraft history and the other branches were removed.
+Original upstream history is preserved through the `79be4e4` baseline.
 
 Source, asset licenses, development notes and saved tests are published. Generated frameworks,
 build products, provisioning material, real camera fixtures, personal libraries and backups are

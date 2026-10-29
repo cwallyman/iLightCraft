@@ -1,6 +1,6 @@
 # iLightCraft next steps
 
-Last updated: 2026-10-28. Development branch: `ipad-lightcraft`.
+Last updated: 2026-10-29. Development branch: `main`.
 The [full roadmap](Plans/feature-priorities.md) defines task scope;
 the [change history](../CHANGELOG.md) records implementation so far.
 See the [prioritized missing-feature list](MISSING-FEATURES.md) for a concise implementation queue and the [comparison with other photo editors](OTHER-PHOTO-EDITORS-COMPARISON.md) for a feature checklist.

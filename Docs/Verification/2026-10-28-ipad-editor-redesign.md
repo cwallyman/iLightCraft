@@ -25,3 +25,12 @@ shallow menu boundary. A focused iPad workspace-launch regression case was added
 The replacement iOS build and signature passed and installed on the paired iPad. Device launch and
 process listing succeeded, and the user confirmed the app is running. This does not establish
 acceptance of every editor interaction or visual detail.
+
+## Follow-up changes (2026-10-29)
+
+Iterated from the user's iPad screenshots: Profiles, Color Grading, Crop, Masks and Remove now
+use the card style, and the photo surround is black. The left mask sidebar was removed; Add Mask
+opens a pop-out in the right panel. Opening Masks or Remove then crashed with stack exhaustion
+while SwiftUI resolved the panel's view type (two device crash reports). The Masks, Remove and
+Analysis sections are now type-erased. The fixed build was installed and the user confirmed
+both panels open. No simulator or automated tests were run.

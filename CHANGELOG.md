@@ -1,8 +1,22 @@
 # iLightCraft change history
 
-Changes through 2026-10-27, relative to the upstream native baseline `79be4e4`. First published implementation:
+Changes through 2026-10-29, relative to the upstream native baseline `79be4e4`. First published implementation:
 [`2f71fe9`](https://github.com/cwallyman/iLightCraft/commit/2f71fe9ad954352cdf0eec2ab64f765f56c0f3bc).
 Implementation, delivery and acceptance are recorded separately.
+
+## iPad editor redesign (2026-10-28 to 2026-10-29)
+
+- Restyled the iPad editor with Liquid Glass floating toolbars, card-style inspector panels and amber accents; iPhone and Mac keep their layouts. The library/home page is unchanged.
+- Shared iPad tokens and modifiers in `LightCraftPanelStyle`: panel/inset/card colors, card surface, glass buttons, floating glass and text fields. Removed mismatched panel backgrounds.
+- Photo surround and Metal clear color are black.
+- Profiles: bold headings, glass reset, search card, amber checks and favorites.
+- Color Grading: three equal-size wheels; reset buttons wrap on narrow panels.
+- All Tools no longer duplicates Curves, HSL Mixer, Color Grading, White Balance, Optics or Geometry.
+- Crop: bracket corners that are not clipped, card buttons, Portrait/Landscape buttons, a one-tap Aspect menu with Custom, default Original, and no explainer text.
+- Masks: removed the left sidebar; Add Mask opens a pop-out of 13 mask types, with the card-style mask list and adjustments in the right panel. The mask button reads Apply in readable black on amber.
+- Remove: mode cards, a slider card, Automatic / Pick on Photo source cards, glass Clear Stroke, amber Apply, and a saved-repair menu.
+- Fixed crashes from SwiftUI type nesting in the More menu and in the Masks/Remove panel by type-erasing sections.
+- Bundled the Depth Anything V2 small model instead of an optional download (`scripts/prepare-depth-model.py`).
 
 ## Top-left Back button (2026-10-27)
 
