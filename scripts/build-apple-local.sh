@@ -8,6 +8,7 @@ for MODEL in SkySegSmall SkinSeg; do
         exit 1
     fi
 done
+python3 scripts/prepare-depth-model.py
 PLATFORM="${1:-simulator}"
 case "$PLATFORM" in
     simulator) DESTINATION='generic/platform=iOS Simulator' ;;

@@ -7,12 +7,15 @@ import Foundation
 import CryptoKit
 import CoreML
 
-/// DepthModelStore installs only the pinned Apache-2.0 small depth model after a user action.
+/// DepthModelStore uses the bundled depth model, with compatibility for earlier downloads.
 nonisolated enum DepthModelStore {
     static let revision = "cfef6f6f2a70783dedc0bfae40cecbc2052285d3"
     static let modelPage = "https://huggingface.co/apple/coreml-depth-anything-v2-small"
     static let directory = URL.applicationSupportDirectory.appending(path: "Models/DepthAnythingV2SmallF16", directoryHint: .isDirectory)
     static var installed: URL? {
+        if let bundled = Bundle.main.url(forResource: "DepthAnythingV2SmallF16", withExtension: "mlmodelc") {
+            return bundled
+        }
         let url = directory.appending(path: "DepthAnything.mlmodelc")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }

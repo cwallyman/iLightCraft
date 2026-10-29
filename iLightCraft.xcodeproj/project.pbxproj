@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		000000000000000000000710 /* DepthAnythingV2SmallF16.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000700 /* DepthAnythingV2SmallF16.mlpackage */; };
 		000000000000000000000410 /* iLightCraftEngine.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 000000000000000000000400 /* iLightCraftEngine.xcframework */; };
 /* End PBXBuildFile section */
 
@@ -28,6 +29,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		000000000000000000000700 /* DepthAnythingV2SmallF16.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = iLightCraft/Resources/MaskModels/DepthAnythingV2SmallF16.mlpackage; sourceTree = "<group>"; };
 		000000000000000000000120 /* iLightCraft.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iLightCraft.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		000000000000000000000220 /* iLightCraftTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = iLightCraftTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		000000000000000000000320 /* iLightCraftUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = iLightCraftUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -40,6 +42,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				Resources/MaskModels/DepthAnythingV2SmallF16.mlpackage,
 			);
 			target = 000000000000000100000000 /* iLightCraft */;
 		};
@@ -94,6 +97,7 @@
 				000000000000000000000012 /* iLightCraftUITests */,
 				000000000000000000000030 /* Frameworks */,
 				000000000000000000000600 /* iLightCraftEngine.xcconfig */,
+				000000000000000000000700 /* DepthAnythingV2SmallF16.mlpackage */,
 				000000000000000000000020 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -227,6 +231,7 @@
 		000000000000000140000000 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
+				000000000000000000000710 /* DepthAnythingV2SmallF16.mlpackage in Resources */,
 			);
 		};
 		000000000000000240000000 /* Resources */ = {

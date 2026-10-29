@@ -74,8 +74,8 @@ An engine capability is not automatically an exposed or verified native app feat
 4. Use **Crop** in the top toolbar for crop handles, presets, rotation and straightening.
 4. Use the **Edit > HDR** to control HDR processing; native RAW/HDR imports enable it by default.
 5. Use **Export** for output options, batch selection and the system share sheet/Save to Files.
-6. On iPad, the top toolbar follows LightCraft’s side rail: Back, name, zoom percentage, Export, Presets, Edit, a divider, Crop, Remove, Masking, Red Eye, a divider, Versions, History, Keywords and Info. Tool groups scroll horizontally when needed. iPhone keeps Back, the photo name, Undo, Redo and More visible, with zoom/export and tool buttons inside More. Undo and Redo sit beside More on both devices; Back and More use larger icons. App-only extras and Settings are in More. The bottom photo strip has Single Photo and side-by-side Before / Edited views of the same photo, sorting, ratings/flags and Copy Edit Settings options. Hover an icon to see its label.
-   Depth/enhancement models download only when you choose Download; photos stay on device. Lens Blur
+6. On iPad, the editor has floating toolbar groups and a horizontally scrollable strip showing the existing tool icons and names. The Adjust panel opens alongside the photo; in wide layouts, Masking also shows a mask-selection sidebar. Amber marks selected tools and changed controls. iPhone keeps Back, the photo name, Undo, Redo and More visible, with zoom/export and tool buttons inside More. App-only extras and Settings are in More. The bottom photo strip has Single Photo and side-by-side Before / Edited views of the same photo, sorting, ratings/flags and Copy Edit Settings options.
+   The depth model is bundled; enhancement models download only when you choose Download; photos stay on device. Lens Blur
    and enhancement create rendered copies. RGB enhancement requires explicitly disabling HDR Editing.
 7. For an image opened from Photos, choose **three-dot menu > Save to Apple Photos** to request a save to that item.
    If Photos changed externally, keep the local edit or use **Reload Latest Photos Version**.
@@ -94,9 +94,10 @@ git clone https://github.com/cwallyman/iLightCraft.git
 cd iLightCraft
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-ios-macabi
 scripts/build-xcframework.sh
-# In a Python venv, prepare the bundled sky/skin models once:
+# In a Python venv, prepare the bundled sky, skin and depth models once:
 pip install -r scripts/mask-model-requirements.txt
 python scripts/build-mask-models.py
+python scripts/prepare-depth-model.py
 scripts/build-apple-local.sh simulator
 scripts/build-apple-local.sh ios
 scripts/build-apple-local.sh mac

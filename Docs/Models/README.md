@@ -1,6 +1,6 @@
 # Optional on-device models
 
-Last updated: 2026-10-20. Depth/enhancement models are optional downloads. Sky/skin models are bundled from pinned, gitignored build inputs; weights are never committed.
+Last updated: 2026-10-28. The depth, sky and skin models are bundled from pinned, gitignored build inputs; weights are never committed. Enhancement models are optional downloads.
 The user chose on-device processing first. Hosted sharing remains separately configured future work.
 
 ## Sources and licenses
@@ -18,7 +18,7 @@ NaturalLanguage supplies optional local English sentence embeddings of labels/OC
 
 ## Integrity pins
 
-Depth package `DepthAnythingV2SmallF16.mlpackage`:
+Bundled depth package `DepthAnythingV2SmallF16.mlpackage` (prepare with `python3 scripts/prepare-depth-model.py`):
 
 | Relative path | Bytes | SHA-256 |
 |---|---:|---|
@@ -53,9 +53,9 @@ dimensions for Super Resolution. Output is a separate opaque 8-bit SDR PNG, capp
 must be disabled explicitly. This is RGB restoration, not sensor-domain denoise or Raw Details. The tensor
 contract was checked with Core ML metadata; model execution and output quality still need device acceptance.
 
-Depth inference uses a reduced current render and produces normalized relative depth, not metric distance.
+The bundled depth model requires no download on the device. Depth inference uses a reduced current render and produces normalized relative depth, not metric distance.
 Focus, range and blur strength produce a separate full-resolution half-float linear TIFF. It is a rendered
-copy; depth/blur parameters are not an editable layer on the new photo. Bokeh shapes and painted depth
+copy; the main Undo button returns to the source during the current editor session. Depth/blur parameters are not an editable layer on the copy. Bokeh shapes and painted depth
 refinement remain future work. A normal 2D blur is not represented as a completed depth-model result.
 
 Memory guards reject jobs exceeding estimated headroom and fail closed if available memory is unknown.

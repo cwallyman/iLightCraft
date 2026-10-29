@@ -30,6 +30,7 @@ PYTHON="$(brew --prefix python@3.12)/bin/python3.12"
 "$ROOT/.xcode-cloud/model-venv/bin/python" -m pip install \
     --only-binary=:all: -r scripts/mask-model-requirements.txt
 "$ROOT/.xcode-cloud/model-venv/bin/python" scripts/build-mask-models.py
+"$PYTHON" scripts/prepare-depth-model.py
 "$PYTHON" scripts/audit-branding.py
 scripts/build-xcframework.sh
 
